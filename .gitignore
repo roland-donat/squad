@@ -24,3 +24,11 @@ secrets.env
 # Réglages Claude Code propres au poste
 .claude/settings.local.json
 CLAUDE.local.md
+
+# Dépendances et artefacts de build
+node_modules/
+dist/
+
+# Sorties Playwright
+test-results/
+playwright-report/

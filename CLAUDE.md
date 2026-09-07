@@ -4,9 +4,16 @@ Ce fichier guide Claude Code (claude.ai/code) sur ce dépôt.
 
 ## Vue d'ensemble du projet
 
-> **À compléter.** L'objet de `squad` n'est pas encore écrit : ce qu'il fait, pour
-> qui, et le problème qu'il résout. Tant que cette section est vide, aucun agent
-> ne peut arbitrer correctement une décision de conception sur ce dépôt.
+`squad` est un poste de pilotage local pour agents claude-code. Il détient le plan
+d'exécution d'une feature sous forme de graphe de tickets, lance les sous-sessions qui
+construisent chaque tranche dans leur propre worktree, et ne rend à l'utilisateur que
+les décisions qu'il ne peut pas déléguer. Le vocabulaire du domaine est fixé dans
+[`CONTEXT.md`](CONTEXT.md), les décisions structurantes dans `docs/adr/`, le périmètre
+du premier jalon dans l'issue #1.
+
+Un serveur Node local détient la base, expose l'API et sert l'interface ; le navigateur
+ne touche jamais le disque. Squad tourne sur le poste de son utilisateur : pas
+d'authentification, pas de comptes, pas d'exécution distante.
 
 **Important** : la documentation est rédigée en français accentué, le code et tout
 ce qui l'accompagne restent en anglais (noms de variables et de fonctions,
@@ -15,17 +22,40 @@ et des jobs CI).
 
 ## Pile technique
 
-> **À décider.** Aucune pile n'est arrêtée à ce jour. Le dépôt ne contient que la
-> licence, le `.gitignore` et cette documentation.
->
-> Une fois la pile choisie, remplir un tableau `| Couche | Technologie |` sur le
-> modèle des autres projets, et renseigner la section « Commandes » ci-dessous.
+| Couche | Technologie |
+|---|---|
+| Langage | TypeScript 7 en mode strict, ESM |
+| Exécution | Node 22 ou plus, `tsx` comme runtime |
+| Paquets | pnpm |
+| Serveur HTTP | Express 5 |
+| Flux d'événements | SSE, une seule route `/api/events` |
+| Validation | Zod 4, schémas partagés entre serveur et interface |
+| Base | SQLite (`better-sqlite3`), sous le répertoire de données de l'utilisateur |
+| Schéma et migrations | Drizzle ORM, migrations générées sous `drizzle/` |
+| Interface | React 19, Vite |
+| Tests au seam | Vitest |
+| Test navigateur | Playwright |
+
+Le serveur sert lui-même l'interface, en mode intergiciel Vite pendant le
+développement et depuis `dist/ui` en production : une seule origine, un seul port,
+aucun proxy propre au développement. Voir `docs/adr/0005`.
 
 ## Commandes
 
-> **À compléter** en même temps que la pile. Y faire figurer, au minimum :
-> installation des dépendances, lancement en développement, tests, build et
-> linting.
+```bash
+pnpm install          # dépendances ; les scripts de build natifs sont déjà autorisés
+pnpm dev              # démarre le serveur et sert l'interface (la commande unique)
+pnpm verify           # typage puis tests au seam : la commande de vérification du projet
+pnpm typecheck        # typage seul
+pnpm test             # tests au seam seuls
+pnpm test:browser     # test navigateur Playwright (démarre son propre serveur)
+pnpm build            # construit l'interface dans dist/ui
+pnpm start            # sert l'interface construite, sans Vite
+pnpm db:generate      # génère une migration après modification du schéma
+```
+
+Réglages par variable d'environnement : `SQUAD_PORT` (7300 par défaut) et
+`SQUAD_DATA_DIR` (par défaut `~/.local/share/squad`, jamais dans un dépôt piloté).
 
 ## Conventions
 
@@ -100,11 +130,22 @@ commit restent en anglais.
 ## Structure
 
 ```
-LICENSE                  # MIT
-README.md                # présentation courte
-CLAUDE.md                # ce fichier
-CONTEXT.md               # glossaire du domaine
-docs/adr/                # décisions d'architecture
-docs/agents/             # configuration lue par les skills d'ingénierie
-.gitignore
+src/shared/            # contrat API partagé serveur et interface, sans dépendance node
+src/server/            # serveur : base, store, git, événements, routes HTTP
+src/server/db/         # schéma drizzle et ouverture de la base
+src/ui/                # interface React servie par le serveur
+drizzle/               # migrations générées, versionnées
+tests/seam/            # tests au seam : HTTP et flux d'événements uniquement
+tests/support/         # démarrage d'une instance de test, dépôts git temporaires
+tests/browser/         # test navigateur unique, parcours nominal
+docs/adr/              # décisions d'architecture
+docs/agents/           # configuration lue par les skills d'ingénierie
+CONTEXT.md             # glossaire du domaine
 ```
+
+### Où écrire un test
+
+Le seul seam est l'API du serveur : un test pilote squad par requêtes HTTP et par le
+flux d'événements, jamais en atteignant un module de l'intérieur. Un test qui casse à
+la première réorganisation de modules teste la mauvaise chose. Le test navigateur est
+unique et prouve le câblage de l'interface, il ne duplique pas la couverture métier.

@@ -1,0 +1,219 @@
+/*
+ * Sober control-room look: one accent, a lot of quiet. The interface will grow a
+ * graph and session threads, so the palette stays out of the way on purpose.
+ */
+:root {
+  --ink: #0f1420;
+  --ink-soft: #5a6478;
+  --surface: #ffffff;
+  --surface-sunken: #f4f6fa;
+  --line: #dfe4ee;
+  --accent: #2f6dd0;
+  --accent-soft: #e8f0fd;
+  --danger: #b4283c;
+  --radius: 10px;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8ecf4;
+    --ink-soft: #98a3b8;
+    --surface: #151a24;
+    --surface-sunken: #1d2431;
+    --line: #2c3444;
+    --accent: #6ea3f5;
+    --accent-soft: #1e2c44;
+    --danger: #f08a98;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--surface-sunken);
+  color: var(--ink);
+  font-family: "Open Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 4rem;
+}
+
+.app__header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 2rem;
+}
+
+.app__header h1 {
+  margin: 0;
+  font-size: 1.7rem;
+  letter-spacing: -0.02em;
+}
+
+.app__header p {
+  margin: 0;
+  color: var(--ink-soft);
+  flex: 1;
+}
+
+.badge {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
+}
+
+.badge--live {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.app__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.5rem;
+}
+
+@media (max-width: 820px) {
+  .app__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+}
+
+.panel h2 {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+.panel__context {
+  margin: -0.5rem 0 1rem;
+  color: var(--ink-soft);
+}
+
+.form {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.field span {
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+
+input {
+  font: inherit;
+  color: inherit;
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+}
+
+input:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: #ffffff;
+  padding: 0.5rem 0.9rem;
+  justify-self: start;
+}
+
+button[disabled] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.row {
+  display: grid;
+  gap: 0.15rem;
+  width: 100%;
+  text-align: left;
+  background: var(--surface-sunken);
+  color: inherit;
+  border: 1px solid var(--line);
+  padding: 0.7rem 0.8rem;
+}
+
+.row--selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.row--static {
+  cursor: default;
+}
+
+.row__title {
+  font-weight: 600;
+}
+
+.row__detail {
+  font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.row__meta {
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+.empty {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.88rem;
+}

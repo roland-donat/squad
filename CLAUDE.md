@@ -102,6 +102,31 @@ spéculatives.
 - **Une suite de tests verte ne suffit pas** à déclarer un correctif terminé quand
   le changement peut toucher le déploiement : valider sur une instance réelle.
 
+### Fin de chantier : fusionner sans demander
+
+Quand une étape, un ticket ou une feature est terminé, **fusionner dans `main`
+sans poser la question**, dès lors que les quatre conditions sont réunies :
+
+- la revue de code est passée et ses constats sont traités ;
+- la vérification du projet est verte (`pnpm verify`), test navigateur compris
+  dès que le changement touche l'interface ;
+- le changement a été validé sur une instance réelle quand il peut toucher le
+  déploiement ;
+- il ne reste **rien à faire vérifier à la main** par l'utilisateur.
+
+Nettoyer dans la foulée, de sorte qu'il ne reste que `main` et ce qui tourne
+encore :
+
+```bash
+git merge --no-ff <type>/<sujet> -m "Merge branch '<type>/<sujet>'"
+git worktree remove ../worktrees/<sujet>
+git branch -d <type>/<sujet>
+```
+
+**L'exception, et elle seule** : s'il reste un point à faire vérifier à l'œil, un
+critère d'acceptation qu'aucun test ne couvre, ou un arbitrage ouvert, ne pas
+fusionner. Livrer la branche, dire ce qui reste à vérifier, et attendre.
+
 ## Agent skills
 
 ### Suivi des issues

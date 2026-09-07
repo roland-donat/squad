@@ -4,8 +4,6 @@
 *.log
 *.tmp
 /tmp/
-# Rapport JSON écrit par l'enveloppe rtk autour de vitest.
-.vitest/
 
 # Maquettes d'interface : artefacts de conception jetables, jamais versionnés.
 docs/mockups/

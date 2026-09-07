@@ -111,11 +111,6 @@ export interface FeatureGraph {
   edges: BlockingEdge[];
 }
 
-/** The tickets that can be launched right now: those whose blockers are merged. */
-export function frontier(graph: FeatureGraph): Ticket[] {
-  return graph.tickets.filter((ticket) => ticket.state === "ready");
-}
-
 export const registerProjectBody = z.object({
   path: z.string().trim().min(1),
   name: z.string().trim().min(1).optional(),

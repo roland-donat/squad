@@ -289,10 +289,15 @@ button[disabled] {
   border-left-color: var(--danger);
 }
 
-/* The frontier: what can be launched now, in relief against the rest. */
+/*
+ * The frontier: what can be launched now, in relief against the rest. Three
+ * sides rather than the shorthand, so a ticket on the frontier keeps the left
+ * stripe that says what kind it is.
+ */
 .node[data-state="ready"] {
-  border-color: var(--accent);
-  border-left-color: var(--accent);
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+  border-bottom-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 

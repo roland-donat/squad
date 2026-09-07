@@ -1,4 +1,5 @@
 import type { BlockingEdge, FeatureGraph, Ticket } from "../../shared/api";
+import { blockersByTicket } from "../../shared/graph";
 
 /**
  * Where each ticket is drawn. The layout is derived from the edges alone, so a
@@ -13,8 +14,6 @@ const layerGap = 72;
 
 export interface PlacedTicket {
   ticket: Ticket;
-  /** How many merges deep this ticket sits: 0 for a ticket nothing blocks. */
-  layer: number;
   x: number;
   y: number;
 }
@@ -49,7 +48,6 @@ export function layOutGraph(graph: FeatureGraph): GraphLayout {
     row.forEach((ticket, column) => {
       nodes.push({
         ticket,
-        layer,
         x: offset + column * (nodeWidth + columnGap),
         y: layer * (nodeHeight + layerGap),
       });
@@ -87,8 +85,10 @@ function rowWidth(count: number): number {
  * arrows already carry: everything above a node must be merged before it starts.
  */
 function assignLayers(graph: FeatureGraph): Map<string, number> {
-  const blockers = new Map<string, string[]>(graph.tickets.map((ticket) => [ticket.id, []]));
-  for (const edge of graph.edges) blockers.get(edge.blockedId)?.push(edge.blockerId);
+  const blockers = blockersByTicket(
+    graph.tickets.map((ticket) => ticket.id),
+    graph.edges,
+  );
 
   const layers = new Map<string, number>();
   const walking = new Set<string>();

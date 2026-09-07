@@ -29,7 +29,9 @@ CREATE TABLE `tickets` (
 	`lifecycle` text DEFAULT 'unstarted' NOT NULL,
 	`external_id` text,
 	`created_at` text NOT NULL,
-	FOREIGN KEY (`feature_id`) REFERENCES `features`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`feature_id`) REFERENCES `features`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "tickets_kind" CHECK("tickets"."kind" in ('build', 'decision', 'fix')),
+	CONSTRAINT "tickets_lifecycle" CHECK("tickets"."lifecycle" in ('unstarted', 'merged'))
 );
 --> statement-breakpoint
 CREATE INDEX `tickets_feature_idx` ON `tickets` (`feature_id`);

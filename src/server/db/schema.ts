@@ -1,5 +1,15 @@
 import { sql } from "drizzle-orm";
-import { index, integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
+import {
+  check,
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  unique,
+} from "drizzle-orm/sqlite-core";
+import { ticketKinds } from "../../shared/api";
+import { ticketLifecycles } from "../../shared/graph";
 
 /**
  * The durable state of squad. This schema is the single declaration of what is
@@ -36,18 +46,29 @@ export const tickets = sqliteTable(
     featureId: text("feature_id")
       .notNull()
       .references(() => features.id, { onDelete: "cascade" }),
-    /** `build`, `decision` or `fix`; the union is declared in the shared contract. */
-    kind: text("kind").notNull(),
+    kind: text("kind", { enum: ticketKinds }).notNull(),
     title: text("title").notNull(),
     description: text("description").notNull(),
     /** `unstarted` or `merged` for now, and one more value per execution state to come. */
-    lifecycle: text("lifecycle").notNull().default("unstarted"),
+    lifecycle: text("lifecycle", { enum: ticketLifecycles }).notNull().default("unstarted"),
     /** Reserved for a projection towards an issue tracker, never written (ADR 0001). */
     externalId: text("external_id"),
     createdAt: text("created_at").notNull(),
   },
-  (table) => [index("tickets_feature_idx").on(table.featureId)],
+  (table) => [
+    index("tickets_feature_idx").on(table.featureId),
+    // The unions are declared twice on purpose: once in the type, so the rows
+    // read back typed, and once in the table, so a value squad never writes
+    // cannot appear behind its back either.
+    check("tickets_kind", sql`${table.kind} in (${literals(ticketKinds)})`),
+    check("tickets_lifecycle", sql`${table.lifecycle} in (${literals(ticketLifecycles)})`),
+  ],
 );
+
+/** The declared values of a column, as a SQL list. */
+function literals(values: readonly string[]) {
+  return sql.raw(values.map((value) => `'${value}'`).join(", "));
+}
 
 /**
  * Acceptance criteria are rows rather than a JSON list because the test sheet

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { Feature, FeatureGraph, Project, SquadEvent, Ticket } from "../../src/shared/api";
-import { featureGraphRoute, frontier, mainSessionRoute } from "../../src/shared/api";
+import { featureGraphRoute, mainSessionRoute } from "../../src/shared/api";
+import { frontier } from "../../src/shared/graph";
 import { createTemporaryRepository } from "../support/git";
 import { createScriptedLauncher, type AgentScript } from "../support/scripted-launcher";
 import { startTestSquad, type EventStream, type TestSquad } from "../support/squad";

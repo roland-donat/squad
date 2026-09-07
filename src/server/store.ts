@@ -13,10 +13,10 @@ import type {
   Ticket,
   TicketKind,
 } from "../shared/api";
+import { blockersByTicket, findCycle, resolveTicketState, type GraphEdge } from "../shared/graph";
 import type { SquadDatabase } from "./db/open";
 import { acceptanceCriteria, blockingEdges, features, projects, tickets } from "./db/schema";
 import { SquadError } from "./errors";
-import { findCycle, resolveTicketState, type GraphEdge, type TicketLifecycle } from "./graph";
 import { resolveRepositoryRoot } from "./git";
 import { isInside } from "./paths";
 
@@ -227,27 +227,23 @@ export class Store {
     const edges = this.readEdges(feature.id);
     const criteria = this.readAcceptanceCriteria(rows.map((row) => row.id));
 
-    const blockers = new Map<string, string[]>(rows.map((row) => [row.id, []]));
-    for (const edge of edges) blockers.get(edge.blockedId)?.push(edge.blockerId);
-    const merged = new Set(
-      rows.filter((row) => row.lifecycle === "merged").map((row) => row.id),
+    const blockers = blockersByTicket(
+      rows.map((row) => row.id),
+      edges,
     );
+    const merged = new Set(rows.filter((row) => row.lifecycle === "merged").map((row) => row.id));
 
     return {
       featureId: feature.id,
       tickets: rows.map((row) => ({
         id: row.id,
         featureId: row.featureId,
-        kind: row.kind as TicketKind,
+        kind: row.kind,
         title: row.title,
         description: row.description,
         acceptanceCriteria: criteria.get(row.id) ?? [],
         externalId: row.externalId,
-        state: resolveTicketState(
-          row.lifecycle as TicketLifecycle,
-          blockers.get(row.id) ?? [],
-          merged,
-        ),
+        state: resolveTicketState(row.lifecycle, blockers.get(row.id) ?? [], merged),
         createdAt: row.createdAt,
       })),
       edges: edges.map((edge) => ({

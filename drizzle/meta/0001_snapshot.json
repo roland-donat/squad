@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f806bb9b-36ac-4ea9-9551-84622d5950a2",
+  "id": "014f758b-b5b0-4a07-8594-be6c4c400c38",
   "prevId": "11e12893-d6a5-481a-8703-887f71ecefb0",
   "tables": {
     "acceptance_criteria": {
@@ -352,7 +352,16 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "tickets_kind": {
+          "name": "tickets_kind",
+          "value": "\"tickets\".\"kind\" in ('build', 'decision', 'fix')"
+        },
+        "tickets_lifecycle": {
+          "name": "tickets_lifecycle",
+          "value": "\"tickets\".\"lifecycle\" in ('unstarted', 'merged')"
+        }
+      }
     }
   },
   "views": {},

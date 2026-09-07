@@ -51,13 +51,14 @@ export async function startSquadServer(
   const store = new Store(db, dataDir);
   const bus = new EventBus();
   // Squad only learns its own address once it is listening, and the sessions it
-  // opens need it to point their agents back at its MCP endpoint.
-  const origin = { url: "" };
+  // opens need it to point their agents back at its MCP endpoint. Read late, on
+  // the first session opened, hence long after the assignment below.
+  let baseUrl = "";
   const mainSessions = new MainSessions({
     store,
     bus,
     launcher: options.launcher ?? unavailableLauncher,
-    mcpUrl: () => new URL(apiRoutes.mcp, origin.url).toString(),
+    mcpUrl: () => new URL(apiRoutes.mcp, baseUrl).toString(),
   });
 
   const app = express();
@@ -67,10 +68,10 @@ export async function startSquadServer(
   const server = createServer(app);
   await listen(server, port, host);
   const address = server.address() as AddressInfo;
-  origin.url = `http://${host}:${address.port}`;
+  baseUrl = `http://${host}:${address.port}`;
 
   return {
-    url: origin.url,
+    url: baseUrl,
     port: address.port,
     dataDir,
     async close() {

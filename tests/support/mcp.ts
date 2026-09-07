@@ -21,6 +21,12 @@ export interface ToolOutcome {
   text: string;
 }
 
+/** The answer a tool gave, or a failure naming the refusal it gave instead. */
+export function readToolAnswer(tool: string, outcome: ToolOutcome): unknown {
+  if (outcome.refused) throw new Error(`${tool} refused the call: ${outcome.text}`);
+  return JSON.parse(outcome.text) as unknown;
+}
+
 export async function connectToSquadTools(baseUrl: string): Promise<McpConnection> {
   const client = new Client({ name: "squad-seam-test", version: "0.0.0" });
   await client.connect(new StreamableHTTPClientTransport(new URL(apiRoutes.mcp, baseUrl)));
@@ -38,9 +44,7 @@ export async function connectToSquadTools(baseUrl: string): Promise<McpConnectio
   return {
     attempt,
     async call(tool, input) {
-      const outcome = await attempt(tool, input);
-      if (outcome.refused) throw new Error(`${tool} refused the call: ${outcome.text}`);
-      return JSON.parse(outcome.text) as unknown;
+      return readToolAnswer(tool, await attempt(tool, input));
     },
     async listTools() {
       const { tools } = await client.listTools();

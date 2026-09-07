@@ -5,7 +5,7 @@ import type {
   AgentSession,
   OpenAgentSession,
 } from "../../src/server/agents/launcher";
-import { connectToSquadTools, type McpConnection, type ToolOutcome } from "./mcp";
+import { connectToSquadTools, readToolAnswer, type McpConnection, type ToolOutcome } from "./mcp";
 
 /**
  * The one double of the whole suite: instead of starting a claude-code process,
@@ -29,22 +29,8 @@ export interface ScriptedAgent {
 
 export type AgentScript = (agent: ScriptedAgent) => Promise<void>;
 
-export interface ScriptedLauncher extends AgentLauncher {
-  /** Every tool call the scripted sessions made, in order, with its outcome. */
-  readonly calls: ScriptedCall[];
-}
-
-export interface ScriptedCall {
-  tool: string;
-  input: unknown;
-  outcome: ToolOutcome;
-}
-
-export function createScriptedLauncher(script: AgentScript): ScriptedLauncher {
-  const calls: ScriptedCall[] = [];
-
+export function createScriptedLauncher(script: AgentScript): AgentLauncher {
   return {
-    calls,
     async open(request: OpenAgentSession): Promise<AgentSession> {
       const id = randomUUID();
       const events = new EventChannel();
@@ -56,7 +42,6 @@ export function createScriptedLauncher(script: AgentScript): ScriptedLauncher {
       const attempt = async (tool: string, input: unknown): Promise<ToolOutcome> => {
         connection.tools ??= await connectToSquadTools(request.mcpUrl);
         const outcome = await connection.tools.attempt(tool, input);
-        calls.push({ tool, input, outcome });
         events.push({ type: "tool-call", tool });
         return outcome;
       };
@@ -67,9 +52,7 @@ export function createScriptedLauncher(script: AgentScript): ScriptedLauncher {
         say: (text) => events.push({ type: "text", text }),
         attempt,
         async call(tool, input) {
-          const outcome = await attempt(tool, input);
-          if (outcome.refused) throw new Error(`${tool} refused the call: ${outcome.text}`);
-          return JSON.parse(outcome.text) as unknown;
+          return readToolAnswer(tool, await attempt(tool, input));
         },
       };
 

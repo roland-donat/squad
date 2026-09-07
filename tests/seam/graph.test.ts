@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Feature, FeatureGraph, Project, Ticket } from "../../src/shared/api";
-import { featureGraphRoute, frontier } from "../../src/shared/api";
+import { featureGraphRoute } from "../../src/shared/api";
+import { frontier } from "../../src/shared/graph";
 import { connectToSquadTools, type McpConnection } from "../support/mcp";
 import { createTemporaryRepository } from "../support/git";
 import { startTestSquad, type TestSquad } from "../support/squad";
@@ -145,7 +146,7 @@ describe("the graph an agent writes through the MCP tools", () => {
     const second = (await createTicket({ title: "Second", blockedBy: [first.id] })) as Ticket;
 
     // "Troisième" would be blocked by the second and would block the first,
-    // which closes Premier -> Second -> Troisieme -> Premier.
+    // which closes Premier -> Second -> Troisième -> Premier.
     const outcome = await tools.attempt("create_ticket", {
       featureId: feature.id,
       kind: "build",

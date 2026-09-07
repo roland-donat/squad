@@ -1,4 +1,5 @@
 import type { FeatureGraph, TicketKind, TicketState } from "../../shared/api";
+import { frontier } from "../../shared/graph";
 import { layOutGraph, nodeHeight, nodeWidth } from "./layout";
 
 /**
@@ -30,60 +31,60 @@ export function FeatureGraphView({ graph }: { graph: FeatureGraph }) {
   }
 
   const layout = layOutGraph(graph);
-  const readyCount = graph.tickets.filter((ticket) => ticket.state === "ready").length;
+  const readyCount = frontier(graph).length;
 
   return (
     <>
       <Legend readyCount={readyCount} />
       <div className="graph__viewport">
-      <div className="graph" style={{ width: layout.width, height: layout.height }}>
-        <svg
-          className="graph__edges"
-          width={layout.width}
-          height={layout.height}
-          aria-hidden="true"
-          focusable="false"
-        >
-          <defs>
-            <marker
-              id="graph-arrow"
-              viewBox="0 0 10 10"
-              refX="9"
-              refY="5"
-              markerWidth="7"
-              markerHeight="7"
-              orient="auto-start-reverse"
-            >
-              <path d="M 0 0 L 10 5 L 0 10 z" />
-            </marker>
-          </defs>
-          {layout.edges.map(({ edge, from, to }) => (
-            <path
-              key={`${edge.blockerId}-${edge.blockedId}`}
-              className="graph__edge"
-              d={curve(from, to)}
-              markerEnd="url(#graph-arrow)"
-            />
-          ))}
-        </svg>
-
-        {layout.nodes.map(({ ticket, x, y }) => (
-          <article
-            key={ticket.id}
-            className="node"
-            data-kind={ticket.kind}
-            data-state={ticket.state}
-            style={{ left: x, top: y, width: nodeWidth, minHeight: nodeHeight }}
-            aria-label={`${ticket.title}, ${kindLabels[ticket.kind]}, ${stateLabels[ticket.state]}`}
+        <div className="graph" style={{ width: layout.width, height: layout.height }}>
+          <svg
+            className="graph__edges"
+            width={layout.width}
+            height={layout.height}
+            aria-hidden="true"
+            focusable="false"
           >
-            <p className="node__title">{ticket.title}</p>
-            <p className="node__chips">
-              <span className="chip chip--kind">{kindLabels[ticket.kind]}</span>
-              <span className="chip chip--state">{stateLabels[ticket.state]}</span>
-            </p>
-          </article>
-        ))}
-      </div>
+            <defs>
+              <marker
+                id="graph-arrow"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 0 L 10 5 L 0 10 z" />
+              </marker>
+            </defs>
+            {layout.edges.map(({ edge, from, to }) => (
+              <path
+                key={`${edge.blockerId}-${edge.blockedId}`}
+                className="graph__edge"
+                d={curve(from, to)}
+                markerEnd="url(#graph-arrow)"
+              />
+            ))}
+          </svg>
+
+          {layout.nodes.map(({ ticket, x, y }) => (
+            <article
+              key={ticket.id}
+              className="node"
+              data-kind={ticket.kind}
+              data-state={ticket.state}
+              style={{ left: x, top: y, width: nodeWidth, minHeight: nodeHeight }}
+              aria-label={`${ticket.title}, ${kindLabels[ticket.kind]}, ${stateLabels[ticket.state]}`}
+            >
+              <p className="node__title">{ticket.title}</p>
+              <p className="node__chips">
+                <span className="chip chip--kind">{kindLabels[ticket.kind]}</span>
+                <span className="chip chip--state">{stateLabels[ticket.state]}</span>
+              </p>
+            </article>
+          ))}
+        </div>
       </div>
     </>
   );

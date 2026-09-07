@@ -22,6 +22,13 @@ const wording: Record<ErrorCode, string> = {
   not_a_git_repository: "Ce chemin n'est pas un dépôt git.",
   project_already_registered: "Ce dépôt est déjà enregistré comme projet.",
   project_not_found: "Ce projet est introuvable.",
+  feature_not_found: "Cette feature est introuvable.",
+  ticket_not_found: "Ce ticket est introuvable.",
+  edge_crosses_features:
+    "Une arête de blocage relie deux tickets d'une même feature.",
+  edge_would_create_cycle: "Cette arête fermerait une boucle dans le graphe.",
+  main_session_already_running: "La session principale de cette feature tourne déjà.",
+  agent_launcher_unavailable: "Squad ne sait pas encore ouvrir de session claude-code.",
   not_found: "Cette route n'existe pas.",
   data_directory_inside_project:
     "La base de squad se trouve dans ce dépôt : squad refuse de piloter un dépôt qui la contient.",

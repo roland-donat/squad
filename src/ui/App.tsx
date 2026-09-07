@@ -1,12 +1,18 @@
 import { useState, type FormEvent } from "react";
 import type { Feature, Project } from "../shared/api";
 import { ApiError, openFeature, registerProject } from "./api";
-import { useSquadState } from "./useSquadState";
+import { FeatureGraphView } from "./graph/FeatureGraphView";
+import { graphOf, useSquadState } from "./useSquadState";
 
 export function App() {
-  const { projects, features, connected } = useSquadState();
+  const state = useSquadState();
+  const { projects, features, connected } = state;
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [openFeatureId, setOpenFeatureId] = useState<string | null>(null);
   const selected = projects.find((project) => project.id === selectedId) ?? projects[0] ?? null;
+  const featuresOfProject = features.filter((feature) => feature.projectId === selected?.id);
+  const openedFeature =
+    featuresOfProject.find((feature) => feature.id === openFeatureId) ?? featuresOfProject[0] ?? null;
 
   return (
     <div className="app">
@@ -47,13 +53,29 @@ export function App() {
           {selected ? (
             <FeaturesPanel
               project={selected}
-              features={features.filter((feature) => feature.projectId === selected.id)}
+              features={featuresOfProject}
+              openedId={openedFeature?.id ?? null}
+              onOpen={setOpenFeatureId}
             />
           ) : (
             <p className="empty">Enregistrer un projet pour y ouvrir une feature.</p>
           )}
         </section>
       </main>
+
+      <section className="panel panel--graph" aria-labelledby="titre-graphe">
+        <h2 id="titre-graphe">Graphe</h2>
+        {openedFeature ? (
+          <>
+            <p className="panel__context">
+              de <strong>{openedFeature.title}</strong>
+            </p>
+            <FeatureGraphView graph={graphOf(state, openedFeature.id)} />
+          </>
+        ) : (
+          <p className="empty">Ouvrir une feature pour voir son graphe.</p>
+        )}
+      </section>
     </div>
   );
 }
@@ -127,10 +149,21 @@ function RegisterProjectForm() {
   );
 }
 
-function FeaturesPanel({ project, features }: { project: Project; features: Feature[] }) {
+function FeaturesPanel({
+  project,
+  features,
+  openedId,
+  onOpen,
+}: {
+  project: Project;
+  features: Feature[];
+  openedId: string | null;
+  onOpen: (featureId: string) => void;
+}) {
   const [title, setTitle] = useState("");
   const { busy, error, submit } = useSubmission(async () => {
-    await openFeature({ projectId: project.id, title });
+    const created = await openFeature({ projectId: project.id, title });
+    onOpen(created.id);
     setTitle("");
   });
 
@@ -157,12 +190,17 @@ function FeaturesPanel({ project, features }: { project: Project; features: Feat
       <ul className="list">
         {features.map((feature) => (
           <li key={feature.id}>
-            <div className="row row--static">
+            <button
+              type="button"
+              className={feature.id === openedId ? "row row--selected" : "row"}
+              onClick={() => onOpen(feature.id)}
+              aria-current={feature.id === openedId}
+            >
               <span className="row__title">{feature.title}</span>
               <span className="row__meta">
                 ouverte le {new Date(feature.createdAt).toLocaleString("fr-FR")}
               </span>
-            </div>
+            </button>
           </li>
         ))}
         {features.length === 0 && <li className="empty">Aucune feature en vol sur ce projet.</li>}

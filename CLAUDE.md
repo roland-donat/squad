@@ -30,6 +30,7 @@ et des jobs CI).
 | Serveur HTTP | Express 5 |
 | Flux d'événements | SSE, une seule route `/api/events` |
 | Validation | Zod 4, schémas partagés entre serveur et interface |
+| Outils agents | Serveur MCP (`@modelcontextprotocol/sdk`), monté sur la même origine |
 | Base | SQLite (`better-sqlite3`), sous le répertoire de données de l'utilisateur |
 | Schéma et migrations | Drizzle ORM, migrations générées sous `drizzle/` |
 | Interface | React 19, Vite |
@@ -131,21 +132,31 @@ commit restent en anglais.
 
 ```
 src/shared/            # contrat API partagé serveur et interface, sans dépendance node
-src/server/            # serveur : base, store, git, événements, routes HTTP
+src/server/            # serveur : base, store, git, événements, routes HTTP, outils MCP
 src/server/db/         # schéma drizzle et ouverture de la base
+src/server/agents/     # lanceur d'agent : l'interface étroite et son repli
 src/ui/                # interface React servie par le serveur
+src/ui/graph/          # disposition en couches et rendu du graphe
 drizzle/               # migrations générées, versionnées
-tests/seam/            # tests au seam : HTTP et flux d'événements uniquement
-tests/support/         # démarrage d'une instance de test, dépôts git temporaires
+tests/seam/            # tests au seam : HTTP, flux d'événements et outils MCP
+tests/support/         # instance de test, dépôts git temporaires, double du lanceur
 tests/browser/         # test navigateur unique, parcours nominal
 docs/adr/              # décisions d'architecture
 docs/agents/           # configuration lue par les skills d'ingénierie
 CONTEXT.md             # glossaire du domaine
 ```
 
+### Le double du lanceur d'agent
+
+Le seul double de la suite. Au lieu de démarrer un processus claude-code, il rejoue un
+scénario scripté d'appels d'outils et de messages, puis se termine. Il appelle les outils
+par HTTP comme le ferait un agent : le transport, la base et le dépôt git restent réels,
+seul le non-déterminisme du modèle est retiré. Voir `tests/support/scripted-launcher.ts`.
+
 ### Où écrire un test
 
-Le seul seam est l'API du serveur : un test pilote squad par requêtes HTTP et par le
-flux d'événements, jamais en atteignant un module de l'intérieur. Un test qui casse à
+Le seul seam est l'API du serveur, flux d'événements et outils MCP compris : un test
+pilote squad comme le font l'interface et les agents, jamais en atteignant un module de
+l'intérieur. Un test qui casse à
 la première réorganisation de modules teste la mauvaise chose. Le test navigateur est
 unique et prouve le câblage de l'interface, il ne duplique pas la couverture métier.

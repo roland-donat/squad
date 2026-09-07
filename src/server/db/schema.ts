@@ -1,4 +1,5 @@
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { index, integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
 
 /**
  * The durable state of squad. This schema is the single declaration of what is
@@ -22,3 +23,74 @@ export const features = sqliteTable("features", {
   title: text("title").notNull(),
   createdAt: text("created_at").notNull(),
 });
+
+/**
+ * The nodes of the graph. `lifecycle` holds what squad has recorded of a
+ * ticket's execution, and nothing else: `blocked` and `ready` are read off the
+ * edges at every query, so no write is ever needed to keep them true.
+ */
+export const tickets = sqliteTable(
+  "tickets",
+  {
+    id: text("id").primaryKey(),
+    featureId: text("feature_id")
+      .notNull()
+      .references(() => features.id, { onDelete: "cascade" }),
+    /** `build`, `decision` or `fix`; the union is declared in the shared contract. */
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    description: text("description").notNull(),
+    /** `unstarted` or `merged` for now, and one more value per execution state to come. */
+    lifecycle: text("lifecycle").notNull().default("unstarted"),
+    /** Reserved for a projection towards an issue tracker, never written (ADR 0001). */
+    externalId: text("external_id"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [index("tickets_feature_idx").on(table.featureId)],
+);
+
+/**
+ * Acceptance criteria are rows rather than a JSON list because the test sheet
+ * declares automatic coverage criterion by criterion: a reference by position
+ * would silently point elsewhere the day a ticket is adjusted.
+ */
+export const acceptanceCriteria = sqliteTable(
+  "acceptance_criteria",
+  {
+    id: text("id").primaryKey(),
+    ticketId: text("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    text: text("text").notNull(),
+  },
+  (table) => [
+    index("acceptance_criteria_ticket_idx").on(table.ticketId),
+    unique("acceptance_criteria_position").on(table.ticketId, table.position),
+  ],
+);
+
+/**
+ * The only relation of the graph: the blocker must be merged before the blocked
+ * ticket may start. `feature_id` is carried on the edge so the constraint "both
+ * ends belong to the same feature" is expressible in one row.
+ */
+export const blockingEdges = sqliteTable(
+  "blocking_edges",
+  {
+    featureId: text("feature_id")
+      .notNull()
+      .references(() => features.id, { onDelete: "cascade" }),
+    blockerId: text("blocker_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    blockedId: text("blocked_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    primaryKey({ columns: [table.blockerId, table.blockedId] }),
+    index("blocking_edges_feature_idx").on(table.featureId),
+  ],
+);

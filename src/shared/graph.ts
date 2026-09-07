@@ -6,9 +6,32 @@ import type { FeatureGraph, Ticket, TicketKind, TicketState } from "./api";
  * is, what state an edge set puts a ticket in, and what can be launched now.
  */
 
-/** What squad has recorded of a ticket's execution, as stored on the row. */
-export const ticketLifecycles = ["unstarted", "merged", "settled"] as const;
+/**
+ * What squad has recorded of a ticket's execution, as stored on the row.
+ * `blocked` and `ready` are absent on purpose: they follow from the edges and
+ * are read off them at every query, so no write is ever needed to keep them
+ * true. What is written here is only what squad did: it launched a sub-session,
+ * that sub-session failed, its process disappeared, the work was merged, the
+ * decision was settled.
+ */
+export const ticketLifecycles = [
+  "unstarted",
+  "running",
+  "failed",
+  "interrupted",
+  "merged",
+  "settled",
+] as const;
 export type TicketLifecycle = (typeof ticketLifecycles)[number];
+
+/**
+ * Whether a lifecycle is one a sub-session left behind: work is on the ticket's
+ * branch, its worktree is still there, and its sub-session can be resumed.
+ * `unstarted` is not one of them, and neither is a ticket that got merged.
+ */
+export function isResumable(lifecycle: TicketLifecycle): boolean {
+  return lifecycle === "failed" || lifecycle === "interrupted";
+}
 
 /**
  * Whether a ticket has stopped holding back the tickets it blocks. Being merged
@@ -113,6 +136,13 @@ export function resolveTicketState(
   cleared: ReadonlySet<string>,
 ): TicketState {
   if (holdsNothingBack(lifecycle)) return "merged";
+  // What squad recorded of a run outranks what the edges say. A ticket only
+  // ever ran because its blockers were merged, so the two never disagree; and
+  // reading the edges first would make a running ticket flicker back to `ready`
+  // the day a blocker is added in front of it.
+  if (lifecycle === "running" || lifecycle === "failed" || lifecycle === "interrupted") {
+    return lifecycle;
+  }
   if (!blockerIds.every((blockerId) => cleared.has(blockerId))) return "blocked";
   return kind === "decision" ? "awaiting-decision" : "ready";
 }

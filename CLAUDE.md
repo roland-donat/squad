@@ -163,6 +163,7 @@ src/server/db/         # schéma drizzle et ouverture de la base
 src/server/agents/     # lanceur d'agent : l'interface étroite et son repli
 src/ui/                # interface React servie par le serveur
 src/ui/graph/          # disposition en couches et rendu du graphe
+src/ui/ticket/         # le panneau qu'ouvre un nœud du graphe
 drizzle/               # migrations générées, versionnées
 tests/seam/            # tests au seam : HTTP, flux d'événements et outils MCP
 tests/support/         # instance de test, dépôts git temporaires, double du lanceur
@@ -171,6 +172,17 @@ docs/adr/              # décisions d'architecture
 docs/agents/           # configuration lue par les skills d'ingénierie
 CONTEXT.md             # glossaire du domaine
 ```
+
+### Où vivent les worktrees
+
+Squad ne crée jamais de checkout dans le dépôt piloté ni à côté de lui : tout va
+sous son propre répertoire de données, `<données>/worktrees/<feature>/feature`
+pour la branche de feature et `<données>/worktrees/<feature>/tickets/<ticket>`
+pour chaque branche de ticket. Le dépôt garde donc exactement la forme que son
+propriétaire lui a laissée, et le checkout principal ne quitte jamais la branche
+par défaut. La branche et le chemin sont **écrits sur la ligne** de la feature et
+du ticket, pas recalculés depuis leur titre : un ticket renommé demain doit
+retrouver le worktree qu'il a ouvert aujourd'hui.
 
 ### Le double du lanceur d'agent
 

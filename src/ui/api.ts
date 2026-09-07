@@ -2,9 +2,11 @@ import {
   apiRoutes,
   mainSessionMessagesRoute,
   mainSessionRoute,
+  ticketSessionRoute,
   type ApiErrorBody,
   type ErrorCode,
   type Feature,
+  type LaunchAngle,
   type OpenFeatureBody,
   type Project,
   type RegisterProjectBody,
@@ -24,6 +26,9 @@ const wording: Record<ErrorCode, string> = {
   path_not_found: "Ce chemin n'existe pas sur cette machine.",
   path_not_readable: "Ce chemin existe mais squad ne peut pas le lire.",
   not_a_git_repository: "Ce chemin n'est pas un dépôt git.",
+  detached_head:
+    "Ce dépôt n'est sur aucune branche : squad a besoin d'une branche par défaut d'où partir.",
+  git_failed: "Une commande git a échoué : consulter le détail côté serveur.",
   project_already_registered: "Ce dépôt est déjà enregistré comme projet.",
   project_not_found: "Ce projet est introuvable.",
   feature_not_found: "Cette feature est introuvable.",
@@ -35,6 +40,9 @@ const wording: Record<ErrorCode, string> = {
   main_session_not_running: "La session principale de cette feature ne tourne pas.",
   ticket_not_a_decision: "Seul un ticket de décision se tranche de cette façon.",
   decision_already_settled: "Cette décision a déjà été tranchée.",
+  ticket_not_launchable:
+    "Ce ticket ne peut pas partir : une décision se tranche, et un ticket bloqué attend la fusion de ses bloqueurs.",
+  sub_session_already_running: "La sous-session de ce ticket tourne déjà.",
   not_found: "Cette route n'existe pas.",
   data_directory_inside_project:
     "La base de squad se trouve dans ce dépôt : squad refuse de piloter un dépôt qui la contient.",
@@ -75,6 +83,15 @@ export async function sendMainSessionMessage(
   body: SendMainSessionMessageBody,
 ): Promise<void> {
   await send(mainSessionMessagesRoute(featureId), body);
+}
+
+/**
+ * Launches a ticket, or takes its stopped sub-session back under the angle the
+ * developer chose. Nothing comes back here either: the ticket changes state on
+ * the event stream, and its sub-session writes to its own thread.
+ */
+export async function launchTicket(ticketId: string, angle: LaunchAngle): Promise<void> {
+  await send(ticketSessionRoute(ticketId), { angle });
 }
 
 async function send<T>(route: string, body: unknown): Promise<T> {

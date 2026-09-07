@@ -2,6 +2,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import type { ZodType } from "zod";
 import {
   apiRoutes,
+  launchTicketBody,
   openFeatureBody,
   registerProjectBody,
   sendMainSessionMessageBody,
@@ -14,11 +15,13 @@ import type { EventBus } from "./events";
 import { buildMcpHandler } from "./mcp";
 import type { MainSessions } from "./sessions";
 import type { Store } from "./store";
+import type { SubSessions } from "./sub-sessions";
 
 export interface HttpDependencies {
   store: Store;
   bus: EventBus;
   mainSessions: MainSessions;
+  subSessions: SubSessions;
 }
 
 /**
@@ -26,7 +29,12 @@ export interface HttpDependencies {
  * leaves through the event stream, so the UI and the tests see squad through
  * exactly the same surface.
  */
-export function buildApiRouter({ store, bus, mainSessions }: HttpDependencies): express.Router {
+export function buildApiRouter({
+  store,
+  bus,
+  mainSessions,
+  subSessions,
+}: HttpDependencies): express.Router {
   const router = express.Router();
   router.use(express.json());
 
@@ -78,6 +86,14 @@ export function buildApiRouter({ store, bus, mainSessions }: HttpDependencies): 
       response.status(202).json({});
     },
   );
+
+  router.post(`${apiRoutes.tickets}/:ticketId/session`, async (request, response) => {
+    const body = parse(launchTicketBody, request.body);
+    const session = await subSessions.launch(request.params.ticketId, body.angle);
+    // Accepted, not done: the sub-session runs for as long as its agent does,
+    // and what it produces arrives on the event stream.
+    response.status(202).json({ sessionId: session.id });
+  });
 
   // Squad's own MCP endpoint: the surface the agents talk to, on the very port
   // that serves the interface, so a session has one address for all of squad.

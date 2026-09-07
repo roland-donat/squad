@@ -70,6 +70,11 @@ export function threadOf(state: SquadState, featureId: string): ThreadEntry[] {
   return state.threads.filter((entry) => entry.featureId === featureId && entry.ticketId === null);
 }
 
+/** The thread of a ticket's sub-session, oldest line first. */
+export function ticketThreadOf(state: SquadState, ticketId: string): ThreadEntry[] {
+  return state.threads.filter((entry) => entry.ticketId === ticketId);
+}
+
 /** Whether a feature's main session is running, and can therefore be written to. */
 export function isMainSessionRunning(state: SquadState, featureId: string): boolean {
   return state.mainSessions.some((session) => session.featureId === featureId);

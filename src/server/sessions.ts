@@ -1,12 +1,10 @@
-import type { AgentSessionOutcome, MainSession, ThreadEntry } from "../shared/api";
+import type { AgentSessionOutcome, MainSession } from "../shared/api";
 import { mainSessionBriefing } from "./agents/briefing";
-import type { AgentEvent, AgentLauncher, AgentSession } from "./agents/launcher";
+import type { AgentLauncher, AgentSession } from "./agents/launcher";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
 import type { Store } from "./store";
-
-/** One line to write on a thread, before squad says which thread. */
-type ThreadLine = Pick<ThreadEntry, "kind" | "text"> & { detail?: string | null };
+import { appendToThread, lineOf, type ThreadLine } from "./threads";
 
 export interface MainSessionDependencies {
   store: Store;
@@ -142,23 +140,6 @@ export class MainSessions {
 
   private append(featureId: string, sessionId: string, line: ThreadLine): void {
     const { store, bus } = this.dependencies;
-    const entry = store.appendThreadEntry({ featureId, sessionId, ...line });
-    bus.publish({ type: "thread-appended", entry });
-  }
-}
-
-/** What one event of a session becomes on its thread. */
-function lineOf(event: Exclude<AgentEvent, { type: "ended" }>): ThreadLine {
-  switch (event.type) {
-    case "text":
-      return { kind: "agent", text: event.text };
-    case "tool-call":
-      return {
-        kind: "tool",
-        text: event.tool,
-        detail: event.input === undefined ? null : JSON.stringify(event.input, null, 2),
-      };
-    case "notice":
-      return { kind: "notice", text: event.text };
+    appendToThread(store, bus, { featureId, sessionId }, line);
   }
 }

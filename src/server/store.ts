@@ -32,7 +32,7 @@ import {
   tickets,
 } from "./db/schema";
 import { SquadError } from "./errors";
-import { resolveRepositoryRoot } from "./git";
+import { resolveDefaultBranch, resolveRepositoryRoot } from "./git";
 import { isInside } from "./paths";
 
 /** What an agent hands over when it writes a node of the graph. */
@@ -171,6 +171,10 @@ export class Store {
 
   async registerProject(input: RegisterProjectBody): Promise<Project> {
     const root = await resolveRepositoryRoot(input.path);
+    // Read now and stored, not read at each use: a repository someone left on
+    // another branch would otherwise silently become the base of the next
+    // feature branch.
+    const defaultBranch = input.defaultBranch ?? (await resolveDefaultBranch(root));
 
     if (isInside(this.dataDir, root)) {
       throw new SquadError(
@@ -184,6 +188,7 @@ export class Store {
       id: randomUUID(),
       name: input.name ?? basename(root),
       path: root,
+      defaultBranch,
       createdAt: new Date().toISOString(),
     };
 
@@ -212,6 +217,11 @@ export class Store {
       id: randomUUID(),
       projectId: project.id,
       title: input.title,
+      // Nothing is checked out yet: a feature opened to paste a spec into it
+      // must not cost a checkout of the whole repository. Both fields are
+      // written together, the first time one of its tickets is launched.
+      branch: null,
+      worktreePath: null,
       createdAt: new Date().toISOString(),
     };
     this.db.insert(features).values(feature).run();
@@ -284,6 +294,9 @@ export class Store {
           lifecycle: "unstarted",
           externalId: null,
           conclusion: null,
+          branch: null,
+          worktreePath: null,
+          sessionId: null,
           createdAt,
         })
         .run();
@@ -354,6 +367,9 @@ export class Store {
         externalId: row.externalId,
         conclusion: row.conclusion,
         state: resolveTicketState(row.kind, row.lifecycle, blockers.get(row.id) ?? [], cleared),
+        branch: row.branch,
+        worktreePath: row.worktreePath,
+        sessionId: row.sessionId,
         createdAt: row.createdAt,
       })),
       edges: edges.map((edge) => ({
@@ -362,6 +378,70 @@ export class Store {
         blockedId: edge.blockedId,
       })),
     };
+  }
+
+  /** One ticket, with its state computed like every other read of the graph. */
+  requireTicket(ticketId: string): Ticket {
+    const row = this.db.select().from(tickets).where(eq(tickets.id, ticketId)).get();
+    if (!row) {
+      throw new SquadError("ticket_not_found", 404, `no ticket with id ${ticketId}`);
+    }
+    const ticket = this.featureGraph(row.featureId).tickets.find((each) => each.id === ticketId);
+    if (!ticket) throw new Error("a ticket is missing from its own feature graph");
+    return ticket;
+  }
+
+  /** Where a feature's branch lives, written the first time it is checked out. */
+  recordFeatureWorkspace(featureId: string, branch: string, worktreePath: string): void {
+    this.db.update(features).set({ branch, worktreePath }).where(eq(features.id, featureId)).run();
+  }
+
+  recordTicketWorkspace(ticketId: string, branch: string, worktreePath: string): void {
+    this.db.update(tickets).set({ branch, worktreePath }).where(eq(tickets.id, ticketId)).run();
+  }
+
+  /**
+   * Records that a sub-session is carrying the ticket, and which one. The
+   * session id is what a later resume runs on, so it is written at the moment
+   * the session opens rather than when it first says something.
+   */
+  startTicketRun(ticketId: string, sessionId: string): Ticket {
+    this.db
+      .update(tickets)
+      .set({ lifecycle: "running", sessionId })
+      .where(eq(tickets.id, ticketId))
+      .run();
+    return this.requireTicket(ticketId);
+  }
+
+  /**
+   * Records how a run ended. Nothing is cleaned up: the branch, the worktree and
+   * the session id stay on the row, because they are what a resume starts from.
+   */
+  failTicketRun(ticketId: string): Ticket {
+    this.db.update(tickets).set({ lifecycle: "failed" }).where(eq(tickets.id, ticketId)).run();
+    return this.requireTicket(ticketId);
+  }
+
+  /**
+   * Every ticket the store still believes is running, moved to `interrupted`.
+   * Called once at startup: a process cannot outlive the server that launched
+   * it, so a row left saying `running` is a run whose process disappeared.
+   */
+  interruptRunningTickets(): Ticket[] {
+    const stranded = this.db
+      .select()
+      .from(tickets)
+      .where(eq(tickets.lifecycle, "running"))
+      .orderBy(sql`rowid`)
+      .all();
+    if (stranded.length === 0) return [];
+    this.db
+      .update(tickets)
+      .set({ lifecycle: "interrupted" })
+      .where(eq(tickets.lifecycle, "running"))
+      .run();
+    return stranded.map((row) => this.requireTicket(row.id));
   }
 
   private requireTicketOfFeature(ticketId: string, featureId: string): void {

@@ -67,13 +67,29 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
 
   // Three nodes and the two arrows between them, without a reload: the graph
   // arrives on the event stream while it is being written.
-  await expect(page.getByRole("article")).toHaveCount(3);
+  await expect(page.locator(".node")).toHaveCount(3);
   await expect(page.getByLabel("Le store, construction, prêt")).toBeVisible();
   await expect(page.getByLabel("Les outils MCP, construction, bloqué")).toBeVisible();
   await expect(page.getByLabel("Quelle disposition, décision, bloqué")).toBeVisible();
   await expect(page.locator(".graph__edge")).toHaveCount(2);
 
+  // Clicking a node opens the ticket: what it asks for, and the thread of the
+  // sub-session that will build it. Nothing is launched here, since this
+  // walk-through runs against the real launcher.
+  await page.getByLabel("Le store, construction, prêt").click();
+  const opened = page.getByRole("region", { name: "Ticket" });
+  await expect(opened.getByText("La base et ses migrations.")).toBeVisible();
+  await expect(opened.getByText("Aucune sous-session pour l'instant.")).toBeVisible();
+  await expect(opened.getByRole("button", { name: "Lancer le ticket" })).toBeVisible();
+
+  // A blocked ticket offers no launch: the arrows of the graph mean something.
+  await page.getByLabel("Les outils MCP, construction, bloqué").click();
+  await expect(opened.getByRole("button", { name: "Lancer le ticket" })).toBeHidden();
+
+  await opened.getByRole("button", { name: "fermer" }).click();
+  await expect(page.getByRole("region", { name: "Session principale" })).toBeVisible();
+
   // The state lives on the server, so it survives a reload of the page.
   await page.reload();
-  await expect(page.getByRole("article")).toHaveCount(3);
+  await expect(page.locator(".node")).toHaveCount(3);
 });

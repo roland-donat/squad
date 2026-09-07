@@ -22,6 +22,12 @@ export const projects = sqliteTable("projects", {
   name: text("name").notNull(),
   /** Repository root, resolved by git and free of symlinks, hence unique. */
   path: text("path").notNull().unique(),
+  /**
+   * The branch feature branches start from, and the one the main checkout never
+   * leaves. The default only exists so the column could be added to rows
+   * written before it: every registration resolves it from the repository.
+   */
+  defaultBranch: text("default_branch").notNull().default("main"),
   createdAt: text("created_at").notNull(),
 });
 
@@ -31,6 +37,13 @@ export const features = sqliteTable("features", {
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
+  /**
+   * The feature branch and where it is checked out, written together the first
+   * time a ticket of the feature is launched. Null before that: opening a
+   * feature to paste a spec into it checks out nothing.
+   */
+  branch: text("branch"),
+  worktreePath: text("worktree_path"),
   createdAt: text("created_at").notNull(),
 });
 
@@ -55,6 +68,15 @@ export const tickets = sqliteTable(
     externalId: text("external_id"),
     /** What was settled, on a `decision` ticket the developer has closed. */
     conclusion: text("conclusion"),
+    /** The ticket branch and its worktree, written when the ticket is launched. */
+    branch: text("branch"),
+    worktreePath: text("worktree_path"),
+    /**
+     * The sub-session that ran this ticket. Kept after a failure or an
+     * interruption, because relaunching resumes this session rather than
+     * opening a blank one.
+     */
+    sessionId: text("session_id"),
     createdAt: text("created_at").notNull(),
   },
   (table) => [

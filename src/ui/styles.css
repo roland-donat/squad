@@ -279,17 +279,30 @@ button[disabled] {
   fill: var(--ink-soft);
 }
 
+/*
+ * A node is a button: it opens the ticket, and nothing else. The button
+ * defaults are undone here rather than avoided, so the node keeps being
+ * reachable from the keyboard and announced as an action.
+ */
 .node {
   position: absolute;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  align-items: stretch;
   gap: 0.5rem;
   padding: 0.7rem 0.8rem;
+  text-align: left;
+  font: inherit;
+  color: inherit;
   background: var(--surface);
   border: 1px solid var(--line);
   border-left-width: 5px;
   border-radius: var(--radius);
+}
+
+.node[data-selected] {
+  box-shadow: 0 0 0 3px var(--accent);
 }
 
 /* Kind: a border style as well as a colour, readable without either. */
@@ -325,6 +338,38 @@ button[disabled] {
 
 .node[data-state="merged"] {
   opacity: 0.7;
+}
+
+/* In flight: the one node that is changing while it is being looked at. */
+.node[data-state="running"] {
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.node[data-state="running"] .chip--state {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/*
+ * Stopped, and asking for a decision: what failed and what was cut off both
+ * wait for the developer to choose an angle, so they read the same way.
+ */
+.node[data-state="failed"],
+.node[data-state="interrupted"] {
+  border-top-color: var(--danger);
+  border-right-color: var(--danger);
+  border-bottom-color: var(--danger);
+}
+
+.node[data-state="failed"] .chip--state,
+.node[data-state="interrupted"] .chip--state {
+  border-color: var(--danger);
+  color: var(--danger);
+  font-weight: 600;
 }
 
 .node__title {
@@ -442,4 +487,85 @@ button[disabled] {
 
 .composer {
   margin-bottom: 0;
+}
+
+/*
+ * The ticket panel: what a node opens. It takes the place of the main session
+ * thread rather than sitting beside it, because they are read one at a time and
+ * a third column would shrink the graph for nothing.
+ */
+.panel--ticket .panel__context,
+.panel--session .panel__context {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.ticket__state {
+  margin: 0 0 1rem;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.ticket__description {
+  margin: 0 0 1rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ticket__heading {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+.ticket__criteria {
+  margin: 0 0 1rem;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.ticket__workspace {
+  display: grid;
+  gap: 0.15rem;
+  margin: 0 0 1rem;
+}
+
+.ticket__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.button--secondary {
+  background: var(--surface-sunken);
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+/* A control that reads as text: closing a panel is not a decision to weigh. */
+.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--ink-soft);
+  text-decoration: underline;
+  font-size: 0.85rem;
+  margin-left: auto;
+}
+
+.thread__detail {
+  margin: 0.3rem 0 0;
+  padding: 0.5rem 0.6rem;
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

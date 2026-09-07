@@ -31,6 +31,14 @@ export interface OpenAgentSession {
    * session's system prompt, never said in the thread.
    */
   briefing: string;
+  /**
+   * The session to take back rather than open blank. Set when squad relaunches
+   * a ticket whose sub-session failed or whose process disappeared: the session
+   * carries everything the first attempt learnt, so resuming it is what makes a
+   * restart cost the turn in flight and nothing else. The session opened under
+   * this option answers to this very id.
+   */
+  resumeSessionId?: string;
 }
 
 /**

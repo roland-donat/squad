@@ -14,6 +14,8 @@ export const errorCodes = [
   "path_not_found",
   "path_not_readable",
   "not_a_git_repository",
+  "detached_head",
+  "git_failed",
   "project_already_registered",
   "project_not_found",
   "feature_not_found",
@@ -24,6 +26,8 @@ export const errorCodes = [
   "main_session_not_running",
   "ticket_not_a_decision",
   "decision_already_settled",
+  "ticket_not_launchable",
+  "sub_session_already_running",
   "not_found",
   "data_directory_inside_project",
   "internal_error",
@@ -44,14 +48,32 @@ export interface Project {
   name: string;
   /** Absolute path of the repository root, as resolved by git. */
   path: string;
+  /**
+   * The branch every feature branch starts from, and the one the main checkout
+   * stays on. Declared on the row rather than read off HEAD at each use: a
+   * repository someone left on another branch would otherwise silently become
+   * the base of the next feature.
+   */
+  defaultBranch: string;
   createdAt: string;
 }
 
-/** A piece of work carried on a project, from spec to merge. */
+/**
+ * A piece of work carried on a project, from spec to merge.
+ *
+ * The workspace is null until the first ticket is launched: opening a feature
+ * to paste a spec into it should not check out a whole repository. Both fields
+ * are written together, and both are stored rather than derived, so squad finds
+ * yesterday's worktree even if it would name a new one differently today.
+ */
 export interface Feature {
   id: string;
   projectId: string;
   title: string;
+  /** The feature branch, started from the project's default branch. */
+  branch: string | null;
+  /** Where that branch is checked out; never inside the driven repository. */
+  worktreePath: string | null;
   createdAt: string;
 }
 
@@ -66,7 +88,15 @@ export type TicketKind = (typeof ticketKinds)[number];
  * The list grows as the execution states arrive; nothing here is stored under
  * these names.
  */
-export const ticketStates = ["blocked", "ready", "awaiting-decision", "merged"] as const;
+export const ticketStates = [
+  "blocked",
+  "ready",
+  "running",
+  "failed",
+  "interrupted",
+  "awaiting-decision",
+  "merged",
+] as const;
 export type TicketState = (typeof ticketStates)[number];
 
 /**
@@ -99,6 +129,17 @@ export interface Ticket {
    */
   conclusion: string | null;
   state: TicketState;
+  /** The ticket branch, started from the feature branch; null until launched. */
+  branch: string | null;
+  /** The ticket's own worktree, kept on failure so the work is not lost. */
+  worktreePath: string | null;
+  /**
+   * The sub-session that ran this ticket, kept after a failure or an
+   * interruption: relaunching resumes this very session rather than opening a
+   * blank one, which is what makes a restart cost the turn in flight and
+   * nothing more.
+   */
+  sessionId: string | null;
   createdAt: string;
 }
 
@@ -158,6 +199,8 @@ export interface MainSession {
 export const registerProjectBody = z.object({
   path: z.string().trim().min(1),
   name: z.string().trim().min(1).optional(),
+  /** Taken from the branch the repository is on when it is left out. */
+  defaultBranch: z.string().trim().min(1).optional(),
 });
 export type RegisterProjectBody = z.infer<typeof registerProjectBody>;
 
@@ -180,6 +223,20 @@ export const sendMainSessionMessageBody = z.object({
   text: z.string().trim().min(1),
 });
 export type SendMainSessionMessageBody = z.infer<typeof sendMainSessionMessageBody>;
+
+/**
+ * The angle a sub-session is asked to take. A first launch is always
+ * `implement`; the choice only means something on a ticket that already failed,
+ * where carrying on and stepping back to diagnose are two different jobs for
+ * the same session.
+ */
+export const launchAngles = ["implement", "diagnose"] as const;
+export type LaunchAngle = (typeof launchAngles)[number];
+
+export const launchTicketBody = z.object({
+  angle: z.enum(launchAngles).default("implement"),
+});
+export type LaunchTicketBody = z.infer<typeof launchTicketBody>;
 
 /** How a session ended, as the launcher reported it. */
 export const agentSessionOutcomes = ["completed", "failed"] as const;
@@ -230,6 +287,7 @@ export type SquadEvent =
 export const apiRoutes = {
   projects: "/api/projects",
   features: "/api/features",
+  tickets: "/api/tickets",
   events: "/api/events",
   /**
    * Squad's MCP endpoint, the only contract between the agents and squad
@@ -249,4 +307,9 @@ export function mainSessionRoute(featureId: string): string {
 
 export function mainSessionMessagesRoute(featureId: string): string {
   return `${mainSessionRoute(featureId)}/messages`;
+}
+
+/** Where a ticket's sub-session is launched, and relaunched after a failure. */
+export function ticketSessionRoute(ticketId: string): string {
+  return `${apiRoutes.tickets}/${ticketId}/session`;
 }

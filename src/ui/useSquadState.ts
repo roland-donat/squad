@@ -5,9 +5,11 @@ import {
   type FeatureGraph,
   type MainSession,
   type Project,
+  type Settings,
   type SquadEvent,
   type ThreadEntry,
 } from "../shared/api";
+import { pendingActions, type PendingAction } from "../shared/pending";
 
 export interface SquadState {
   projects: Project[];
@@ -16,6 +18,7 @@ export interface SquadState {
   threads: ThreadEntry[];
   /** The main sessions running right now, one per feature at most. */
   mainSessions: MainSession[];
+  settings: Settings;
   connected: boolean;
 }
 
@@ -31,6 +34,7 @@ export function useSquadState(): SquadState {
     graphs: [],
     threads: [],
     mainSessions: [],
+    settings: { webhookUrl: null, desktopNotifications: true },
     connected: false,
   });
 
@@ -75,6 +79,15 @@ export function ticketThreadOf(state: SquadState, ticketId: string): ThreadEntry
   return state.threads.filter((entry) => entry.ticketId === ticketId);
 }
 
+/**
+ * Everything waiting on the developer, across every feature. Derived from the
+ * graphs the stream already carries: the indicator holds nothing of its own, so
+ * an action that resolves itself leaves the list on the next event.
+ */
+export function waitingOn(state: SquadState): PendingAction[] {
+  return pendingActions(state.graphs);
+}
+
 /** Whether a feature's main session is running, and can therefore be written to. */
 export function isMainSessionRunning(state: SquadState, featureId: string): boolean {
   return state.mainSessions.some((session) => session.featureId === featureId);
@@ -90,6 +103,7 @@ function apply(state: SquadState, event: SquadEvent): SquadState {
         graphs: event.graphs,
         threads: event.threads,
         mainSessions: event.mainSessions,
+        settings: event.settings,
       };
     case "project-registered":
       return { ...state, projects: [...state.projects, event.project] };
@@ -114,6 +128,8 @@ function apply(state: SquadState, event: SquadEvent): SquadState {
       };
     case "thread-appended":
       return { ...state, threads: [...state.threads, event.entry] };
+    case "settings-changed":
+      return { ...state, settings: event.settings };
     case "main-session-started":
       return {
         ...state,

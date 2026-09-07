@@ -5,6 +5,7 @@ import express from "express";
 import { apiRoutes } from "../shared/api";
 import { createClaudeCodeLauncher } from "./agents/claude-code";
 import type { AgentLauncher } from "./agents/launcher";
+import { Alerts } from "./alerts";
 import { openDatabase } from "./db/open";
 import { EventBus } from "./events";
 import { buildApiRouter } from "./http";
@@ -58,12 +59,16 @@ export async function startSquadServer(
   let baseUrl = "";
   const mcpUrl = () => new URL(apiRoutes.mcp, baseUrl).toString();
   const launcher = options.launcher ?? createClaudeCodeLauncher();
+  // Reads the settings at every alert rather than holding them: the webhook can
+  // be changed while squad runs, and the next alert must go to the new one.
+  const alerts = new Alerts(store);
   const mainSessions = new MainSessions({ store, bus, launcher, mcpUrl });
   const subSessions = new SubSessions({
     store,
     bus,
     launcher,
     worktrees: new Worktrees(store, bus, dataDir),
+    alerts,
     mcpUrl,
   });
   // Before anything is served: a ticket the previous run left saying `running`
@@ -72,7 +77,7 @@ export async function startSquadServer(
   const stranded = subSessions.markInterrupted();
 
   const app = express();
-  app.use(buildApiRouter({ store, bus, mainSessions, subSessions }));
+  app.use(buildApiRouter({ store, bus, mainSessions, subSessions, alerts }));
   const ui = await mountUi(app, options.ui ?? "auto");
 
   const server = createServer(app);

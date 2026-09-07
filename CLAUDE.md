@@ -67,6 +67,11 @@ la version précédente.
 Réglages par variable d'environnement : `SQUAD_PORT` (7300 par défaut) et
 `SQUAD_DATA_DIR` (par défaut `~/.local/share/squad`, jamais dans un dépôt piloté).
 
+Le reste des réglages vit dans la base et s'édite par l'API, `GET` et `PUT` sur
+`/api/settings` : l'URL du webhook d'alerte, et le canal de notification de
+bureau. Rien n'est lu dans l'environnement, de sorte que ce qui est en vigueur se
+relit par la même surface que le reste.
+
 ## Conventions
 
 - **Langue** : documentation et interface en français accentué, code en anglais.
@@ -169,9 +174,10 @@ src/shared/            # contrat API partagé serveur et interface, sans dépend
 src/server/            # serveur : base, store, git, événements, routes HTTP, outils MCP
 src/server/db/         # schéma drizzle et ouverture de la base
 src/server/agents/     # lanceur d'agent : l'interface étroite et son repli
+src/server/alerts.ts   # bureau et webhook, quand la progression s'arrête
 src/ui/                # interface React servie par le serveur
 src/ui/graph/          # disposition en couches et rendu du graphe
-src/ui/ticket/         # le panneau qu'ouvre un nœud du graphe
+src/ui/ticket/         # le panneau d'un nœud du graphe, fiche de tests comprise
 drizzle/               # migrations générées, versionnées
 tests/seam/            # tests au seam : HTTP, flux d'événements et outils MCP
 tests/support/         # instance de test, dépôts git temporaires, double du lanceur
@@ -191,6 +197,14 @@ propriétaire lui a laissée, et le checkout principal ne quitte jamais la branc
 par défaut. La branche et le chemin sont **écrits sur la ligne** de la feature et
 du ticket, pas recalculés depuis leur titre : un ticket renommé demain doit
 retrouver le worktree qu'il a ouvert aujourd'hui.
+
+### Les alertes pendant les tests
+
+Squad lève une notification de bureau chaque fois que la progression s'arrête, et
+la suite au seam tourne sur le bureau d'un développeur. `startTestSquad` coupe
+donc ce canal par un `PUT /api/settings`, comme le ferait un utilisateur : c'est
+un réglage, pas une trappe de test. Un scénario qui veut observer une alerte
+branche un vrai webhook (`tests/support/webhook.ts`) et lit ce qui y arrive.
 
 ### Le double du lanceur d'agent
 

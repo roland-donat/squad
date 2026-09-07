@@ -64,11 +64,41 @@ _Éviter_ : itération, phase, passe, cycle
 
 ## La validation
 
+**Rapport de fin d'étape** (`StepReport`) :
+Ce que remet une sous-session quand son étape se termine : ce qu'elle a construit, la
+couverture automatique déclarée critère par critère, les points qu'elle suggère de
+vérifier à l'œil, et ce qu'elle recommande de faire ensuite. Il arrive par un appel
+d'outil, jamais en prose, et c'est lui qui engendre la fiche de tests.
+_Éviter_ : compte rendu, résumé de fin, livrable
+
 **Fiche de tests** (`TestSheet`) :
 La liste des points qu'un humain doit vérifier à la main en fin d'étape : les critères
 d'acceptation du ticket qu'aucun test automatique ne couvre, augmentés des suggestions
-libres de l'agent. Une fiche non validée interdit la fusion.
+libres de l'agent. Écrite une fois pour toutes au moment du rapport, et non recalculée
+depuis le ticket : des critères retouchés après coup ne doivent pas changer ce qui a été
+mis sous les yeux du développeur. Une fiche non validée interdit la fusion.
 _Éviter_ : checklist, plan de test, recette, QA
+
+**Point de vérification** (`TestSheetPoint`) :
+Une ligne de la fiche. Elle vient soit d'un critère d'acceptation non couvert, et elle le
+nomme, soit d'une suggestion libre de l'agent, et elle n'en nomme aucun : un champ déclaré
+les distingue, jamais leur formulation. Cochée, elle est vérifiée ; laissée décochée avec
+un commentaire, c'est ce commentaire qui repart dans la sous-session.
+_Éviter_ : item, case, entrée
+
+**Alerte** (`Alert`) :
+Ce que squad envoie au moment où la progression s'arrête : une notification sur le bureau
+de la machine, et un message vers un webhook pour joindre le développeur ailleurs. Deux
+canaux best effort, jamais bloquants : une alerte qui ne part pas ne doit rien faire
+échouer.
+_Éviter_ : notification (le mot désigne un seul des deux canaux)
+
+**En attente de moi** (`PendingAction`) :
+Ce qui attend une action du développeur, toutes features confondues : une fiche de tests
+non passée en revue, une décision à trancher, une sous-session arrêtée ou interrompue.
+Déduit du graphe et jamais stocké, de sorte qu'une attente qui se résout quitte la liste
+sans écriture.
+_Éviter_ : file d'attente, todo, notifications
 
 **Vérification d'intégration** (`IntegrationCheck`) :
 La passe de typage et de tests lancée sur la branche de feature après chaque fusion de
@@ -103,7 +133,9 @@ les agents. Il borne la cascade, pas le nombre total de tickets.
 - Une **feature** possède un **graphe** de **tickets** et une **session principale**.
 - Un **ticket** de genre `build` ou `fix` s'exécute dans une **sous-session** ; un ticket
   de genre `decision` ne s'exécute pas et se tranche dans la session principale.
-- Une **étape** produit une **fiche de tests**, qui verrouille la fusion du ticket.
+- Une **étape** se termine par un **rapport de fin d'étape**, qui produit une **fiche de
+  tests**, laquelle verrouille la fusion du ticket. Une sous-session qui s'arrête sans
+  rapporter ne conclut rien : squad lui redemande son rapport.
 - Chaque fusion de ticket déclenche une **vérification d'intégration**, dont l'échec
   engendre un ticket de genre `fix` posé en bloqueur de la suite.
 

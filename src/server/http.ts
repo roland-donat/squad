@@ -5,11 +5,14 @@ import {
   launchTicketBody,
   openFeatureBody,
   registerProjectBody,
+  reviewTestSheetBody,
   sendMainSessionMessageBody,
   startMainSessionBody,
+  updateSettingsBody,
   type ApiErrorBody,
   type SquadEvent,
 } from "../shared/api";
+import type { Alerts } from "./alerts";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
 import { buildMcpHandler } from "./mcp";
@@ -22,6 +25,7 @@ export interface HttpDependencies {
   bus: EventBus;
   mainSessions: MainSessions;
   subSessions: SubSessions;
+  alerts: Alerts;
 }
 
 /**
@@ -34,6 +38,7 @@ export function buildApiRouter({
   bus,
   mainSessions,
   subSessions,
+  alerts,
 }: HttpDependencies): express.Router {
   const router = express.Router();
   router.use(express.json());
@@ -95,9 +100,27 @@ export function buildApiRouter({
     response.status(202).json({ sessionId: session.id });
   });
 
+  router.post(`${apiRoutes.tickets}/:ticketId/test-sheet`, (request, response) => {
+    const body = parse(reviewTestSheetBody, request.body);
+    const ticket = store.reviewTestSheet({ ticketId: request.params.ticketId, ...body });
+    bus.publish({ type: "graph-changed", graph: store.featureGraph(ticket.featureId) });
+    response.json({ ticket });
+  });
+
+  router.get(apiRoutes.settings, (_request, response) => {
+    response.json({ settings: store.settings() });
+  });
+
+  router.put(apiRoutes.settings, (request, response) => {
+    const body = parse(updateSettingsBody, request.body);
+    const settings = store.updateSettings(body);
+    bus.publish({ type: "settings-changed", settings });
+    response.json({ settings });
+  });
+
   // Squad's own MCP endpoint: the surface the agents talk to, on the very port
   // that serves the interface, so a session has one address for all of squad.
-  router.all(apiRoutes.mcp, buildMcpHandler({ store, bus }));
+  router.all(apiRoutes.mcp, buildMcpHandler({ store, bus, alerts }));
 
   router.get(apiRoutes.events, (request, response) => {
     response.writeHead(200, {

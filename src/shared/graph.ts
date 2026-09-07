@@ -11,12 +11,13 @@ import type { FeatureGraph, Ticket, TicketKind, TicketState } from "./api";
  * `blocked` and `ready` are absent on purpose: they follow from the edges and
  * are read off them at every query, so no write is ever needed to keep them
  * true. What is written here is only what squad did: it launched a sub-session,
- * that sub-session failed, its process disappeared, the work was merged, the
- * decision was settled.
+ * that sub-session reported the end of its step, it failed, its process
+ * disappeared, the work was merged, the decision was settled.
  */
 export const ticketLifecycles = [
   "unstarted",
   "running",
+  "awaiting-validation",
   "failed",
   "interrupted",
   "merged",
@@ -141,7 +142,12 @@ export function resolveTicketState(
   // ever ran because its blockers were merged, so the two never disagree; and
   // reading the edges first would make a running ticket flicker back to `ready`
   // the day a blocker is added in front of it.
-  if (lifecycle === "running" || lifecycle === "failed" || lifecycle === "interrupted") {
+  if (
+    lifecycle === "running" ||
+    lifecycle === "awaiting-validation" ||
+    lifecycle === "failed" ||
+    lifecycle === "interrupted"
+  ) {
     return lifecycle;
   }
   if (!blockerIds.every((blockerId) => cleared.has(blockerId))) return "blocked";

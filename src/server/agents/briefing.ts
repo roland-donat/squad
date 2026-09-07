@@ -44,7 +44,10 @@ export function subSessionBriefing(feature: Feature, ticket: Ticket): string {
     "",
     "Other tickets of this feature may be running at the same time, in worktrees of their own. Your branch is the only place your work belongs.",
     "",
+    `- \`${squadToolName(squadTools.reportStep)}\` ends your step, and it is the only way to end one. It takes \`featureId: "${feature.id}"\`, \`ticketId: "${ticket.id}"\`, a summary of what you built, one coverage entry per acceptance criterion saying whether an automatic test really covers it, the points you suggest checking by hand on top of them, and what you recommend doing next.`,
     `- \`${squadToolName(squadTools.readGraph)}\` returns the whole graph of the feature, with each ticket's state. Read it when you need to know what the tickets around yours are doing; pass \`featureId: "${feature.id}"\`.`,
+    "",
+    "Call the report tool once the work is done and committed, and stay available afterwards: what the developer finds wrong on a point comes back to you rather than to a fresh session. Squad reads no prose, so a step you do not report is a step it has to ask you about again; it never concludes a ticket is done because a session stopped.",
     "",
     "The ticket you are building is handed to you as the first message of this thread. It is the whole of what was asked, acceptance criteria included.",
   ].join("\n");
@@ -59,7 +62,14 @@ export function ticketAssignment(ticket: Ticket): string {
   const criteria =
     ticket.acceptanceCriteria.length === 0
       ? ["", "No acceptance criterion was written on this ticket."]
-      : ["", "Acceptance criteria:", ...ticket.acceptanceCriteria.map((each) => `- ${each.text}`)];
+      : [
+          "",
+          // The ids travel with the criteria because the report declares coverage
+          // under them: a session that had to go and read the graph to find them
+          // would spend a turn looking up what it was already handed.
+          "Acceptance criteria, each with the id to declare its coverage under:",
+          ...ticket.acceptanceCriteria.map((each) => `- [${each.id}] ${each.text}`),
+        ];
   return [
     `Build this ticket, of kind \`${ticket.kind}\`.`,
     "",
@@ -67,6 +77,25 @@ export function ticketAssignment(ticket: Ticket): string {
     "",
     ticket.description === "" ? "No description was written on this ticket." : ticket.description,
     ...criteria,
+  ].join("\n");
+}
+
+/**
+ * What squad says to a session that ended without reporting its step. The net
+ * ADR 0002 asks for: the contract assumes the tool is called, so a process that
+ * stopped without calling it is asked again rather than read as a ticket done.
+ *
+ * It says what to do in both cases on purpose. A session that finished its work
+ * and simply forgot to report must not start over, and one that stopped early
+ * must not report a step it did not finish.
+ */
+export function stepReportDemand(ticket: Ticket): string {
+  return [
+    "This session ended without reporting the end of its step. Squad does not conclude a ticket is done because its session stopped, so it is asking again.",
+    "",
+    `If the work is finished and committed on this branch, call \`${squadToolName(squadTools.reportStep)}\` now, with \`featureId: "${ticket.featureId}"\` and \`ticketId: "${ticket.id}"\`: a summary, one coverage entry per acceptance criterion, the points you suggest checking by hand, and what you recommend doing next.`,
+    "",
+    "If it is not finished, carry on where you left off and report when it is. Check the state of the worktree before assuming anything about what is already done.",
   ].join("\n");
 }
 

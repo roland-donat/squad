@@ -28,6 +28,10 @@ export const errorCodes = [
   "decision_already_settled",
   "ticket_not_launchable",
   "sub_session_already_running",
+  "no_step_in_progress",
+  "coverage_mismatch",
+  "test_sheet_not_found",
+  "test_sheet_already_reviewed",
   "not_found",
   "data_directory_inside_project",
   "internal_error",
@@ -101,6 +105,7 @@ export const ticketStates = [
   "blocked",
   "ready",
   "running",
+  "awaiting-validation",
   "failed",
   "interrupted",
   "awaiting-decision",
@@ -116,6 +121,68 @@ export type TicketState = (typeof ticketStates)[number];
 export interface AcceptanceCriterion {
   id: string;
   text: string;
+}
+
+/**
+ * Whether an acceptance criterion is covered by an automatic test, as the
+ * sub-session declared it when it ended its step. Declared criterion by
+ * criterion rather than as a count: what the test sheet is made of is exactly
+ * what was left undeclared as covered, and a count could not say which.
+ */
+export interface CriterionCoverage {
+  criterionId: string;
+  /** The criterion as it read when the step was reported. */
+  text: string;
+  covered: boolean;
+}
+
+/**
+ * Where a point of the test sheet comes from. `pending` is what a point reads as
+ * before the developer has been through the sheet; the two others are what
+ * checking it or leaving it unchecked records.
+ */
+export const sheetVerdicts = ["pending", "passed", "failed"] as const;
+export type SheetVerdict = (typeof sheetVerdicts)[number];
+
+/**
+ * One thing a human has to check by hand. It comes either from an acceptance
+ * criterion no automatic test covers, and then it names that criterion, or from
+ * the agent suggesting something the ticket did not ask for, and then it names
+ * none: the two are told apart by a declared field, never by their wording.
+ */
+export interface TestSheetPoint {
+  id: string;
+  /** The acceptance criterion this point stands for, or null when suggested. */
+  criterionId: string | null;
+  text: string;
+  verdict: SheetVerdict;
+  /** What the developer said about this point, once they went through it. */
+  comment: string | null;
+}
+
+/**
+ * What a sub-session hands over when its step ends: what it built, what it
+ * automated, what it suggests looking at, and what it recommends doing next.
+ * The test sheet is derived from it once and written down, so a ticket whose
+ * criteria are adjusted afterwards does not silently change what was checked.
+ */
+export interface StepReport {
+  id: string;
+  ticketId: string;
+  /** The sub-session that reported, which is the one a correction goes back to. */
+  sessionId: string;
+  summary: string;
+  /** What the agent recommends doing next, in its own terms. */
+  recommendation: string;
+  /** One entry per acceptance criterion of the ticket, in the ticket's order. */
+  coverage: CriterionCoverage[];
+  /** The test sheet: uncovered criteria first, then the agent's suggestions. */
+  sheet: TestSheetPoint[];
+  /** The developer's general return, written when they went through the sheet. */
+  feedback: string | null;
+  /** When the developer went through the sheet; null while it is still waiting. */
+  reviewedAt: string | null;
+  createdAt: string;
 }
 
 /** The only kind of node in the graph. */
@@ -151,6 +218,12 @@ export interface Ticket {
    * nothing more.
    */
   sessionId: string | null;
+  /**
+   * The last step this ticket's sub-session reported, with its test sheet. Null
+   * until a step is reported; the latest one afterwards, since a ticket
+   * corrected after a red sheet reports its step again.
+   */
+  stepReport: StepReport | null;
   createdAt: string;
 }
 
@@ -249,6 +322,45 @@ export const launchTicketBody = z.object({
 });
 export type LaunchTicketBody = z.infer<typeof launchTicketBody>;
 
+/**
+ * What the developer says of a test sheet: one verdict and one comment per
+ * point, plus a general return. A point left unchecked is a point that did not
+ * pass, and its comment is what the sub-session will be asked to correct.
+ */
+export const reviewTestSheetBody = z.object({
+  points: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        passed: z.boolean(),
+        /** Empty means nothing was said about this point. */
+        comment: z.string().trim().default(""),
+      }),
+    )
+    .default([]),
+  feedback: z.string().trim().default(""),
+});
+export type ReviewTestSheetBody = z.infer<typeof reviewTestSheetBody>;
+
+/**
+ * What squad is configured with, machine-wide. Everything here is what the
+ * developer sets once and squad reads at every alert; nothing is derived from
+ * the environment, so what is in force is always readable through the API.
+ */
+export interface Settings {
+  /** Where an alert is posted besides the desktop, or null when none is set. */
+  webhookUrl: string | null;
+  /** Whether an alert also raises a notification on this machine's desktop. */
+  desktopNotifications: boolean;
+}
+
+export const updateSettingsBody = z.object({
+  /** Null clears it: an alert then goes to the desktop and nowhere else. */
+  webhookUrl: z.url().nullable().optional(),
+  desktopNotifications: z.boolean().optional(),
+});
+export type UpdateSettingsBody = z.infer<typeof updateSettingsBody>;
+
 /** How a session ended, as the launcher reported it. */
 export const agentSessionOutcomes = ["completed", "failed"] as const;
 export type AgentSessionOutcome = (typeof agentSessionOutcomes)[number];
@@ -261,6 +373,7 @@ export interface StoredState {
   graphs: FeatureGraph[];
   /** Every thread, oldest line first, all features together. */
   threads: ThreadEntry[];
+  settings: Settings;
 }
 
 /**
@@ -290,6 +403,7 @@ export type SquadEvent =
   | { type: "feature-changed"; feature: Feature }
   | { type: "graph-changed"; graph: FeatureGraph }
   | { type: "thread-appended"; entry: ThreadEntry }
+  | { type: "settings-changed"; settings: Settings }
   | { type: "main-session-started"; featureId: string; sessionId: string }
   | {
       type: "main-session-ended";
@@ -304,6 +418,7 @@ export const apiRoutes = {
   features: "/api/features",
   tickets: "/api/tickets",
   events: "/api/events",
+  settings: "/api/settings",
   /**
    * Squad's MCP endpoint, the only contract between the agents and squad
    * (ADR 0002). It lives under /api like the rest of the server surface, so the
@@ -327,4 +442,9 @@ export function mainSessionMessagesRoute(featureId: string): string {
 /** Where a ticket's sub-session is launched, and relaunched after a failure. */
 export function ticketSessionRoute(ticketId: string): string {
   return `${apiRoutes.tickets}/${ticketId}/session`;
+}
+
+/** Where the developer hands back the test sheet they went through. */
+export function ticketTestSheetRoute(ticketId: string): string {
+  return `${apiRoutes.tickets}/${ticketId}/test-sheet`;
 }

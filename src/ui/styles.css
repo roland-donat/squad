@@ -403,6 +403,23 @@ button[disabled] {
 }
 
 /*
+ * A reported step waits for a person too, but for a reading rather than for a
+ * choice: it borrows the decision's colour, since both are the developer's turn.
+ */
+.node[data-state="awaiting-validation"] {
+  border-top-color: var(--decision);
+  border-right-color: var(--decision);
+  border-bottom-color: var(--decision);
+  box-shadow: 0 0 0 3px var(--surface-sunken);
+}
+
+.node[data-state="awaiting-validation"] .chip--state {
+  border-color: var(--decision);
+  color: var(--decision);
+  font-weight: 600;
+}
+
+/*
  * A decision waits for a person, so it is neither in relief like the frontier
  * nor greyed out like something blocked: it is the one node asking to be read.
  */
@@ -566,6 +583,90 @@ button[disabled] {
   border: 1px solid var(--line);
   border-radius: 8px;
   font-size: 0.78rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * The indicator: everything waiting on the developer, above the fold and on
+ * every screen. It is deliberately the first thing under the header, since its
+ * whole point is to answer "what do I do now" without looking for it.
+ */
+.panel--waiting {
+  margin-bottom: 1.5rem;
+  border-left: 5px solid var(--decision);
+}
+
+.panel--waiting .list {
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+}
+
+/*
+ * The test sheet. A point is a line the developer ticks and comments, so the
+ * checkbox, the wording and where the point comes from stay on one row and the
+ * comment sits under it.
+ */
+.sheet__recommendation {
+  margin: 0 0 1rem;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.sheet__points {
+  gap: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+.sheet__point {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.sheet__check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  cursor: pointer;
+}
+
+.sheet__check input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--accent);
+}
+
+.sheet__text {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.sheet__verdict {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0;
+}
+
+.sheet__point[data-verdict="failed"] {
+  border-color: var(--danger);
+}
+
+.sheet__point[data-verdict="failed"] .chip--verdict {
+  border-color: var(--danger);
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.sheet__comment {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

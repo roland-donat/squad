@@ -39,6 +39,15 @@ export async function startTestSquad(options: TestSquadOptions = {}): Promise<Te
     });
   let server = await start();
   const streams: EventStream[] = [];
+  // Through the API, like everything else a test does. Squad raises a desktop
+  // notification whenever progress stops, and the seam suite runs on a
+  // developer's desktop: silencing that channel is a setting, not a hatch, and
+  // a scenario that wants to watch an alert reads the webhook instead.
+  await fetch(new URL(apiRoutes.settings, server.url), {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ desktopNotifications: false }),
+  });
 
   const squad: TestSquad = {
     get url() {

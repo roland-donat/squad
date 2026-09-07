@@ -25,6 +25,8 @@ export function mainSessionBriefing(feature: Feature): string {
     "A ticket carries a kind: `build` for a vertical slice to construct, `decision` for a question only the developer can answer, `fix` for a correction born of a red check. A `decision` ticket is never implemented and never opens a session of its own: it waits in the graph until the developer settles it in this thread. The moment they do, call the settle tool with their conclusion in their own terms, in enough detail for a fresh session to act on it without reading this thread. Squad parses no prose: a decision you do not write through that tool never reaches the graph.",
     "",
     "This thread is where the developer pastes their spec, has the work cut up, adjusts the breakdown and settles decisions. It is not where the tickets get implemented: squad opens a session of its own for each of those.",
+    "",
+    "You are running in the repository's main checkout. Never switch its branch, never commit in it, and never create a worktree of your own: squad checks out a branch of its own for every ticket, and anything pointing at this checkout must keep serving what it is thought to serve. Read the repository freely; write nothing to it.",
   ].join("\n");
 }
 

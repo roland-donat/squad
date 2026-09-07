@@ -184,18 +184,18 @@ describe("launching a ticket, failing, and resuming", () => {
     const worktrees = await listWorktrees(repository);
     expect(worktrees).toHaveLength(3);
     expect(worktrees[0]).toBe(repository);
-    expect(worktrees).toContain(feature.worktreePath);
-    expect(worktrees).toContain(running.worktreePath);
-    expect(await currentBranch(feature.worktreePath ?? "")).toBe(feature.branch);
-    expect(await currentBranch(running.worktreePath ?? "")).toBe(running.branch);
+    expect(worktrees).toContain(feature.worktree?.path);
+    expect(worktrees).toContain(running.worktree?.path);
+    expect(await currentBranch(feature.worktree?.path ?? "")).toBe(feature.worktree?.branch);
+    expect(await currentBranch(running.worktree?.path ?? "")).toBe(running.worktree?.branch);
     // The ticket branch starts from the feature branch, and the main checkout
     // never moved: what points at it still serves what it is thought to serve.
-    expect(await isAncestor(repository, feature.branch ?? "", running.branch ?? "")).toBe(true);
+    expect(await isAncestor(repository, feature.worktree?.branch ?? "", running.worktree?.branch ?? "")).toBe(true);
     expect(await currentBranch(repository)).toBe("main");
 
     // Blank, in the worktree, and told what the ticket asks for: the sub-session
     // never reads the graph to find out what it is building.
-    expect(workingDirectory).toBe(running.worktreePath);
+    expect(workingDirectory).toBe(running.worktree?.path);
     expect(assignment).toContain("Le store");
     expect(assignment).toContain("La base et ses migrations.");
     expect(assignment).toContain("Les migrations s'appliquent");
@@ -218,11 +218,11 @@ describe("launching a ticket, failing, and resuming", () => {
     await launch(ready.id);
 
     const failed = await waitForState(stream, featureId, ready.id, "failed");
-    expect(failed.branch).not.toBeNull();
+    expect(failed.worktree).not.toBeNull();
     expect(failed.sessionId).not.toBeNull();
     // Nothing is cleaned up on a failure: this is what the developer resumes on.
-    expect(await pathExists(failed.worktreePath ?? "")).toBe(true);
-    expect(await listBranches(repository)).toContain(failed.branch);
+    expect(await pathExists(failed.worktree?.path ?? "")).toBe(true);
+    expect(await listBranches(repository)).toContain(failed.worktree?.branch);
 
     // Why it stopped, on the thread, rather than a node that simply went quiet.
     const thread = await readTicketThread(ready.id);
@@ -254,8 +254,7 @@ describe("launching a ticket, failing, and resuming", () => {
     // The same session, the same worktree, the same branch: a relaunch that
     // opened a blank session would throw away everything the failure taught it.
     expect(running.sessionId).toBe(failed.sessionId);
-    expect(running.worktreePath).toBe(failed.worktreePath);
-    expect(running.branch).toBe(failed.branch);
+    expect(running.worktree).toEqual(failed.worktree);
     expect(openings).toHaveLength(2);
     expect(openings[0]?.resumed).toBeUndefined();
     expect(openings[1]?.resumed).toBe(failed.sessionId);
@@ -335,7 +334,7 @@ describe("launching a ticket, failing, and resuming", () => {
     // The repository and the checkout are both gone by the time squad comes
     // back up, so taking the sub-session back cannot even begin.
     await rm(repository, { recursive: true, force: true });
-    await rm(running.worktreePath ?? "", { recursive: true, force: true });
+    await rm(running.worktree?.path ?? "", { recursive: true, force: true });
     await squad.restart();
 
     const after = await squad.openEventStream();
@@ -415,6 +414,46 @@ describe("launching a ticket, failing, and resuming", () => {
     expect(refused.status).toBe(409);
   });
 
+  it("opens one sub-session when two launches of the same ticket race", async () => {
+    const working = gate();
+    let opened = 0;
+    const { featureId, stream } = await start(writeOneTicket, async (agent) => {
+      opened += 1;
+      await agent.awaitMessage();
+      await working.passed;
+    });
+
+    await squad.request("POST", mainSessionRoute(featureId), { prompt: "/to-tickets" });
+    await waitForEvent(stream, "graph-changed");
+    const ready = await readTicket(featureId, "Le store");
+
+    // A double click, or two clients. Opening a sub-session takes a checkout
+    // and a process, and both requests arrive well inside that window.
+    const answers = await Promise.all([launch(ready.id), launch(ready.id)]);
+    expect(answers.map((answer) => answer.status).sort()).toEqual([202, 409]);
+    await waitForState(stream, featureId, ready.id, "running");
+    expect(opened).toBe(1);
+  });
+
+  it("announces the feature worktree it checked out", async () => {
+    const working = gate();
+    const { featureId, stream } = await start(writeOneTicket, async (agent) => {
+      await agent.awaitMessage();
+      await working.passed;
+    });
+
+    await squad.request("POST", mainSessionRoute(featureId), { prompt: "/to-tickets" });
+    await waitForEvent(stream, "graph-changed");
+    const ready = await readTicket(featureId, "Le store");
+    await launch(ready.id);
+
+    // A client that only listens to this stream holds the whole state: the
+    // feature gains a branch on its first launch, and it has to hear about it.
+    const changed = await waitForEvent(stream, "feature-changed");
+    expect(changed.feature.id).toBe(featureId);
+    expect(changed.feature.worktree?.branch).toContain("squad/feature/");
+  });
+
   it("refuses to launch a ticket that does not exist", async () => {
     const { featureId } = await start(writeOneTicket);
     expect(featureId).toBeTruthy();
@@ -440,13 +479,13 @@ describe("launching a ticket, failing, and resuming", () => {
 
     // A developer who cleaned up their temporary directories should not be told
     // the ticket is beyond saving: the branch still holds the work.
-    await rm(failed.worktreePath ?? "", { recursive: true, force: true });
+    await rm(failed.worktree?.path ?? "", { recursive: true, force: true });
     await launch(ready.id);
     const running = await waitForState(stream, featureId, ready.id, "running");
 
-    expect(running.branch).toBe(failed.branch);
-    expect(await pathExists(running.worktreePath ?? "")).toBe(true);
-    expect(await listWorktrees(repository)).toContain(running.worktreePath);
+    expect(running.worktree?.branch).toBe(failed.worktree?.branch);
+    expect(await pathExists(running.worktree?.path ?? "")).toBe(true);
+    expect(await listWorktrees(repository)).toContain(running.worktree?.path);
   });
 });
 

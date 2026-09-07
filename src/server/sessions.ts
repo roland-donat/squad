@@ -1,10 +1,10 @@
-import type { AgentSessionOutcome, MainSession } from "../shared/api";
+import type { MainSession } from "../shared/api";
 import { mainSessionBriefing } from "./agents/briefing";
 import type { AgentLauncher, AgentSession } from "./agents/launcher";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
 import type { Store } from "./store";
-import { appendToThread, lineOf, type ThreadLine } from "./threads";
+import { appendToThread, drainSession, type ThreadLine } from "./threads";
 
 export interface MainSessionDependencies {
   store: Store;
@@ -103,39 +103,26 @@ export class MainSessions {
 
   private async drain(featureId: string, session: AgentSession): Promise<void> {
     const { bus } = this.dependencies;
-    let outcome: AgentSessionOutcome = "completed";
-    let detail: string | undefined;
-    try {
-      for await (const event of session.events()) {
-        if (event.type === "ended") {
-          outcome = event.outcome;
-          detail = event.detail;
-          continue;
-        }
-        this.append(featureId, session.id, lineOf(event));
-      }
-    } catch (failure) {
-      outcome = "failed";
-      detail = failure instanceof Error ? failure.message : String(failure);
-    } finally {
-      this.running.delete(featureId);
-      // Why the thread went quiet, on the thread itself. Without it the
-      // interface only shows a session that is no longer running, and a
-      // launcher that could not start at all reads exactly like one that
-      // finished its work: the failure that costs a night is the silent one.
-      this.append(featureId, session.id, {
-        kind: "notice",
-        text: outcome === "failed" ? "the session failed" : "the session ended",
-        ...(detail === undefined ? {} : { detail }),
-      });
-      bus.publish({
-        type: "main-session-ended",
-        featureId,
-        sessionId: session.id,
-        outcome,
-        ...(detail === undefined ? {} : { detail }),
-      });
-    }
+    const { outcome, detail } = await drainSession(session, (line) =>
+      this.append(featureId, session.id, line),
+    );
+    this.running.delete(featureId);
+    // Why the thread went quiet, on the thread itself. Without it the interface
+    // only shows a session that is no longer running, and a launcher that could
+    // not start at all reads exactly like one that finished its work: the
+    // failure that costs a night is the silent one.
+    this.append(featureId, session.id, {
+      kind: "notice",
+      text: outcome === "failed" ? "the session failed" : "the session ended",
+      ...(detail === undefined ? {} : { detail }),
+    });
+    bus.publish({
+      type: "main-session-ended",
+      featureId,
+      sessionId: session.id,
+      outcome,
+      ...(detail === undefined ? {} : { detail }),
+    });
   }
 
   private append(featureId: string, sessionId: string, line: ThreadLine): void {

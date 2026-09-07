@@ -59,21 +59,30 @@ export interface Project {
 }
 
 /**
+ * A branch of squad's own making, and where it is checked out. The two travel
+ * together and are stored rather than derived, so squad finds yesterday's
+ * checkout even if it would name a new one differently today. One object rather
+ * than two fields, so "a branch without its checkout" cannot be written down.
+ */
+export interface Worktree {
+  branch: string;
+  /** Absolute path; never inside the driven repository, nor beside it. */
+  path: string;
+}
+
+/**
  * A piece of work carried on a project, from spec to merge.
  *
- * The workspace is null until the first ticket is launched: opening a feature
- * to paste a spec into it should not check out a whole repository. Both fields
- * are written together, and both are stored rather than derived, so squad finds
- * yesterday's worktree even if it would name a new one differently today.
+ * The worktree is null until the first ticket of the feature is launched:
+ * opening a feature to paste a spec into it should not check out a whole
+ * repository.
  */
 export interface Feature {
   id: string;
   projectId: string;
   title: string;
-  /** The feature branch, started from the project's default branch. */
-  branch: string | null;
-  /** Where that branch is checked out; never inside the driven repository. */
-  worktreePath: string | null;
+  /** The feature branch and its checkout, started from the default branch. */
+  worktree: Worktree | null;
   createdAt: string;
 }
 
@@ -129,10 +138,12 @@ export interface Ticket {
    */
   conclusion: string | null;
   state: TicketState;
-  /** The ticket branch, started from the feature branch; null until launched. */
-  branch: string | null;
-  /** The ticket's own worktree, kept on failure so the work is not lost. */
-  worktreePath: string | null;
+  /**
+   * The ticket branch and its checkout, started from the feature branch. Null
+   * until the ticket is launched, and kept once it stops: the work is on that
+   * branch, and a resume comes back onto it.
+   */
+  worktree: Worktree | null;
   /**
    * The sub-session that ran this ticket, kept after a failure or an
    * interruption: relaunching resumes this very session rather than opening a
@@ -273,6 +284,10 @@ export type SquadEvent =
   | ({ type: "snapshot" } & Snapshot)
   | { type: "project-registered"; project: Project }
   | { type: "feature-opened"; feature: Feature }
+  // A feature changes when squad checks its branch out, which happens on the
+  // first launch of one of its tickets. Sent so a client that only listens to
+  // this stream still holds the whole state, as the snapshot promises.
+  | { type: "feature-changed"; feature: Feature }
   | { type: "graph-changed"; graph: FeatureGraph }
   | { type: "thread-appended"; entry: ThreadEntry }
   | { type: "main-session-started"; featureId: string; sessionId: string }

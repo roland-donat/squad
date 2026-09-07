@@ -25,12 +25,13 @@ export const ticketLifecycles = [
 export type TicketLifecycle = (typeof ticketLifecycles)[number];
 
 /**
- * Whether a lifecycle is one a sub-session left behind: work is on the ticket's
- * branch, its worktree is still there, and its sub-session can be resumed.
- * `unstarted` is not one of them, and neither is a ticket that got merged.
+ * Whether a ticket's sub-session is one squad can take back: it stopped, its
+ * branch and its worktree are still there, and its session id is written down.
+ * Read wherever that question is asked, rather than each caller spelling the
+ * two states out again and one of them being forgotten the day a third arrives.
  */
-export function isResumable(lifecycle: TicketLifecycle): boolean {
-  return lifecycle === "failed" || lifecycle === "interrupted";
+export function isResumable(state: TicketState): boolean {
+  return state === "failed" || state === "interrupted";
 }
 
 /**

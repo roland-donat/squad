@@ -67,7 +67,8 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
 
   // Three nodes and the two arrows between them, without a reload: the graph
   // arrives on the event stream while it is being written.
-  await expect(page.locator(".node")).toHaveCount(3);
+  const nodes = page.getByRole("region", { name: "Graphe" }).getByRole("button");
+  await expect(nodes).toHaveCount(3);
   await expect(page.getByLabel("Le store, construction, prêt")).toBeVisible();
   await expect(page.getByLabel("Les outils MCP, construction, bloqué")).toBeVisible();
   await expect(page.getByLabel("Quelle disposition, décision, bloqué")).toBeVisible();
@@ -91,5 +92,5 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
 
   // The state lives on the server, so it survives a reload of the page.
   await page.reload();
-  await expect(page.locator(".node")).toHaveCount(3);
+  await expect(nodes).toHaveCount(3);
 });

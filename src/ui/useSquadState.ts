@@ -95,6 +95,13 @@ function apply(state: SquadState, event: SquadEvent): SquadState {
       return { ...state, projects: [...state.projects, event.project] };
     case "feature-opened":
       return { ...state, features: [...state.features, event.feature] };
+    case "feature-changed":
+      return {
+        ...state,
+        features: state.features.map((feature) =>
+          feature.id === event.feature.id ? event.feature : feature,
+        ),
+      };
     case "graph-changed":
       // The whole graph of the feature arrives at once: one added edge can flip
       // the state of tickets it does not touch, so replacing beats patching.

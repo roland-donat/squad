@@ -1,5 +1,5 @@
-import type { ThreadEntry } from "../shared/api";
-import type { AgentEvent } from "./agents/launcher";
+import type { AgentSessionOutcome, ThreadEntry } from "../shared/api";
+import type { AgentEvent, AgentSession } from "./agents/launcher";
 import type { EventBus } from "./events";
 import type { Store } from "./store";
 
@@ -46,4 +46,41 @@ export function lineOf(event: Exclude<AgentEvent, { type: "ended" }>): ThreadLin
     case "notice":
       return { kind: "notice", text: event.text };
   }
+}
+
+/** How a session stopped, once its whole stream has been written to its thread. */
+export interface SessionEnding {
+  outcome: AgentSessionOutcome;
+  detail?: string;
+}
+
+/**
+ * Reads a session to its end, writing every event on its thread, and hands back
+ * how it stopped. Both kinds of session are drained exactly this way; what
+ * differs is what each records about the ending, which is theirs to decide.
+ *
+ * A stream that throws is an ending too, and a failed one: a session whose
+ * transport died said nothing more than one that crashed, and treating the
+ * difference as interesting would leave the caller with no ending at all.
+ */
+export async function drainSession(
+  session: AgentSession,
+  write: (line: ThreadLine) => void,
+): Promise<SessionEnding> {
+  let ending: SessionEnding = { outcome: "completed" };
+  try {
+    for await (const event of session.events()) {
+      if (event.type === "ended") {
+        ending = { outcome: event.outcome, ...(event.detail === undefined ? {} : { detail: event.detail }) };
+        continue;
+      }
+      write(lineOf(event));
+    }
+  } catch (failure) {
+    ending = {
+      outcome: "failed",
+      detail: failure instanceof Error ? failure.message : String(failure),
+    };
+  }
+  return ending;
 }

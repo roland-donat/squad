@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { LaunchAngle, ThreadEntry, Ticket, TicketKind, TicketState } from "../../shared/api";
+import { isResumable } from "../../shared/graph";
 import { ApiError, launchTicket } from "../api";
 import { Thread } from "../session/Thread";
 
@@ -20,7 +21,8 @@ const stateExplanations: Record<TicketState, string> = {
   blocked: "Bloqué : il partira quand tous ses bloqueurs auront fusionné.",
   ready: "Prêt : tous ses bloqueurs ont fusionné, il peut partir maintenant.",
   running: "En cours : sa sous-session travaille dans son worktree.",
-  failed: "Échoué : son worktree, sa branche et sa sous-session sont conservés.",
+  failed:
+    "Arrêté : sa sous-session a échoué, ou s'est terminée sans rapporter sa fin d'étape ; le fil dit lequel. Son worktree, sa branche et sa sous-session sont conservés.",
   interrupted: "Interrompu : squad s'est arrêté pendant que sa sous-session travaillait.",
   "awaiting-decision": "À trancher : cela se fait dans la session principale, pas ici.",
   merged: "Fusionné.",
@@ -66,10 +68,10 @@ export function TicketPanel({
         </>
       )}
 
-      {ticket.branch !== null && (
-        <p className="ticket__workspace">
-          <span className="row__detail">{ticket.branch}</span>
-          <span className="row__detail">{ticket.worktreePath}</span>
+      {ticket.worktree !== null && (
+        <p className="ticket__worktree">
+          <span className="row__detail">{ticket.worktree.branch}</span>
+          <span className="row__detail">{ticket.worktree.path}</span>
         </p>
       )}
 
@@ -109,8 +111,6 @@ function Launcher({ ticket }: { ticket: Ticket }) {
     }
   }
 
-  const resumable = ticket.state === "failed" || ticket.state === "interrupted";
-
   return (
     <div className="ticket__actions">
       {ticket.state === "ready" && (
@@ -118,7 +118,7 @@ function Launcher({ ticket }: { ticket: Ticket }) {
           Lancer le ticket
         </button>
       )}
-      {resumable && (
+      {isResumable(ticket.state) && (
         <>
           <button type="button" disabled={busy} onClick={() => void launch("implement")}>
             Reprendre l'implémentation

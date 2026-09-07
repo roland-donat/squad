@@ -1,4 +1,5 @@
 import type { AgentSessionOutcome, LaunchAngle, Ticket, TicketState } from "../shared/api";
+import { isResumable } from "../shared/graph";
 import {
   resumeInstruction,
   subSessionBriefing,
@@ -8,24 +9,26 @@ import type { AgentLauncher, AgentSession } from "./agents/launcher";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
 import type { Store } from "./store";
-import { appendToThread, lineOf, type ThreadLine } from "./threads";
-import type { Workspaces } from "./workspaces";
+import { appendToThread, drainSession, type ThreadLine } from "./threads";
+import type { Worktrees } from "./worktrees";
 
 export interface SubSessionDependencies {
   store: Store;
   bus: EventBus;
   launcher: AgentLauncher;
-  workspaces: Workspaces;
+  worktrees: Worktrees;
   /** Resolved late: squad only knows its own address once it is listening. */
   mcpUrl: () => string;
 }
 
 /**
- * The states a ticket can be launched from. `ready` is a first launch, the other
- * two are a sub-session squad is taking back. Everything else is either work in
- * flight, work already done, or a decision, and none of those is launchable.
+ * A ticket can be launched from the frontier, or taken back once its
+ * sub-session stopped. Everything else is work in flight, work already done, or
+ * a decision, and none of those is launchable.
  */
-const launchableStates: readonly TicketState[] = ["ready", "failed", "interrupted"];
+function isLaunchable(state: TicketState): boolean {
+  return state === "ready" || isResumable(state);
+}
 
 /**
  * The sub-sessions of a feature: one per ticket being built, each blank, each in
@@ -40,6 +43,11 @@ const launchableStates: readonly TicketState[] = ["ready", "failed", "interrupte
  */
 export class SubSessions {
   private readonly running = new Map<string, AgentSession>();
+  // Reserved the moment a launch is accepted, and held until its session is in
+  // `running`. Opening one takes a checkout and a process, and two requests for
+  // the same ticket arriving during that window would both pass the check below
+  // and leave one of the two sessions running with nothing pointing at it.
+  private readonly starting = new Set<string>();
   // Held so shutdown can wait for them: a drain still writing when the database
   // closes loses the last thing the session had to say, which is exactly the
   // line worth keeping when a session died rather than finished.
@@ -56,7 +64,7 @@ export class SubSessions {
    */
   async launch(ticketId: string, angle: LaunchAngle): Promise<AgentSession> {
     const ticket = this.dependencies.store.requireTicket(ticketId);
-    if (this.running.has(ticket.id)) {
+    if (this.running.has(ticket.id) || this.starting.has(ticket.id)) {
       throw new SquadError(
         "sub_session_already_running",
         409,
@@ -70,24 +78,29 @@ export class SubSessions {
         `ticket "${ticket.title}" is a decision: it is settled in the main session and never implemented`,
       );
     }
-    if (!launchableStates.includes(ticket.state)) {
+    if (!isLaunchable(ticket.state)) {
       throw new SquadError(
         "ticket_not_launchable",
         409,
         `ticket "${ticket.title}" is ${ticket.state}: a ticket is launched once every ticket blocking it is merged`,
       );
     }
-    return this.open(ticket, angle);
+    this.starting.add(ticket.id);
+    try {
+      return await this.open(ticket, angle);
+    } finally {
+      this.starting.delete(ticket.id);
+    }
   }
 
   /**
    * What the store still believes is running, moved to `interrupted`. A process
-   * cannot outlive the server that launched it, so a row left saying `running`
-   * is a run whose process disappeared. Called once, before squad listens, so
-   * that no client is ever handed a state squad knows to be false.
+   * cannot outlive the server that launched it, so such a row is a step whose
+   * process disappeared. Called once, before squad listens, so that no client is
+   * ever handed a state squad already knows to be false.
    */
   markInterrupted(): Ticket[] {
-    const stranded = this.dependencies.store.interruptRunningTickets();
+    const stranded = this.dependencies.store.interruptRunningSteps();
     for (const ticket of stranded) {
       // On the thread as well as on the node: a developer coming back to a
       // half-written thread has to be able to tell a session that was cut off
@@ -117,6 +130,7 @@ export class SubSessions {
         if (this.stopping) return;
         const ticket = this.dependencies.store.requireTicket(stopped.id);
         if (ticket.state !== "interrupted" || ticket.sessionId === null) continue;
+        this.starting.add(ticket.id);
         try {
           await this.open(ticket, "implement");
         } catch (failure) {
@@ -128,6 +142,8 @@ export class SubSessions {
             text: "squad could not take the sub-session back",
             detail: failure instanceof Error ? failure.message : String(failure),
           });
+        } finally {
+          this.starting.delete(ticket.id);
         }
       }
     })();
@@ -143,26 +159,28 @@ export class SubSessions {
   }
 
   private async open(ticket: Ticket, angle: LaunchAngle): Promise<AgentSession> {
-    const { store, launcher, workspaces, mcpUrl } = this.dependencies;
+    const { store, launcher, worktrees, mcpUrl } = this.dependencies;
     const feature = store.requireFeature(ticket.featureId);
     // Before the session, since it is the session's working directory. A ticket
     // whose worktree was cleaned off the disk gets it back here, on the branch
     // that still holds its work.
-    const workspace = await workspaces.forTicket(ticket);
-    const resuming = ticket.state === "failed" || ticket.state === "interrupted";
-    const resumeSessionId = resuming ? (ticket.sessionId ?? undefined) : undefined;
+    const worktree = await worktrees.forTicket(ticket);
+    const resumeSessionId = isResumable(ticket.state)
+      ? (ticket.sessionId ?? undefined)
+      : undefined;
 
     const session = await launcher.open({
       role: "sub",
       featureId: feature.id,
       ticketId: ticket.id,
-      workingDirectory: workspace.path,
+      workingDirectory: worktree.path,
       mcpUrl: mcpUrl(),
       briefing: subSessionBriefing(feature, ticket),
       ...(resumeSessionId === undefined ? {} : { resumeSessionId }),
     });
     this.running.set(ticket.id, session);
-    this.publishTicket(store.startTicketRun(ticket.id, session.id));
+    store.startStep(ticket.id, session.id);
+    this.publishGraph(ticket.featureId);
 
     // Drained before the first message goes in, so nothing the session says on
     // its way up can be emitted into an audience that is not listening yet.
@@ -182,24 +200,9 @@ export class SubSessions {
   }
 
   private async drain(ticket: Ticket, session: AgentSession): Promise<void> {
-    let outcome: AgentSessionOutcome = "completed";
-    let detail: string | undefined;
-    try {
-      for await (const event of session.events()) {
-        if (event.type === "ended") {
-          outcome = event.outcome;
-          detail = event.detail;
-          continue;
-        }
-        this.append(ticket, session.id, lineOf(event));
-      }
-    } catch (failure) {
-      outcome = "failed";
-      detail = failure instanceof Error ? failure.message : String(failure);
-    } finally {
-      this.running.delete(ticket.id);
-      this.recordEnd(ticket, session.id, outcome, detail);
-    }
+    const ending = await drainSession(session, (line) => this.append(ticket, session.id, line));
+    this.running.delete(ticket.id);
+    this.recordEnd(ticket, session.id, ending.outcome, ending.detail);
   }
 
   /**
@@ -233,16 +236,13 @@ export class SubSessions {
             detail: detail ?? null,
           }),
     });
-    this.publishTicket(this.dependencies.store.failTicketRun(ticket.id));
+    this.dependencies.store.failStep(ticket.id);
+    this.publishGraph(ticket.featureId);
   }
 
   private append(ticket: Ticket, sessionId: string, line: ThreadLine): void {
     const { store, bus } = this.dependencies;
     appendToThread(store, bus, { featureId: ticket.featureId, ticketId: ticket.id, sessionId }, line);
-  }
-
-  private publishTicket(ticket: Ticket): void {
-    this.publishGraph(ticket.featureId);
   }
 
   private publishGraph(featureId: string): void {

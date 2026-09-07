@@ -13,7 +13,7 @@ import { MainSessions } from "./sessions";
 import { Store } from "./store";
 import { SubSessions } from "./sub-sessions";
 import { mountUi, type UiMode } from "./ui";
-import { Workspaces } from "./workspaces";
+import { Worktrees } from "./worktrees";
 
 export interface SquadServerOptions {
   /** Defaults to the user's data directory; the seam tests pass a temporary one. */
@@ -63,7 +63,7 @@ export async function startSquadServer(
     store,
     bus,
     launcher,
-    workspaces: new Workspaces(store, dataDir),
+    worktrees: new Worktrees(store, bus, dataDir),
     mcpUrl,
   });
   // Before anything is served: a ticket the previous run left saying `running`

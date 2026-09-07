@@ -529,7 +529,7 @@ button[disabled] {
   gap: 0.25rem;
 }
 
-.ticket__workspace {
+.ticket__worktree {
   display: grid;
   gap: 0.15rem;
   margin: 0 0 1rem;

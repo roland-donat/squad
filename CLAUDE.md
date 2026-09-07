@@ -56,6 +56,14 @@ pnpm start            # sert l'interface construite, sans Vite
 pnpm db:generate      # génère une migration après modification du schéma
 ```
 
+**Relire toute migration générée avant de la garder.** Quand un même changement
+recrée une table (contrainte `check` modifiée) et lui ajoute des colonnes,
+`drizzle-kit` copie l'ancienne table en sélectionnant les colonnes nouvelles,
+qui n'y existent pas encore : la migration échoue au démarrage sur une base
+existante, et jamais sur une base neuve. C'est le cas de `drizzle/0004`, corrigé
+à la main. Une suite verte ne l'attrape pas : la vérifier sur une base écrite par
+la version précédente.
+
 Réglages par variable d'environnement : `SQUAD_PORT` (7300 par défaut) et
 `SQUAD_DATA_DIR` (par défaut `~/.local/share/squad`, jamais dans un dépôt piloté).
 

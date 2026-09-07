@@ -14,6 +14,7 @@ import type {
   ThreadEntryKind,
   Ticket,
   TicketKind,
+  Worktree,
 } from "../shared/api";
 import {
   blockersByTicket,
@@ -85,7 +86,7 @@ export class Store {
   listFeatures(projectId?: string): Feature[] {
     const query = this.db.select().from(features).$dynamic();
     if (projectId !== undefined) query.where(eq(features.projectId, projectId));
-    return query.orderBy(sql`rowid`).all();
+    return query.orderBy(sql`rowid`).all().map(toFeature);
   }
 
   storedState(): StoredState {
@@ -213,19 +214,19 @@ export class Store {
   openFeature(input: OpenFeatureBody): Feature {
     const project = this.requireProject(input.projectId);
 
-    const feature: Feature = {
+    const row = {
       id: randomUUID(),
       projectId: project.id,
       title: input.title,
       // Nothing is checked out yet: a feature opened to paste a spec into it
-      // must not cost a checkout of the whole repository. Both fields are
-      // written together, the first time one of its tickets is launched.
+      // must not cost a checkout of the whole repository. It gets one the first
+      // time one of its tickets is launched.
       branch: null,
       worktreePath: null,
       createdAt: new Date().toISOString(),
     };
-    this.db.insert(features).values(feature).run();
-    return feature;
+    this.db.insert(features).values(row).run();
+    return toFeature(row);
   }
 
   requireProject(projectId: string): Project {
@@ -237,11 +238,11 @@ export class Store {
   }
 
   requireFeature(featureId: string): Feature {
-    const feature = this.db.select().from(features).where(eq(features.id, featureId)).get();
-    if (!feature) {
+    const row = this.db.select().from(features).where(eq(features.id, featureId)).get();
+    if (!row) {
       throw new SquadError("feature_not_found", 404, `no feature with id ${featureId}`);
     }
-    return feature;
+    return toFeature(row);
   }
 
   /**
@@ -367,8 +368,7 @@ export class Store {
         externalId: row.externalId,
         conclusion: row.conclusion,
         state: resolveTicketState(row.kind, row.lifecycle, blockers.get(row.id) ?? [], cleared),
-        branch: row.branch,
-        worktreePath: row.worktreePath,
+        worktree: toWorktree(row.branch, row.worktreePath),
         sessionId: row.sessionId,
         createdAt: row.createdAt,
       })),
@@ -392,20 +392,29 @@ export class Store {
   }
 
   /** Where a feature's branch lives, written the first time it is checked out. */
-  recordFeatureWorkspace(featureId: string, branch: string, worktreePath: string): void {
-    this.db.update(features).set({ branch, worktreePath }).where(eq(features.id, featureId)).run();
+  recordFeatureWorktree(featureId: string, worktree: Worktree): Feature {
+    this.db
+      .update(features)
+      .set({ branch: worktree.branch, worktreePath: worktree.path })
+      .where(eq(features.id, featureId))
+      .run();
+    return this.requireFeature(featureId);
   }
 
-  recordTicketWorkspace(ticketId: string, branch: string, worktreePath: string): void {
-    this.db.update(tickets).set({ branch, worktreePath }).where(eq(tickets.id, ticketId)).run();
+  recordTicketWorktree(ticketId: string, worktree: Worktree): void {
+    this.db
+      .update(tickets)
+      .set({ branch: worktree.branch, worktreePath: worktree.path })
+      .where(eq(tickets.id, ticketId))
+      .run();
   }
 
   /**
-   * Records that a sub-session is carrying the ticket, and which one. The
-   * session id is what a later resume runs on, so it is written at the moment
-   * the session opens rather than when it first says something.
+   * Records that a step has begun: a sub-session is carrying the ticket, and
+   * this is the one. The session id is what a later resume runs on, so it is
+   * written the moment the session opens rather than when it first speaks.
    */
-  startTicketRun(ticketId: string, sessionId: string): Ticket {
+  startStep(ticketId: string, sessionId: string): Ticket {
     this.db
       .update(tickets)
       .set({ lifecycle: "running", sessionId })
@@ -415,22 +424,19 @@ export class Store {
   }
 
   /**
-   * Records how a run ended. Nothing is cleaned up: the branch, the worktree and
-   * the session id stay on the row, because they are what a resume starts from.
+   * Records that a step stopped without reaching an end. Nothing is cleaned up:
+   * the branch, the worktree and the session id stay on the row, because they
+   * are what a resume starts from.
    */
-  failTicketRun(ticketId: string): Ticket {
+  failStep(ticketId: string): Ticket {
     this.db.update(tickets).set({ lifecycle: "failed" }).where(eq(tickets.id, ticketId)).run();
     return this.requireTicket(ticketId);
   }
 
-  /**
-   * Every ticket the store still believes is running, moved to `interrupted`.
-   * Called once at startup: a process cannot outlive the server that launched
-   * it, so a row left saying `running` is a run whose process disappeared.
-   */
-  interruptRunningTickets(): Ticket[] {
+  /** Every step the store still believes is running, moved to `interrupted`. */
+  interruptRunningSteps(): Ticket[] {
     const stranded = this.db
-      .select()
+      .select({ id: tickets.id, featureId: tickets.featureId })
       .from(tickets)
       .where(eq(tickets.lifecycle, "running"))
       .orderBy(sql`rowid`)
@@ -441,7 +447,19 @@ export class Store {
       .set({ lifecycle: "interrupted" })
       .where(eq(tickets.lifecycle, "running"))
       .run();
-    return stranded.map((row) => this.requireTicket(row.id));
+    // One graph per feature rather than one per ticket: reading a ticket back
+    // computes the states of every ticket around it anyway.
+    const graphs = new Map(
+      [...new Set(stranded.map((row) => row.featureId))].map((featureId) => [
+        featureId,
+        this.featureGraph(featureId),
+      ]),
+    );
+    return stranded.map((row) => {
+      const ticket = graphs.get(row.featureId)?.tickets.find((each) => each.id === row.id);
+      if (!ticket) throw new Error("a ticket is missing from its own feature graph");
+      return ticket;
+    });
   }
 
   private requireTicketOfFeature(ticketId: string, featureId: string): void {
@@ -488,6 +506,32 @@ export class Store {
     }
     return byTicket;
   }
+}
+
+/** A feature row, with its two worktree columns read back as the one thing they are. */
+function toFeature(row: {
+  id: string;
+  projectId: string;
+  title: string;
+  branch: string | null;
+  worktreePath: string | null;
+  createdAt: string;
+}): Feature {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    title: row.title,
+    worktree: toWorktree(row.branch, row.worktreePath),
+    createdAt: row.createdAt,
+  };
+}
+
+/**
+ * The two columns read back as the one thing they are. They are written
+ * together and only together, so either both are there or neither is.
+ */
+function toWorktree(branch: string | null, path: string | null): Worktree | null {
+  return branch === null || path === null ? null : { branch, path };
 }
 
 function isUniqueViolation(cause: unknown): boolean {

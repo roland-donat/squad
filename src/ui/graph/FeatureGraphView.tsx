@@ -19,7 +19,7 @@ const stateLabels: Record<TicketState, string> = {
   blocked: "bloqué",
   ready: "prêt",
   running: "en cours",
-  failed: "échoué",
+  failed: "arrêté",
   interrupted: "interrompu",
   "awaiting-decision": "à trancher",
   merged: "fusionné",

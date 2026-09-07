@@ -71,11 +71,40 @@ spéculatives.
 - **Une suite de tests verte ne suffit pas** à déclarer un correctif terminé quand
   le changement peut toucher le déploiement : valider sur une instance réelle.
 
+## Agent skills
+
+### Suivi des issues
+
+Les issues vivent dans GitHub Issues (`roland-donat/squad`), pilotées par la CLI
+`gh`. Voir `docs/agents/issue-tracker.md`.
+
+### Labels de triage
+
+Les cinq rôles canoniques, chaque label portant le nom de son rôle. Voir
+`docs/agents/triage-labels.md`.
+
+### Documentation de domaine
+
+Contexte unique : `CONTEXT.md` et `docs/adr/` à la racine. Voir
+`docs/agents/domain.md`.
+
+### Langue
+
+Les fichiers `docs/agents/` sont repris tels quels des modèles du plugin, donc en
+anglais : ce sont des références de commandes, les recopier fidèlement évite d'y
+introduire une faute. **Toute communication destinée à un humain suit en revanche
+la règle de langue ci-dessus** : titres et corps d'issues, questions posées,
+comptes rendus et fiches de tests s'écrivent en français accentué. Les messages de
+commit restent en anglais.
+
 ## Structure
 
 ```
-LICENSE       # MIT
-README.md     # présentation courte
-CLAUDE.md     # ce fichier
+LICENSE                  # MIT
+README.md                # présentation courte
+CLAUDE.md                # ce fichier
+CONTEXT.md               # glossaire du domaine
+docs/adr/                # décisions d'architecture
+docs/agents/             # configuration lue par les skills d'ingénierie
 .gitignore
 ```

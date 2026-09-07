@@ -22,7 +22,9 @@ export function createClaudeCodeLauncher(): AgentLauncher {
       // runs its whole seam suite without ever opening a real session.
       const { query } = await import("@anthropic-ai/claude-agent-sdk");
 
-      const id = randomUUID();
+      // A resumed session keeps its own id: it is the same conversation, and
+      // squad has that id written on the ticket.
+      const id = request.resumeSessionId ?? randomUUID();
       const prompts = new PromptStream();
       const run = query({
         prompt: prompts.iterate(),
@@ -57,7 +59,13 @@ export function createClaudeCodeLauncher(): AgentLauncher {
 function buildOptions(request: OpenAgentSession, sessionId: string): Options {
   return {
     cwd: request.workingDirectory,
-    sessionId,
+    // Either squad names the session it is opening, or it takes an existing one
+    // back. The SDK refuses both at once unless the resume is meant to fork,
+    // and a fork is exactly what must not happen here: the ticket points at one
+    // session and that is the one to carry on.
+    ...(request.resumeSessionId === undefined
+      ? { sessionId }
+      : { resume: request.resumeSessionId }),
     // Claude Code's own system prompt, never a bare one: a minimal session is a
     // session that has not read the project's conventions. Squad's briefing is
     // appended to it rather than replacing it, for the same reason.

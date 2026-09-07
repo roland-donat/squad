@@ -70,6 +70,11 @@ export function threadOf(state: SquadState, featureId: string): ThreadEntry[] {
   return state.threads.filter((entry) => entry.featureId === featureId && entry.ticketId === null);
 }
 
+/** The thread of a ticket's sub-session, oldest line first. */
+export function ticketThreadOf(state: SquadState, ticketId: string): ThreadEntry[] {
+  return state.threads.filter((entry) => entry.ticketId === ticketId);
+}
+
 /** Whether a feature's main session is running, and can therefore be written to. */
 export function isMainSessionRunning(state: SquadState, featureId: string): boolean {
   return state.mainSessions.some((session) => session.featureId === featureId);
@@ -90,6 +95,13 @@ function apply(state: SquadState, event: SquadEvent): SquadState {
       return { ...state, projects: [...state.projects, event.project] };
     case "feature-opened":
       return { ...state, features: [...state.features, event.feature] };
+    case "feature-changed":
+      return {
+        ...state,
+        features: state.features.map((feature) =>
+          feature.id === event.feature.id ? event.feature : feature,
+        ),
+      };
     case "graph-changed":
       // The whole graph of the feature arrives at once: one added edge can flip
       // the state of tickets it does not touch, so replacing beats patching.

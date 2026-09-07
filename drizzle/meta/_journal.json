@@ -29,6 +29,13 @@
       "when": 1788812982433,
       "tag": "0003_next_mongu",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1788813601496,
+      "tag": "0004_salty_boom_boom",
+      "breakpoints": true
     }
   ]
 }

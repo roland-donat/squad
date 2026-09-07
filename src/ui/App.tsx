@@ -3,17 +3,30 @@ import type { Feature, Project } from "../shared/api";
 import { ApiError, openFeature, registerProject } from "./api";
 import { FeatureGraphView } from "./graph/FeatureGraphView";
 import { MainSessionView } from "./session/MainSessionView";
-import { graphOf, isMainSessionRunning, threadOf, useSquadState } from "./useSquadState";
+import { TicketPanel } from "./ticket/TicketPanel";
+import {
+  graphOf,
+  isMainSessionRunning,
+  threadOf,
+  ticketThreadOf,
+  useSquadState,
+} from "./useSquadState";
 
 export function App() {
   const state = useSquadState();
   const { projects, features, connected } = state;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [openFeatureId, setOpenFeatureId] = useState<string | null>(null);
+  const [openTicketId, setOpenTicketId] = useState<string | null>(null);
   const selected = projects.find((project) => project.id === selectedId) ?? projects[0] ?? null;
   const featuresOfProject = features.filter((feature) => feature.projectId === selected?.id);
   const openedFeature =
     featuresOfProject.find((feature) => feature.id === openFeatureId) ?? featuresOfProject[0] ?? null;
+  const graph = openedFeature ? graphOf(state, openedFeature.id) : null;
+  // Read back from the graph at every render rather than held in state: a ticket
+  // that changes state while its panel is open must show the change, and the
+  // panel must close itself if the ticket leaves the feature being watched.
+  const openedTicket = graph?.tickets.find((ticket) => ticket.id === openTicketId) ?? null;
 
   return (
     <div className="app">
@@ -67,30 +80,45 @@ export function App() {
       <div className="app__feature">
         <section className="panel panel--graph" aria-labelledby="titre-graphe">
           <h2 id="titre-graphe">Graphe</h2>
-          {openedFeature ? (
+          {openedFeature && graph ? (
             <>
               <p className="panel__context">
                 de <strong>{openedFeature.title}</strong>
               </p>
-              <FeatureGraphView graph={graphOf(state, openedFeature.id)} />
+              <FeatureGraphView
+                graph={graph}
+                selectedId={openedTicket?.id ?? null}
+                onSelect={setOpenTicketId}
+              />
             </>
           ) : (
             <p className="empty">Ouvrir une feature pour voir son graphe.</p>
           )}
         </section>
 
-        <section className="panel panel--session" aria-labelledby="titre-session">
-          <h2 id="titre-session">Session principale</h2>
-          {openedFeature ? (
-            <MainSessionView
-              feature={openedFeature}
-              thread={threadOf(state, openedFeature.id)}
-              running={isMainSessionRunning(state, openedFeature.id)}
+        {openedTicket ? (
+          <section className="panel panel--ticket" aria-labelledby="titre-ticket">
+            <h2 id="titre-ticket">Ticket</h2>
+            <TicketPanel
+              ticket={openedTicket}
+              thread={ticketThreadOf(state, openedTicket.id)}
+              onClose={() => setOpenTicketId(null)}
             />
-          ) : (
-            <p className="empty">Ouvrir une feature pour lui parler.</p>
-          )}
-        </section>
+          </section>
+        ) : (
+          <section className="panel panel--session" aria-labelledby="titre-session">
+            <h2 id="titre-session">Session principale</h2>
+            {openedFeature ? (
+              <MainSessionView
+                feature={openedFeature}
+                thread={threadOf(state, openedFeature.id)}
+                running={isMainSessionRunning(state, openedFeature.id)}
+              />
+            ) : (
+              <p className="empty">Ouvrir une feature pour lui parler.</p>
+            )}
+          </section>
+        )}
       </div>
     </div>
   );

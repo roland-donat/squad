@@ -51,6 +51,12 @@ La session claude-code d'un seul ticket, ouverte vierge dans son propre worktree
 Détruite à la validation du ticket, conservée en cas d'échec pour permettre la reprise.
 _Éviter_ : session de ticket, exécuteur, agent, tâche
 
+**Angle de lancement** (`LaunchAngle`) :
+Sous quel angle une sous-session est lancée : `implement` pour construire, `diagnose`
+pour chercher ce qui cloche avant de retoucher quoi que ce soit. L'angle ne se pose
+qu'à la reprise d'un ticket arrêté ; un premier lancement construit.
+_Éviter_ : mode, stratégie, intention
+
 **Étape** (`Step`) :
 Le passage d'un ticket par sa sous-session, du lancement à la validation. Une étape
 se termine par un rapport de fin d'étape, jamais par un simple commit.

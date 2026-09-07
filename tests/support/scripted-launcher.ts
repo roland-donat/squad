@@ -32,7 +32,9 @@ export type AgentScript = (agent: ScriptedAgent) => Promise<void>;
 export function createScriptedLauncher(script: AgentScript): AgentLauncher {
   return {
     async open(request: OpenAgentSession): Promise<AgentSession> {
-      const id = randomUUID();
+      // Like the real launcher: a resumed session answers to the id it is
+      // resuming, so the ticket keeps pointing at one session throughout.
+      const id = request.resumeSessionId ?? randomUUID();
       const events = new EventChannel();
       const messages = new MessageQueue();
       // Held in a box rather than a variable: the script assigns it from inside

@@ -1,20 +1,13 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { Feature, ThreadEntry, ThreadEntryKind } from "../../shared/api";
+import { useState, type FormEvent } from "react";
+import type { Feature, ThreadEntry } from "../../shared/api";
 import { ApiError, sendMainSessionMessage, startMainSession } from "../api";
+import { Thread } from "./Thread";
 
 /**
- * The thread of a feature's main session: what the developer typed, what the
- * agent said, and what it called. The agent's text is shown as it comes; a tool
- * call is folded away behind its name, because the graph already shows what a
- * call to squad wrote and the prose is what has to stay readable.
+ * The thread of a feature's main session, and the one box that both opens it and
+ * writes to it. This is where the spec is pasted, the breakdown adjusted and the
+ * decisions settled; the tickets themselves are built elsewhere.
  */
-
-const kindLabels: Record<ThreadEntryKind, string> = {
-  pilot: "moi",
-  agent: "agent",
-  tool: "outil",
-  notice: "squad",
-};
 
 export function MainSessionView({
   feature,
@@ -33,46 +26,17 @@ export function MainSessionView({
           {running ? "en cours" : "arrêtée"}
         </span>
       </p>
-      <Thread entries={thread} />
+      <Thread
+        entries={thread}
+        empty={
+          <>
+            Fil vide. Coller le spec puis lancer <code>/to-tickets</code> pour faire naître le
+            graphe.
+          </>
+        }
+      />
       <Composer feature={feature} running={running} />
     </>
-  );
-}
-
-function Thread({ entries }: { entries: ThreadEntry[] }) {
-  const list = useRef<HTMLOListElement>(null);
-  // Follows the session as it writes, which is the whole point of watching a
-  // thread: the newest line is the one being read. The list scrolls itself
-  // rather than the newest line scrolling the page under the reader.
-  useEffect(() => {
-    const element = list.current;
-    if (element) element.scrollTop = element.scrollHeight;
-  }, [entries.length]);
-
-  if (entries.length === 0) {
-    return (
-      <p className="empty">
-        Fil vide. Coller le spec puis lancer <code>/to-tickets</code> pour faire naître le graphe.
-      </p>
-    );
-  }
-
-  return (
-    <ol className="thread" ref={list}>
-      {entries.map((entry) => (
-        <li key={entry.id} className="thread__entry" data-kind={entry.kind}>
-          <span className="thread__who">{kindLabels[entry.kind]}</span>
-          {entry.kind === "tool" ? (
-            <details className="thread__tool">
-              <summary>{entry.text}</summary>
-              <pre>{entry.detail ?? "sans argument"}</pre>
-            </details>
-          ) : (
-            <p className="thread__text">{entry.text}</p>
-          )}
-        </li>
-      ))}
-    </ol>
   );
 }
 

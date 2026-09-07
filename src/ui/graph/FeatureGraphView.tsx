@@ -18,6 +18,9 @@ const kindLabels: Record<TicketKind, string> = {
 const stateLabels: Record<TicketState, string> = {
   blocked: "bloqué",
   ready: "prêt",
+  running: "en cours",
+  failed: "arrêté",
+  interrupted: "interrompu",
   "awaiting-decision": "à trancher",
   merged: "fusionné",
 };
@@ -34,7 +37,15 @@ function stateLabel(ticket: Ticket): string {
   return stateLabels[ticket.state];
 }
 
-export function FeatureGraphView({ graph }: { graph: FeatureGraph }) {
+export function FeatureGraphView({
+  graph,
+  selectedId,
+  onSelect,
+}: {
+  graph: FeatureGraph;
+  selectedId: string | null;
+  onSelect: (ticketId: string) => void;
+}) {
   if (graph.tickets.length === 0) {
     return (
       <p className="empty">
@@ -82,20 +93,27 @@ export function FeatureGraphView({ graph }: { graph: FeatureGraph }) {
           </svg>
 
           {layout.nodes.map(({ ticket, x, y }) => (
-            <article
+            // A button, not a card with a click handler: opening a ticket is
+            // reachable from the keyboard and announced as an action. The graph
+            // stays read-only at the gesture; this selects, it never edits.
+            <button
               key={ticket.id}
+              type="button"
               className="node"
               data-kind={ticket.kind}
               data-state={ticket.state}
+              data-selected={ticket.id === selectedId ? "true" : undefined}
+              aria-current={ticket.id === selectedId}
               style={{ left: x, top: y, width: nodeWidth, minHeight: nodeHeight }}
               aria-label={`${ticket.title}, ${kindLabels[ticket.kind]}, ${stateLabel(ticket)}`}
+              onClick={() => onSelect(ticket.id)}
             >
-              <p className="node__title">{ticket.title}</p>
-              <p className="node__chips">
+              <span className="node__title">{ticket.title}</span>
+              <span className="node__chips">
                 <span className="chip chip--kind">{kindLabels[ticket.kind]}</span>
                 <span className="chip chip--state">{stateLabel(ticket)}</span>
-              </p>
-            </article>
+              </span>
+            </button>
           ))}
         </div>
       </div>

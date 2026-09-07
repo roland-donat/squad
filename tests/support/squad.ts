@@ -148,7 +148,7 @@ async function openEventStream(url: URL): Promise<EventStream> {
 export async function openTestFeature(
   squad: TestSquad,
   title: string,
-): Promise<{ project: Project; feature: Feature }> {
+): Promise<{ project: Project; feature: Feature; repository: string }> {
   const repository = await createTemporaryRepository();
   const registered = await squad.request("POST", apiRoutes.projects, { path: repository });
   const { project } = (await registered.json()) as { project: Project };
@@ -157,7 +157,10 @@ export async function openTestFeature(
     title,
   });
   const { feature } = (await opened.json()) as { feature: Feature };
-  return { project, feature };
+  // The path git reports, symlinks resolved: on macOS the temporary directory
+  // is one, and a test comparing worktree paths would compare two spellings of
+  // the same place.
+  return { project, feature, repository: project.path };
 }
 
 /** Waits for the next event of a given type, dropping whatever comes before it. */

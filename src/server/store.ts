@@ -14,6 +14,7 @@ import type {
   ThreadEntryKind,
   Ticket,
   TicketKind,
+  Worktree,
 } from "../shared/api";
 import {
   blockersByTicket,
@@ -32,7 +33,7 @@ import {
   tickets,
 } from "./db/schema";
 import { SquadError } from "./errors";
-import { resolveRepositoryRoot } from "./git";
+import { resolveDefaultBranch, resolveRepositoryRoot } from "./git";
 import { isInside } from "./paths";
 
 /** What an agent hands over when it writes a node of the graph. */
@@ -85,7 +86,7 @@ export class Store {
   listFeatures(projectId?: string): Feature[] {
     const query = this.db.select().from(features).$dynamic();
     if (projectId !== undefined) query.where(eq(features.projectId, projectId));
-    return query.orderBy(sql`rowid`).all();
+    return query.orderBy(sql`rowid`).all().map(toFeature);
   }
 
   storedState(): StoredState {
@@ -171,6 +172,10 @@ export class Store {
 
   async registerProject(input: RegisterProjectBody): Promise<Project> {
     const root = await resolveRepositoryRoot(input.path);
+    // Read now and stored, not read at each use: a repository someone left on
+    // another branch would otherwise silently become the base of the next
+    // feature branch.
+    const defaultBranch = input.defaultBranch ?? (await resolveDefaultBranch(root));
 
     if (isInside(this.dataDir, root)) {
       throw new SquadError(
@@ -184,6 +189,7 @@ export class Store {
       id: randomUUID(),
       name: input.name ?? basename(root),
       path: root,
+      defaultBranch,
       createdAt: new Date().toISOString(),
     };
 
@@ -208,14 +214,19 @@ export class Store {
   openFeature(input: OpenFeatureBody): Feature {
     const project = this.requireProject(input.projectId);
 
-    const feature: Feature = {
+    const row = {
       id: randomUUID(),
       projectId: project.id,
       title: input.title,
+      // Nothing is checked out yet: a feature opened to paste a spec into it
+      // must not cost a checkout of the whole repository. It gets one the first
+      // time one of its tickets is launched.
+      branch: null,
+      worktreePath: null,
       createdAt: new Date().toISOString(),
     };
-    this.db.insert(features).values(feature).run();
-    return feature;
+    this.db.insert(features).values(row).run();
+    return toFeature(row);
   }
 
   requireProject(projectId: string): Project {
@@ -227,11 +238,11 @@ export class Store {
   }
 
   requireFeature(featureId: string): Feature {
-    const feature = this.db.select().from(features).where(eq(features.id, featureId)).get();
-    if (!feature) {
+    const row = this.db.select().from(features).where(eq(features.id, featureId)).get();
+    if (!row) {
       throw new SquadError("feature_not_found", 404, `no feature with id ${featureId}`);
     }
-    return feature;
+    return toFeature(row);
   }
 
   /**
@@ -284,6 +295,9 @@ export class Store {
           lifecycle: "unstarted",
           externalId: null,
           conclusion: null,
+          branch: null,
+          worktreePath: null,
+          sessionId: null,
           createdAt,
         })
         .run();
@@ -354,6 +368,8 @@ export class Store {
         externalId: row.externalId,
         conclusion: row.conclusion,
         state: resolveTicketState(row.kind, row.lifecycle, blockers.get(row.id) ?? [], cleared),
+        worktree: toWorktree(row.branch, row.worktreePath),
+        sessionId: row.sessionId,
         createdAt: row.createdAt,
       })),
       edges: edges.map((edge) => ({
@@ -362,6 +378,88 @@ export class Store {
         blockedId: edge.blockedId,
       })),
     };
+  }
+
+  /** One ticket, with its state computed like every other read of the graph. */
+  requireTicket(ticketId: string): Ticket {
+    const row = this.db.select().from(tickets).where(eq(tickets.id, ticketId)).get();
+    if (!row) {
+      throw new SquadError("ticket_not_found", 404, `no ticket with id ${ticketId}`);
+    }
+    const ticket = this.featureGraph(row.featureId).tickets.find((each) => each.id === ticketId);
+    if (!ticket) throw new Error("a ticket is missing from its own feature graph");
+    return ticket;
+  }
+
+  /** Where a feature's branch lives, written the first time it is checked out. */
+  recordFeatureWorktree(featureId: string, worktree: Worktree): Feature {
+    this.db
+      .update(features)
+      .set({ branch: worktree.branch, worktreePath: worktree.path })
+      .where(eq(features.id, featureId))
+      .run();
+    return this.requireFeature(featureId);
+  }
+
+  recordTicketWorktree(ticketId: string, worktree: Worktree): void {
+    this.db
+      .update(tickets)
+      .set({ branch: worktree.branch, worktreePath: worktree.path })
+      .where(eq(tickets.id, ticketId))
+      .run();
+  }
+
+  /**
+   * Records that a step has begun: a sub-session is carrying the ticket, and
+   * this is the one. The session id is what a later resume runs on, so it is
+   * written the moment the session opens rather than when it first speaks.
+   */
+  startStep(ticketId: string, sessionId: string): Ticket {
+    this.db
+      .update(tickets)
+      .set({ lifecycle: "running", sessionId })
+      .where(eq(tickets.id, ticketId))
+      .run();
+    return this.requireTicket(ticketId);
+  }
+
+  /**
+   * Records that a step stopped without reaching an end. Nothing is cleaned up:
+   * the branch, the worktree and the session id stay on the row, because they
+   * are what a resume starts from.
+   */
+  failStep(ticketId: string): Ticket {
+    this.db.update(tickets).set({ lifecycle: "failed" }).where(eq(tickets.id, ticketId)).run();
+    return this.requireTicket(ticketId);
+  }
+
+  /** Every step the store still believes is running, moved to `interrupted`. */
+  interruptRunningSteps(): Ticket[] {
+    const stranded = this.db
+      .select({ id: tickets.id, featureId: tickets.featureId })
+      .from(tickets)
+      .where(eq(tickets.lifecycle, "running"))
+      .orderBy(sql`rowid`)
+      .all();
+    if (stranded.length === 0) return [];
+    this.db
+      .update(tickets)
+      .set({ lifecycle: "interrupted" })
+      .where(eq(tickets.lifecycle, "running"))
+      .run();
+    // One graph per feature rather than one per ticket: reading a ticket back
+    // computes the states of every ticket around it anyway.
+    const graphs = new Map(
+      [...new Set(stranded.map((row) => row.featureId))].map((featureId) => [
+        featureId,
+        this.featureGraph(featureId),
+      ]),
+    );
+    return stranded.map((row) => {
+      const ticket = graphs.get(row.featureId)?.tickets.find((each) => each.id === row.id);
+      if (!ticket) throw new Error("a ticket is missing from its own feature graph");
+      return ticket;
+    });
   }
 
   private requireTicketOfFeature(ticketId: string, featureId: string): void {
@@ -408,6 +506,32 @@ export class Store {
     }
     return byTicket;
   }
+}
+
+/** A feature row, with its two worktree columns read back as the one thing they are. */
+function toFeature(row: {
+  id: string;
+  projectId: string;
+  title: string;
+  branch: string | null;
+  worktreePath: string | null;
+  createdAt: string;
+}): Feature {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    title: row.title,
+    worktree: toWorktree(row.branch, row.worktreePath),
+    createdAt: row.createdAt,
+  };
+}
+
+/**
+ * The two columns read back as the one thing they are. They are written
+ * together and only together, so either both are there or neither is.
+ */
+function toWorktree(branch: string | null, path: string | null): Worktree | null {
+  return branch === null || path === null ? null : { branch, path };
 }
 
 function isUniqueViolation(cause: unknown): boolean {

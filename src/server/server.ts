@@ -11,7 +11,9 @@ import { buildApiRouter } from "./http";
 import { resolveDataDir } from "./paths";
 import { MainSessions } from "./sessions";
 import { Store } from "./store";
+import { SubSessions } from "./sub-sessions";
 import { mountUi, type UiMode } from "./ui";
+import { Worktrees } from "./worktrees";
 
 export interface SquadServerOptions {
   /** Defaults to the user's data directory; the seam tests pass a temporary one. */
@@ -54,28 +56,39 @@ export async function startSquadServer(
   // opens need it to point their agents back at its MCP endpoint. Read late, on
   // the first session opened, hence long after the assignment below.
   let baseUrl = "";
-  const mainSessions = new MainSessions({
+  const mcpUrl = () => new URL(apiRoutes.mcp, baseUrl).toString();
+  const launcher = options.launcher ?? createClaudeCodeLauncher();
+  const mainSessions = new MainSessions({ store, bus, launcher, mcpUrl });
+  const subSessions = new SubSessions({
     store,
     bus,
-    launcher: options.launcher ?? createClaudeCodeLauncher(),
-    mcpUrl: () => new URL(apiRoutes.mcp, baseUrl).toString(),
+    launcher,
+    worktrees: new Worktrees(store, bus, dataDir),
+    mcpUrl,
   });
+  // Before anything is served: a ticket the previous run left saying `running`
+  // has no process behind it any more, and no client should ever be handed a
+  // state squad already knows to be false.
+  const stranded = subSessions.markInterrupted();
 
   const app = express();
-  app.use(buildApiRouter({ store, bus, mainSessions }));
+  app.use(buildApiRouter({ store, bus, mainSessions, subSessions }));
   const ui = await mountUi(app, options.ui ?? "auto");
 
   const server = createServer(app);
   await listen(server, port, host);
   const address = server.address() as AddressInfo;
   baseUrl = `http://${host}:${address.port}`;
+  // Once squad has an address to point them at: the sub-sessions taken back
+  // here reach squad's tools over this very port.
+  subSessions.takeBack(stranded);
 
   return {
     url: baseUrl,
     port: address.port,
     dataDir,
     async close() {
-      await mainSessions.stopAll();
+      await Promise.all([mainSessions.stopAll(), subSessions.stopAll()]);
       // Event streams are long lived by design: without this, closing the
       // server would wait for every open browser tab to go away.
       server.closeAllConnections();

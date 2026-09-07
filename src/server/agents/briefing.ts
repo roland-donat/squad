@@ -20,7 +20,7 @@ export function mainSessionBriefing(feature: Feature): string {
     "",
     `- \`${squadToolName(squadTools.createTicket)}\` adds one ticket: its kind, title, description, acceptance criteria and blocking edges. Pass \`featureId: "${feature.id}"\` on every call. Create tickets in dependency order, blockers first, so each blocking edge can name a ticket that already exists.`,
     `- \`${squadToolName(squadTools.readGraph)}\` returns the whole graph with each ticket's computed state. Read it before adding to a graph you did not just write.`,
-    `- \`${squadToolName(squadTools.settleDecision)}\` closes a decision ticket on the conclusion the developer reached, which releases the tickets it was blocking.`,
+    `- \`${squadToolName(squadTools.settleDecision)}\` closes a decision ticket on the conclusion the developer reached, which releases the tickets it was blocking. It takes the same \`featureId\`, and settles nothing outside this feature.`,
     "",
     "A ticket carries a kind: `build` for a vertical slice to construct, `decision` for a question only the developer can answer, `fix` for a correction born of a red check. A `decision` ticket is never implemented and never opens a session of its own: it waits in the graph until the developer settles it in this thread. The moment they do, call the settle tool with their conclusion in their own terms, in enough detail for a fresh session to act on it without reading this thread. Squad parses no prose: a decision you do not write through that tool never reaches the graph.",
     "",

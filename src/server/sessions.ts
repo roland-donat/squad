@@ -5,6 +5,9 @@ import { SquadError } from "./errors";
 import type { EventBus } from "./events";
 import type { Store } from "./store";
 
+/** One line to write on a thread, before squad says which thread. */
+type ThreadLine = Pick<ThreadEntry, "kind" | "text"> & { detail?: string | null };
+
 export interface MainSessionDependencies {
   store: Store;
   bus: EventBus;
@@ -26,6 +29,10 @@ export interface MainSessionDependencies {
  */
 export class MainSessions {
   private readonly running = new Map<string, AgentSession>();
+  // Held so shutdown can wait for them: a drain still writing when the database
+  // closes loses the last thing the session had to say, which is exactly the
+  // line worth keeping when a session died rather than finished.
+  private readonly draining = new Set<Promise<void>>();
 
   constructor(private readonly dependencies: MainSessionDependencies) {}
 
@@ -60,7 +67,9 @@ export class MainSessions {
     bus.publish({ type: "main-session-started", featureId: feature.id, sessionId: session.id });
     // Drained before the prompt goes in, so nothing the session says on its way
     // up can be emitted into an audience that is not listening yet.
-    void this.drain(feature.id, session);
+    const drained = this.drain(feature.id, session);
+    this.draining.add(drained);
+    void drained.then(() => this.draining.delete(drained));
     if (prompt !== undefined) await this.hand(feature.id, session, prompt);
     return session;
   }
@@ -82,6 +91,7 @@ export class MainSessions {
 
   async stopAll(): Promise<void> {
     await Promise.all([...this.running.values()].map((session) => session.stop()));
+    await Promise.all([...this.draining]);
   }
 
   /**
@@ -111,6 +121,15 @@ export class MainSessions {
       detail = failure instanceof Error ? failure.message : String(failure);
     } finally {
       this.running.delete(featureId);
+      // Why the thread went quiet, on the thread itself. Without it the
+      // interface only shows a session that is no longer running, and a
+      // launcher that could not start at all reads exactly like one that
+      // finished its work: the failure that costs a night is the silent one.
+      this.append(featureId, session.id, {
+        kind: "notice",
+        text: outcome === "failed" ? "the session failed" : "the session ended",
+        ...(detail === undefined ? {} : { detail }),
+      });
       bus.publish({
         type: "main-session-ended",
         featureId,
@@ -121,11 +140,7 @@ export class MainSessions {
     }
   }
 
-  private append(
-    featureId: string,
-    sessionId: string,
-    line: { kind: ThreadEntry["kind"]; text: string; detail?: string | null },
-  ): void {
+  private append(featureId: string, sessionId: string, line: ThreadLine): void {
     const { store, bus } = this.dependencies;
     const entry = store.appendThreadEntry({ featureId, sessionId, ...line });
     bus.publish({ type: "thread-appended", entry });
@@ -133,9 +148,7 @@ export class MainSessions {
 }
 
 /** What one event of a session becomes on its thread. */
-function lineOf(
-  event: Exclude<AgentEvent, { type: "ended" }>,
-): { kind: ThreadEntry["kind"]; text: string; detail?: string | null } {
+function lineOf(event: Exclude<AgentEvent, { type: "ended" }>): ThreadLine {
   switch (event.type) {
     case "text":
       return { kind: "agent", text: event.text };
@@ -146,6 +159,6 @@ function lineOf(
         detail: event.input === undefined ? null : JSON.stringify(event.input, null, 2),
       };
     case "notice":
-      return { kind: "notice", text: event.text, detail: event.detail ?? null };
+      return { kind: "notice", text: event.text };
   }
 }

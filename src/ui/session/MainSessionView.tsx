@@ -40,11 +40,13 @@ export function MainSessionView({
 }
 
 function Thread({ entries }: { entries: ThreadEntry[] }) {
-  const bottom = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLOListElement>(null);
   // Follows the session as it writes, which is the whole point of watching a
-  // thread: the newest line is the one being read.
+  // thread: the newest line is the one being read. The list scrolls itself
+  // rather than the newest line scrolling the page under the reader.
   useEffect(() => {
-    bottom.current?.scrollIntoView({ block: "end" });
+    const element = list.current;
+    if (element) element.scrollTop = element.scrollHeight;
   }, [entries.length]);
 
   if (entries.length === 0) {
@@ -56,7 +58,7 @@ function Thread({ entries }: { entries: ThreadEntry[] }) {
   }
 
   return (
-    <ol className="thread">
+    <ol className="thread" ref={list}>
       {entries.map((entry) => (
         <li key={entry.id} className="thread__entry" data-kind={entry.kind}>
           <span className="thread__who">{kindLabels[entry.kind]}</span>
@@ -70,7 +72,6 @@ function Thread({ entries }: { entries: ThreadEntry[] }) {
           )}
         </li>
       ))}
-      <div ref={bottom} />
     </ol>
   );
 }

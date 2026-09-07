@@ -31,6 +31,7 @@ et des jobs CI).
 | Flux d'événements | SSE, une seule route `/api/events` |
 | Validation | Zod 4, schémas partagés entre serveur et interface |
 | Outils agents | Serveur MCP (`@modelcontextprotocol/sdk`), monté sur la même origine |
+| Sessions agents | SDK agent officiel (`@anthropic-ai/claude-agent-sdk`), en entrée en flux |
 | Base | SQLite (`better-sqlite3`), sous le répertoire de données de l'utilisateur |
 | Schéma et migrations | Drizzle ORM, migrations générées sous `drizzle/` |
 | Interface | React 19, Vite |

@@ -49,7 +49,7 @@ export const tickets = sqliteTable(
     kind: text("kind", { enum: ticketKinds }).notNull(),
     title: text("title").notNull(),
     description: text("description").notNull(),
-    /** `unstarted` or `merged` for now, and one more value per execution state to come. */
+    /** `unstarted`, `merged` or `settled`, and one more value per execution state to come. */
     lifecycle: text("lifecycle", { enum: ticketLifecycles }).notNull().default("unstarted"),
     /** Reserved for a projection towards an issue tracker, never written (ADR 0001). */
     externalId: text("external_id"),

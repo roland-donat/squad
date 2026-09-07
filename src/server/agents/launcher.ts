@@ -45,7 +45,7 @@ export interface OpenAgentSession {
 export type AgentEvent =
   | { type: "text"; text: string }
   | { type: "tool-call"; tool: string; input?: unknown }
-  | { type: "notice"; text: string; detail?: string }
+  | { type: "notice"; text: string }
   | { type: "ended"; outcome: AgentSessionOutcome; detail?: string };
 
 export interface AgentSession {

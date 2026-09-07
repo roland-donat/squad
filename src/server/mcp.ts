@@ -22,16 +22,18 @@ import type { Store } from "./store";
  */
 export const squadMcpServerName = "squad";
 
-/** A squad tool as a session sees it, prefix and all. */
-export function squadToolName(tool: string): string {
-  return `mcp__${squadMcpServerName}__${tool}`;
-}
-
 export const squadTools = {
   createTicket: "create_ticket",
   settleDecision: "settle_decision",
   readGraph: "read_graph",
 } as const;
+
+export type SquadTool = (typeof squadTools)[keyof typeof squadTools];
+
+/** A squad tool as a session sees it, prefix and all. */
+export function squadToolName(tool: SquadTool): string {
+  return `mcp__${squadMcpServerName}__${tool}`;
+}
 
 const createTicketShape = {
   featureId: z.string().min(1).describe("The feature whose graph this ticket belongs to."),
@@ -57,6 +59,7 @@ const createTicketShape = {
 };
 
 const settleDecisionShape = {
+  featureId: z.string().min(1).describe("The feature the decision ticket belongs to."),
   ticketId: z.string().min(1).describe("The decision ticket the developer has just settled."),
   conclusion: z
     .string()

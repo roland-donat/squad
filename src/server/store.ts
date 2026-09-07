@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
-import { asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type {
   AcceptanceCriterion,
   BlockingEdge,
@@ -15,7 +15,13 @@ import type {
   Ticket,
   TicketKind,
 } from "../shared/api";
-import { blockersByTicket, findCycle, resolveTicketState, type GraphEdge } from "../shared/graph";
+import {
+  blockersByTicket,
+  findCycle,
+  holdsNothingBack,
+  resolveTicketState,
+  type GraphEdge,
+} from "../shared/graph";
 import type { SquadDatabase } from "./db/open";
 import {
   acceptanceCriteria,
@@ -44,6 +50,8 @@ export interface CreateTicketInput {
 
 /** What settling a decision records on the ticket that was waiting. */
 export interface SettleDecisionInput {
+  /** The feature the ticket belongs to: a session only settles its own graph. */
+  featureId: string;
   ticketId: string;
   conclusion: string;
 }
@@ -113,15 +121,26 @@ export class Store {
   }
 
   /**
-   * Closes a decision on the conclusion the developer reached. A settled
-   * decision counts as merged, which is what releases the tickets it was
-   * holding back: the graph has one rule for "this no longer blocks", and a
-   * decision that was taken has to fall under it like anything else.
+   * Closes a decision on the conclusion the developer reached. The record says
+   * `settled`, since nothing was merged anywhere, and the graph reads it as a
+   * ticket that holds nothing back, which is what releases the tickets that were
+   * waiting on the answer.
    */
   settleDecision(input: SettleDecisionInput): Ticket {
-    const ticket = this.db.select().from(tickets).where(eq(tickets.id, input.ticketId)).get();
+    // Looked up within its feature rather than by id alone: a session is opened
+    // on one feature, and nothing it says should be able to close a decision
+    // taken on another.
+    const ticket = this.db
+      .select()
+      .from(tickets)
+      .where(and(eq(tickets.id, input.ticketId), eq(tickets.featureId, input.featureId)))
+      .get();
     if (!ticket) {
-      throw new SquadError("ticket_not_found", 404, `no ticket with id ${input.ticketId}`);
+      throw new SquadError(
+        "ticket_not_found",
+        404,
+        `no ticket with id ${input.ticketId} in feature ${input.featureId}`,
+      );
     }
     if (ticket.kind !== "decision") {
       throw new SquadError(
@@ -140,7 +159,7 @@ export class Store {
 
     this.db
       .update(tickets)
-      .set({ lifecycle: "merged", conclusion: input.conclusion })
+      .set({ lifecycle: "settled", conclusion: input.conclusion })
       .where(eq(tickets.id, ticket.id))
       .run();
 
@@ -319,7 +338,9 @@ export class Store {
       rows.map((row) => row.id),
       edges,
     );
-    const merged = new Set(rows.filter((row) => row.lifecycle === "merged").map((row) => row.id));
+    const cleared = new Set(
+      rows.filter((row) => holdsNothingBack(row.lifecycle)).map((row) => row.id),
+    );
 
     return {
       featureId: feature.id,
@@ -332,7 +353,7 @@ export class Store {
         acceptanceCriteria: criteria.get(row.id) ?? [],
         externalId: row.externalId,
         conclusion: row.conclusion,
-        state: resolveTicketState(row.kind, row.lifecycle, blockers.get(row.id) ?? [], merged),
+        state: resolveTicketState(row.kind, row.lifecycle, blockers.get(row.id) ?? [], cleared),
         createdAt: row.createdAt,
       })),
       edges: edges.map((edge) => ({

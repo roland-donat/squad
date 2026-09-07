@@ -51,6 +51,14 @@ describe("a decision ticket, from the graph to its conclusion", () => {
     }
   }
 
+  /** The whole thread of a feature, as a fresh connection is handed it. */
+  async function readThread(featureId: string): Promise<ThreadEntry[]> {
+    const stream = await squad.openEventStream();
+    const snapshot = await stream.next();
+    if (snapshot.type !== "snapshot") throw new Error("the first event is always a snapshot");
+    return snapshot.threads.filter((entry) => entry.featureId === featureId);
+  }
+
   function ticketNamed(graph: FeatureGraph, title: string): Ticket {
     const ticket = graph.tickets.find((each) => each.title === title);
     if (!ticket) throw new Error(`no ticket titled ${title} in the graph`);
@@ -80,6 +88,7 @@ describe("a decision ticket, from the graph to its conclusion", () => {
       const answer = await agent.awaitMessage();
       expect(answer).toContain("couches");
       await agent.call("settle_decision", {
+        featureId: agent.request.featureId,
         ticketId: decision.id,
         conclusion: `En couches. ${answer}`,
       });
@@ -124,6 +133,7 @@ describe("a decision ticket, from the graph to its conclusion", () => {
         description: "",
       })) as Ticket;
       const outcome = await agent.attempt("settle_decision", {
+        featureId: agent.request.featureId,
         ticketId: build.id,
         conclusion: "on tranche",
       });
@@ -150,8 +160,13 @@ describe("a decision ticket, from the graph to its conclusion", () => {
         title: "Quelle base",
         description: "",
       })) as Ticket;
-      await agent.call("settle_decision", { ticketId: decision.id, conclusion: "SQLite" });
+      await agent.call("settle_decision", {
+        featureId: agent.request.featureId,
+        ticketId: decision.id,
+        conclusion: "SQLite",
+      });
       const outcome = await agent.attempt("settle_decision", {
+        featureId: agent.request.featureId,
         ticketId: decision.id,
         conclusion: "Postgres",
       });
@@ -178,7 +193,11 @@ describe("a decision ticket, from the graph to its conclusion", () => {
       })) as Ticket;
       agent.say("Une décision à prendre.");
       await agent.awaitMessage();
-      await agent.call("settle_decision", { ticketId: decision.id, conclusion: "SQLite" });
+      await agent.call("settle_decision", {
+        featureId: agent.request.featureId,
+        ticketId: decision.id,
+        conclusion: "SQLite",
+      });
     });
 
     await squad.request("POST", mainSessionRoute(featureId), { prompt: "/to-tickets" });
@@ -203,13 +222,16 @@ describe("a decision ticket, from the graph to its conclusion", () => {
     const snapshot = await reconnected.next();
     if (snapshot.type !== "snapshot") throw new Error("the first event is always a snapshot");
 
-    const thread = snapshot.threads.filter((entry: ThreadEntry) => entry.featureId === featureId);
+    const thread = snapshot.threads.filter((entry) => entry.featureId === featureId);
     expect(thread.map((entry) => `${entry.kind}:${entry.text}`)).toEqual([
       "pilot:/to-tickets",
       "tool:create_ticket",
       "agent:Une décision à prendre.",
       "pilot:SQLite",
       "tool:settle_decision",
+      // Why the thread stopped: a session that went quiet without saying so
+      // reads exactly like one that is still thinking.
+      "notice:the session ended",
     ]);
     // A tool call is folded away in the interface, so what it was called with
     // has to travel with it: nothing else would be left to unfold.
@@ -217,6 +239,54 @@ describe("a decision ticket, from the graph to its conclusion", () => {
     expect(call?.detail).toContain("SQLite");
     // Nothing is running any more, so nothing offers to take a message.
     expect(snapshot.mainSessions).toEqual([]);
+  });
+
+  it("refuses to settle a decision that belongs to another feature", async () => {
+    let refusal = "";
+    const { featureId, stream } = await start(async (agent) => {
+      await agent.awaitMessage();
+      // A session is opened on one feature. Nothing it says should be able to
+      // close a decision taken on another, whatever id it puts in the call.
+      const elsewhere = (await agent.call("create_ticket", {
+        featureId: agent.request.featureId,
+        kind: "decision",
+        title: "Chez moi",
+        description: "",
+      })) as Ticket;
+      const outcome = await agent.attempt("settle_decision", {
+        featureId: "une-autre-feature",
+        ticketId: elsewhere.id,
+        conclusion: "tranché depuis ailleurs",
+      });
+      expect(outcome.refused).toBe(true);
+      refusal = outcome.text;
+    });
+
+    await squad.request("POST", mainSessionRoute(featureId), { prompt: "/to-tickets" });
+    await waitForEvent(stream, "main-session-ended");
+
+    expect(refusal).toContain("une-autre-feature");
+    const graph = await readGraph(featureId);
+    expect(ticketNamed(graph, "Chez moi").state).toBe("awaiting-decision");
+    expect(ticketNamed(graph, "Chez moi").conclusion).toBeNull();
+  });
+
+  it("says on the thread why a session stopped answering", async () => {
+    const { featureId, stream } = await start(async (agent) => {
+      await agent.awaitMessage();
+      throw new Error("claude-code n'a pas démarré");
+    });
+
+    await squad.request("POST", mainSessionRoute(featureId), { prompt: "/to-tickets" });
+    await waitForEvent(stream, "main-session-ended");
+
+    const thread = await readThread(featureId);
+    const last = thread.at(-1);
+    expect(last?.kind).toBe("notice");
+    expect(last?.text).toBe("the session failed");
+    // The reason, and not just the fact: a launcher that could not start at all
+    // otherwise reads exactly like a session that finished its work.
+    expect(last?.detail).toContain("claude-code");
   });
 
   it("refuses a message when no main session is running", async () => {

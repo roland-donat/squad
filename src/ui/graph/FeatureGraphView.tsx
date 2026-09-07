@@ -23,12 +23,14 @@ const stateLabels: Record<TicketState, string> = {
 };
 
 /**
- * A settled decision is recorded as merged, because that is what releases the
- * tickets it held back, but nothing of it was ever merged into a branch: saying
- * so on the node would be a lie the reader has no way to catch.
+ * A settled decision reaches the state `merged`, because that is what releases
+ * the tickets it held back, but nothing of it was ever merged into a branch:
+ * saying so on the node would be a lie the reader has no way to catch. The
+ * wording follows the conclusion the server recorded, so this reads a declared
+ * field rather than working a state out for itself.
  */
 function stateLabel(ticket: Ticket): string {
-  if (ticket.kind === "decision" && ticket.state === "merged") return "tranché";
+  if (ticket.conclusion !== null) return "tranché";
   return stateLabels[ticket.state];
 }
 

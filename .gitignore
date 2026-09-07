@@ -1,0 +1,26 @@
+# Artefacts de debug et de travail
+# Convention personnelle : traces, dumps et captures vivent sous /tmp, jamais
+# dans le dépôt. Ces motifs ne sont qu'un filet de sécurité.
+*.log
+*.tmp
+/tmp/
+
+# Maquettes d'interface : artefacts de conception jetables, jamais versionnés.
+docs/mockups/
+
+# Secrets
+.env
+.env.*
+!.env.example
+secrets.env
+
+# Éditeurs et systèmes
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Réglages Claude Code propres au poste
+.claude/settings.local.json
+CLAUDE.local.md

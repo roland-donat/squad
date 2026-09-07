@@ -63,16 +63,33 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
     description: "À trancher.",
     blockedBy: [mcp.id],
   });
+  // Nothing blocks this one, so it is waiting on the developer right now: it is
+  // what the indicator has to list.
+  await tools.call("create_ticket", {
+    featureId: feature.id,
+    kind: "decision",
+    title: "Quelle base",
+    description: "SQLite ou autre.",
+  });
   await tools.close();
 
-  // Three nodes and the two arrows between them, without a reload: the graph
+  // Four nodes and the two arrows between them, without a reload: the graph
   // arrives on the event stream while it is being written.
   const nodes = page.getByRole("region", { name: "Graphe" }).getByRole("button");
-  await expect(nodes).toHaveCount(3);
+  await expect(nodes).toHaveCount(4);
   await expect(page.getByLabel("Le store, construction, prêt")).toBeVisible();
   await expect(page.getByLabel("Les outils MCP, construction, bloqué")).toBeVisible();
   await expect(page.getByLabel("Quelle disposition, décision, bloqué")).toBeVisible();
   await expect(page.locator(".graph__edge")).toHaveCount(2);
+
+  // The indicator lists what waits on the developer, and opens it: the decision
+  // nothing blocks is there, the one still blocked is not.
+  const waiting = page.getByRole("region", { name: "En attente de moi" });
+  await expect(waiting.getByRole("button")).toHaveCount(1);
+  const entry = waiting.getByRole("button", { name: /Quelle base/ });
+  await expect(entry).toContainText("décision à trancher");
+  await entry.click();
+  await expect(page.getByRole("region", { name: "Ticket" }).getByText("SQLite ou autre.")).toBeVisible();
 
   // Clicking a node opens the ticket: what it asks for, and the thread of the
   // sub-session that will build it. Nothing is launched here, since this
@@ -92,5 +109,5 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
 
   // The state lives on the server, so it survives a reload of the page.
   await page.reload();
-  await expect(nodes).toHaveCount(3);
+  await expect(nodes).toHaveCount(4);
 });

@@ -45,7 +45,12 @@ describe("the graph an agent writes through the MCP tools", () => {
   }
 
   it("exposes the tools an agent needs to write and read the graph", async () => {
-    expect(await tools.listTools()).toEqual(["create_ticket", "read_graph", "settle_decision"]);
+    expect(await tools.listTools()).toEqual([
+      "create_ticket",
+      "read_graph",
+      "report_step",
+      "settle_decision",
+    ]);
   });
 
   it("writes a ticket with its kind, its criteria and its reserved external identifier", async () => {

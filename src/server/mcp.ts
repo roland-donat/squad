@@ -3,6 +3,8 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { RequestHandler } from "express";
 import { z } from "zod";
 import { ticketKinds } from "../shared/api";
+import { sheetIsWaiting } from "../shared/pending";
+import { alertFor, type Alerts } from "./alerts";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
 import type { Store } from "./store";
@@ -24,6 +26,7 @@ export const squadMcpServerName = "squad";
 
 export const squadTools = {
   createTicket: "create_ticket",
+  reportStep: "report_step",
   settleDecision: "settle_decision",
   readGraph: "read_graph",
 } as const;
@@ -58,6 +61,44 @@ const createTicketShape = {
     .describe("Tickets of the same feature this one must be merged before."),
 };
 
+const reportStepShape = {
+  featureId: z.string().min(1).describe("The feature the ticket belongs to."),
+  ticketId: z.string().min(1).describe("The ticket whose step you are ending."),
+  summary: z
+    .string()
+    .trim()
+    .min(1)
+    .describe("What you built and how, in a few lines, for someone who did not watch."),
+  coverage: z
+    .array(
+      z.object({
+        criterionId: z
+          .string()
+          .min(1)
+          .describe("The id of the acceptance criterion, as handed to you with the ticket."),
+        covered: z
+          .boolean()
+          .describe(
+            "True when an automatic test you wrote or ran actually checks this criterion. False when only a human can tell.",
+          ),
+      }),
+    )
+    .describe(
+      "One entry per acceptance criterion of the ticket, exactly once each and none other. Every criterion you declare uncovered becomes a point the developer checks by hand.",
+    ),
+  suggestions: z
+    .array(z.string().trim().min(1))
+    .default([])
+    .describe(
+      "Points you suggest checking by hand beyond the criteria: what the ticket did not foresee and you would look at yourself.",
+    ),
+  recommendation: z
+    .string()
+    .trim()
+    .min(1)
+    .describe("What you recommend doing next, in one or two sentences."),
+};
+
 const settleDecisionShape = {
   featureId: z.string().min(1).describe("The feature the decision ticket belongs to."),
   ticketId: z.string().min(1).describe("The decision ticket the developer has just settled."),
@@ -77,6 +118,7 @@ const readGraphShape = {
 export interface McpDependencies {
   store: Store;
   bus: EventBus;
+  alerts: Alerts;
 }
 
 /**
@@ -97,7 +139,7 @@ export function buildMcpHandler(dependencies: McpDependencies): RequestHandler {
   };
 }
 
-function buildMcpServer({ store, bus }: McpDependencies): McpServer {
+function buildMcpServer({ store, bus, alerts }: McpDependencies): McpServer {
   const server = new McpServer({ name: "squad", version: "0.1.0" });
 
   server.registerTool(
@@ -112,6 +154,28 @@ function buildMcpServer({ store, bus }: McpDependencies): McpServer {
       answer(() => {
         const ticket = store.createTicket(input);
         bus.publish({ type: "graph-changed", graph: store.featureGraph(input.featureId) });
+        return ticket;
+      }),
+  );
+
+  server.registerTool(
+    squadTools.reportStep,
+    {
+      title: "Report the end of a step",
+      description:
+        "Ends the step of a ticket: what you built, whether an automatic test covers each acceptance criterion, what you suggest checking by hand, and what you recommend doing next. The criteria you declare uncovered, plus your suggestions, become the test sheet the developer goes through. Reporting puts the ticket in awaiting-validation; stay available afterwards, since what a point fails on comes back to you. A step you do not report through this tool is a step squad has to ask you about again: it never concludes a ticket is done because a session stopped.",
+      inputSchema: reportStepShape,
+    },
+    async (input) =>
+      answer(() => {
+        const ticket = store.recordStepReport(input);
+        bus.publish({ type: "graph-changed", graph: store.featureGraph(ticket.featureId) });
+        // An empty sheet stops nothing: it says the criteria are all covered and
+        // there is nothing for a human to look at, so nobody is woken for it.
+        // The same rule decides what the indicator lists, and it lives in one place.
+        if (sheetIsWaiting(ticket.stepReport)) {
+          alerts.raise(alertFor.testSheetWaiting(ticket.title));
+        }
         return ticket;
       }),
   );

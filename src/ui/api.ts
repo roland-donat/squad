@@ -3,6 +3,7 @@ import {
   mainSessionMessagesRoute,
   mainSessionRoute,
   ticketSessionRoute,
+  ticketTestSheetRoute,
   type ApiErrorBody,
   type ErrorCode,
   type Feature,
@@ -10,6 +11,7 @@ import {
   type OpenFeatureBody,
   type Project,
   type RegisterProjectBody,
+  type ReviewTestSheetBody,
   type SendMainSessionMessageBody,
   type StartMainSessionBody,
 } from "../shared/api";
@@ -43,6 +45,11 @@ const wording: Record<ErrorCode, string> = {
   ticket_not_launchable:
     "Ce ticket ne peut pas partir : une décision se tranche, et un ticket bloqué attend la fusion de ses bloqueurs.",
   sub_session_already_running: "La sous-session de ce ticket tourne déjà.",
+  no_step_in_progress: "Aucune sous-session ne tourne sur ce ticket : il n'y a pas d'étape à clore.",
+  coverage_mismatch:
+    "Le rapport doit dire, pour chaque critère d'acceptation du ticket et pour ceux-là seuls, s'il est couvert par un test automatique.",
+  test_sheet_not_found: "Ce ticket n'a pas encore de fiche de tests.",
+  test_sheet_already_reviewed: "Cette fiche de tests a déjà été passée en revue.",
   not_found: "Cette route n'existe pas.",
   data_directory_inside_project:
     "La base de squad se trouve dans ce dépôt : squad refuse de piloter un dépôt qui la contient.",
@@ -92,6 +99,18 @@ export async function sendMainSessionMessage(
  */
 export async function launchTicket(ticketId: string, angle: LaunchAngle): Promise<void> {
   await send(ticketSessionRoute(ticketId), { angle });
+}
+
+/**
+ * Hands back the test sheet the developer went through: a verdict and a comment
+ * per point, plus a general return. Nothing comes back here: the ticket changes
+ * on the event stream like everything else.
+ */
+export async function reviewTestSheet(
+  ticketId: string,
+  body: ReviewTestSheetBody,
+): Promise<void> {
+  await send(ticketTestSheetRoute(ticketId), body);
 }
 
 async function send<T>(route: string, body: unknown): Promise<T> {

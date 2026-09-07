@@ -1,19 +1,24 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import type {
   AcceptanceCriterion,
   BlockingEdge,
+  CriterionCoverage,
   Feature,
   FeatureGraph,
   OpenFeatureBody,
   Project,
   RegisterProjectBody,
+  Settings,
+  StepReport,
   StoredState,
+  TestSheetPoint,
   ThreadEntry,
   ThreadEntryKind,
   Ticket,
   TicketKind,
+  UpdateSettingsBody,
   Worktree,
 } from "../shared/api";
 import {
@@ -27,8 +32,12 @@ import type { SquadDatabase } from "./db/open";
 import {
   acceptanceCriteria,
   blockingEdges,
+  criterionCoverage,
   features,
   projects,
+  settings,
+  stepReports,
+  testSheetPoints,
   threadEntries,
   tickets,
 } from "./db/schema";
@@ -55,6 +64,27 @@ export interface SettleDecisionInput {
   featureId: string;
   ticketId: string;
   conclusion: string;
+}
+
+/** What a sub-session hands over when its step ends. */
+export interface RecordStepReportInput {
+  /** The feature the ticket belongs to: a session only reports on its own graph. */
+  featureId: string;
+  ticketId: string;
+  summary: string;
+  recommendation: string;
+  /** One entry per acceptance criterion of the ticket, no more and no fewer. */
+  coverage: Array<{ criterionId: string; covered: boolean }>;
+  /** What the agent suggests checking by hand beyond the criteria. */
+  suggestions: string[];
+}
+
+/** What the developer says of a test sheet once they have been through it. */
+export interface ReviewTestSheetInput {
+  ticketId: string;
+  /** Empty means nothing general was said. */
+  feedback: string;
+  points: Array<{ id: string; passed: boolean; comment: string }>;
 }
 
 /** One line to write on a session thread. */
@@ -96,6 +126,7 @@ export class Store {
       features: openFeatures,
       graphs: openFeatures.map((feature) => this.featureGraph(feature.id)),
       threads: this.listThreadEntries(),
+      settings: this.settings(),
     };
   }
 
@@ -128,21 +159,7 @@ export class Store {
    * waiting on the answer.
    */
   settleDecision(input: SettleDecisionInput): Ticket {
-    // Looked up within its feature rather than by id alone: a session is opened
-    // on one feature, and nothing it says should be able to close a decision
-    // taken on another.
-    const ticket = this.db
-      .select()
-      .from(tickets)
-      .where(and(eq(tickets.id, input.ticketId), eq(tickets.featureId, input.featureId)))
-      .get();
-    if (!ticket) {
-      throw new SquadError(
-        "ticket_not_found",
-        404,
-        `no ticket with id ${input.ticketId} in feature ${input.featureId}`,
-      );
-    }
+    const ticket = this.requireTicketIn(input.featureId, input.ticketId);
     if (ticket.kind !== "decision") {
       throw new SquadError(
         "ticket_not_a_decision",
@@ -347,6 +364,7 @@ export class Store {
       .all();
     const edges = this.readEdges(feature.id);
     const criteria = this.readAcceptanceCriteria(rows.map((row) => row.id));
+    const reports = this.readStepReports(rows.map((row) => row.id));
 
     const blockers = blockersByTicket(
       rows.map((row) => row.id),
@@ -370,6 +388,7 @@ export class Store {
         state: resolveTicketState(row.kind, row.lifecycle, blockers.get(row.id) ?? [], cleared),
         worktree: toWorktree(row.branch, row.worktreePath),
         sessionId: row.sessionId,
+        stepReport: reports.get(row.id) ?? null,
         createdAt: row.createdAt,
       })),
       edges: edges.map((edge) => ({
@@ -388,6 +407,24 @@ export class Store {
     }
     const ticket = this.featureGraph(row.featureId).tickets.find((each) => each.id === ticketId);
     if (!ticket) throw new Error("a ticket is missing from its own feature graph");
+    return ticket;
+  }
+
+  /**
+   * One ticket of one feature, which is how every write a session makes is
+   * looked up: a session is opened on one feature, and nothing it says should
+   * be able to reach a ticket of another. A ticket of another feature reads as
+   * absent rather than as forbidden, since from where the session stands it is.
+   */
+  private requireTicketIn(featureId: string, ticketId: string): Ticket {
+    const ticket = this.featureGraph(featureId).tickets.find((each) => each.id === ticketId);
+    if (!ticket) {
+      throw new SquadError(
+        "ticket_not_found",
+        404,
+        `no ticket with id ${ticketId} in feature ${featureId}`,
+      );
+    }
     return ticket;
   }
 
@@ -462,6 +499,198 @@ export class Store {
     });
   }
 
+  /**
+   * Records the end of a step, and with it the test sheet the developer will go
+   * through: the acceptance criteria the agent declared no automatic test
+   * covers, followed by what it suggests looking at on top of them.
+   *
+   * The coverage has to name every criterion of the ticket and nothing else. A
+   * partial declaration is refused rather than read as "the rest is covered":
+   * what is missing from the sheet is exactly what nobody will check.
+   *
+   * Only a running sub-session reports, which is why a step corrected after a
+   * red sheet reports from `running` too: handing the failing points back is
+   * what puts the ticket there, and a ticket sitting on a sheet nobody has been
+   * through has already said its piece.
+   */
+  recordStepReport(input: RecordStepReportInput): Ticket {
+    const ticket = this.requireTicketIn(input.featureId, input.ticketId);
+    if (ticket.state !== "running" || ticket.sessionId === null) {
+      throw new SquadError(
+        "no_step_in_progress",
+        409,
+        `ticket "${ticket.title}" is ${ticket.state}: the end of a step is reported by the sub-session running it`,
+      );
+    }
+
+    const sheet = this.buildSheet(ticket, input);
+    const createdAt = new Date().toISOString();
+    const reportId = randomUUID();
+    this.db.transaction((tx) => {
+      tx.insert(stepReports)
+        .values({
+          id: reportId,
+          ticketId: ticket.id,
+          sessionId: ticket.sessionId ?? "",
+          summary: input.summary,
+          recommendation: input.recommendation,
+          feedback: null,
+          reviewedAt: null,
+          createdAt,
+        })
+        .run();
+      if (sheet.coverage.length > 0) {
+        tx.insert(criterionCoverage)
+          .values(
+            sheet.coverage.map((entry, position) => ({
+              reportId,
+              criterionId: entry.criterionId,
+              position,
+              text: entry.text,
+              covered: entry.covered,
+            })),
+          )
+          .run();
+      }
+      if (sheet.points.length > 0) {
+        tx.insert(testSheetPoints)
+          .values(
+            sheet.points.map((point, position) => ({
+              id: randomUUID(),
+              reportId,
+              position,
+              criterionId: point.criterionId,
+              text: point.text,
+              verdict: "pending" as const,
+              comment: null,
+            })),
+          )
+          .run();
+      }
+      tx.update(tickets)
+        .set({ lifecycle: "awaiting-validation" })
+        .where(eq(tickets.id, ticket.id))
+        .run();
+    });
+
+    return this.requireTicket(ticket.id);
+  }
+
+  /**
+   * The test sheet a report produces, and the coverage it declared. Built before
+   * anything is written so a coverage that does not match the ticket is refused
+   * without leaving half a report behind.
+   */
+  private buildSheet(
+    ticket: Ticket,
+    input: RecordStepReportInput,
+  ): { coverage: CriterionCoverage[]; points: Array<{ criterionId: string | null; text: string }> } {
+    const declared = new Map(input.coverage.map((entry) => [entry.criterionId, entry.covered]));
+    const known = new Set(ticket.acceptanceCriteria.map((criterion) => criterion.id));
+    const missing = ticket.acceptanceCriteria.filter((criterion) => !declared.has(criterion.id));
+    const unknown = input.coverage.filter((entry) => !known.has(entry.criterionId));
+    if (missing.length > 0 || unknown.length > 0 || declared.size !== input.coverage.length) {
+      const said = [
+        ...missing.map((criterion) => `nothing said about "${criterion.text}" (${criterion.id})`),
+        ...unknown.map((entry) => `${entry.criterionId} is not a criterion of this ticket`),
+        ...(declared.size === input.coverage.length ? [] : ["a criterion is declared twice"]),
+      ];
+      throw new SquadError(
+        "coverage_mismatch",
+        400,
+        `the report must say, for each of the ${ticket.acceptanceCriteria.length} acceptance criteria of "${ticket.title}" and for those only, whether an automatic test covers it: ${said.join("; ")}`,
+      );
+    }
+
+    const coverage = ticket.acceptanceCriteria.map((criterion) => ({
+      criterionId: criterion.id,
+      text: criterion.text,
+      covered: declared.get(criterion.id) === true,
+    }));
+    return {
+      coverage,
+      // The sheet is what nobody automated: the uncovered criteria, in the order
+      // the ticket wrote them, then what the agent suggested on top of them.
+      points: [
+        ...coverage
+          .filter((entry) => !entry.covered)
+          .map((entry) => ({ criterionId: entry.criterionId, text: entry.text })),
+        ...input.suggestions.map((text) => ({ criterionId: null, text })),
+      ],
+    };
+  }
+
+  /**
+   * Records what the developer said of a test sheet: a verdict and a comment per
+   * point, and a general return. A sheet is gone through once; a step corrected
+   * afterwards is reported again, and that report carries a sheet of its own.
+   */
+  reviewTestSheet(input: ReviewTestSheetInput): Ticket {
+    const ticket = this.requireTicket(input.ticketId);
+    const report = ticket.stepReport;
+    if (!report) {
+      throw new SquadError(
+        "test_sheet_not_found",
+        404,
+        `ticket "${ticket.title}" has no step report: there is no test sheet to go through`,
+      );
+    }
+    if (report.reviewedAt !== null) {
+      throw new SquadError(
+        "test_sheet_already_reviewed",
+        409,
+        `the test sheet of "${ticket.title}" was already gone through on ${report.reviewedAt}`,
+      );
+    }
+    const expected = new Set(report.sheet.map((point) => point.id));
+    const given = new Set(input.points.map((point) => point.id));
+    if (expected.size !== given.size || [...expected].some((id) => !given.has(id))) {
+      throw new SquadError(
+        "invalid_request",
+        400,
+        `the review must answer each of the ${expected.size} point(s) of this test sheet, and no other`,
+      );
+    }
+
+    const reviewedAt = new Date().toISOString();
+    this.db.transaction((tx) => {
+      for (const point of input.points) {
+        tx.update(testSheetPoints)
+          .set({
+            verdict: point.passed ? "passed" : "failed",
+            comment: point.comment === "" ? null : point.comment,
+          })
+          .where(eq(testSheetPoints.id, point.id))
+          .run();
+      }
+      tx.update(stepReports)
+        .set({ feedback: input.feedback === "" ? null : input.feedback, reviewedAt })
+        .where(eq(stepReports.id, report.id))
+        .run();
+    });
+    return this.requireTicket(ticket.id);
+  }
+
+  /** What squad is configured with, with its defaults when nothing was set. */
+  settings(): Settings {
+    const row = this.db.select().from(settings).where(eq(settings.id, singleSettingsRow)).get();
+    return {
+      webhookUrl: row?.webhookUrl ?? null,
+      desktopNotifications: row?.desktopNotifications ?? true,
+    };
+  }
+
+  /** Changes what was named and leaves the rest as it stands. */
+  updateSettings(patch: UpdateSettingsBody): Settings {
+    const next: Settings = { ...this.settings(), ...patch };
+    this.db
+      .insert(settings)
+      .values({ id: singleSettingsRow, ...next })
+      .onConflictDoUpdate({ target: settings.id, set: next })
+      .run();
+    return next;
+  }
+
   private requireTicketOfFeature(ticketId: string, featureId: string): void {
     const ticket = this.db.select().from(tickets).where(eq(tickets.id, ticketId)).get();
     if (!ticket) {
@@ -490,6 +719,70 @@ export class Store {
       }));
   }
 
+  /**
+   * The latest step report of each ticket, with its coverage and its sheet. The
+   * latest one and not all of them: a ticket corrected after a red sheet reports
+   * again, and what the graph shows is where it stands now.
+   */
+  private readStepReports(ticketIds: string[]): Map<string, StepReport> {
+    const latest = new Map<string, StepReport>();
+    if (ticketIds.length === 0) return latest;
+    const rows = this.db
+      .select()
+      .from(stepReports)
+      .where(inArray(stepReports.ticketId, ticketIds))
+      .orderBy(sql`rowid`)
+      .all();
+    if (rows.length === 0) return latest;
+
+    const reportIds = rows.map((row) => row.id);
+    const coverage = new Map<string, CriterionCoverage[]>();
+    for (const row of this.db
+      .select()
+      .from(criterionCoverage)
+      .where(inArray(criterionCoverage.reportId, reportIds))
+      .orderBy(asc(criterionCoverage.position))
+      .all()) {
+      const list = coverage.get(row.reportId) ?? [];
+      list.push({ criterionId: row.criterionId, text: row.text, covered: row.covered });
+      coverage.set(row.reportId, list);
+    }
+    const sheets = new Map<string, TestSheetPoint[]>();
+    for (const row of this.db
+      .select()
+      .from(testSheetPoints)
+      .where(inArray(testSheetPoints.reportId, reportIds))
+      .orderBy(asc(testSheetPoints.position))
+      .all()) {
+      const list = sheets.get(row.reportId) ?? [];
+      list.push({
+        id: row.id,
+        criterionId: row.criterionId,
+        text: row.text,
+        verdict: row.verdict,
+        comment: row.comment,
+      });
+      sheets.set(row.reportId, list);
+    }
+
+    // Insertion order, so the last row read for a ticket is its latest report.
+    for (const row of rows) {
+      latest.set(row.ticketId, {
+        id: row.id,
+        ticketId: row.ticketId,
+        sessionId: row.sessionId,
+        summary: row.summary,
+        recommendation: row.recommendation,
+        coverage: coverage.get(row.id) ?? [],
+        sheet: sheets.get(row.id) ?? [],
+        feedback: row.feedback,
+        reviewedAt: row.reviewedAt,
+        createdAt: row.createdAt,
+      });
+    }
+    return latest;
+  }
+
   private readAcceptanceCriteria(ticketIds: string[]): Map<string, AcceptanceCriterion[]> {
     const byTicket = new Map<string, AcceptanceCriterion[]>();
     if (ticketIds.length === 0) return byTicket;
@@ -507,6 +800,9 @@ export class Store {
     return byTicket;
   }
 }
+
+/** The settings are one row, and this is it. */
+const singleSettingsRow = 1;
 
 /** A feature row, with its two worktree columns read back as the one thing they are. */
 function toFeature(row: {

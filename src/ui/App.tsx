@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import type { Feature, Project } from "../shared/api";
+import { pendingActions, type PendingAction, type PendingReason } from "../shared/pending";
 import { ApiError, openFeature, registerProject } from "./api";
 import { FeatureGraphView } from "./graph/FeatureGraphView";
 import { MainSessionView } from "./session/MainSessionView";
@@ -28,6 +29,14 @@ export function App() {
   // panel must close itself if the ticket leaves the feature being watched.
   const openedTicket = graph?.tickets.find((ticket) => ticket.id === openTicketId) ?? null;
 
+  /** Opens what an entry of the indicator points at, wherever it lives. */
+  function open(action: PendingAction) {
+    const feature = features.find((each) => each.id === action.featureId);
+    if (feature) setSelectedId(feature.projectId);
+    setOpenFeatureId(action.featureId);
+    setOpenTicketId(action.ticketId);
+  }
+
   return (
     <div className="app">
       <header className="app__header">
@@ -37,6 +46,8 @@ export function App() {
           {connected ? "connecté" : "hors ligne"}
         </span>
       </header>
+
+      <WaitingPanel actions={pendingActions(state.graphs)} features={features} onOpen={open} />
 
       <main className="app__body">
         <section className="panel" aria-labelledby="titre-projets">
@@ -121,6 +132,54 @@ export function App() {
         )}
       </div>
     </div>
+  );
+}
+
+/** What each reason means for the developer, said as the thing they have to do. */
+const reasonLabels: Record<PendingReason, string> = {
+  validation: "fiche de tests à vérifier",
+  decision: "décision à trancher",
+  failure: "sous-session arrêtée",
+  interruption: "sous-session interrompue",
+};
+
+/**
+ * Everything waiting on the developer, all features together and always on
+ * screen. It holds nothing of its own: what is listed follows from the graphs,
+ * so an entry leaves the moment the thing it points at stops waiting.
+ */
+function WaitingPanel({
+  actions,
+  features,
+  onOpen,
+}: {
+  actions: PendingAction[];
+  features: Feature[];
+  onOpen: (action: PendingAction) => void;
+}) {
+  return (
+    <section className="panel panel--waiting" aria-labelledby="titre-attente">
+      <h2 id="titre-attente">En attente de moi</h2>
+      {actions.length === 0 ? (
+        <p className="empty">Rien n'attend d'action de ma part.</p>
+      ) : (
+        <ul className="list">
+          {actions.map((action) => (
+            <li key={action.ticketId}>
+              <button type="button" className="row" onClick={() => onOpen(action)}>
+                <span className="row__title">{action.ticketTitle}</span>
+                <span className="row__meta">
+                  {reasonLabels[action.reason]}
+                  {" · "}
+                  {features.find((feature) => feature.id === action.featureId)?.title ??
+                    "feature inconnue"}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

@@ -3,6 +3,7 @@ import type { LaunchAngle, ThreadEntry, Ticket, TicketKind, TicketState } from "
 import { isResumable } from "../../shared/graph";
 import { ApiError, launchTicket } from "../api";
 import { Thread } from "../session/Thread";
+import { TestSheet } from "./TestSheet";
 
 /**
  * What a node opens: the whole of what the ticket asks for, the thread of its
@@ -21,6 +22,8 @@ const stateExplanations: Record<TicketState, string> = {
   blocked: "Bloqué : il partira quand tous ses bloqueurs auront fusionné.",
   ready: "Prêt : tous ses bloqueurs ont fusionné, il peut partir maintenant.",
   running: "En cours : sa sous-session travaille dans son worktree.",
+  "awaiting-validation":
+    "Étape rapportée : la fiche de tests ci-dessous attend d'être passée en revue. La sous-session n'est pas détruite, elle reste le fil où la correction se fera.",
   failed:
     "Arrêté : sa sous-session a échoué, ou s'est terminée sans rapporter sa fin d'étape ; le fil dit lequel. Son worktree, sa branche et sa sous-session sont conservés.",
   interrupted: "Interrompu : squad s'est arrêté pendant que sa sous-session travaillait.",
@@ -66,6 +69,10 @@ export function TicketPanel({
           <h3 className="ticket__heading">Conclusion</h3>
           <p className="ticket__description">{ticket.conclusion}</p>
         </>
+      )}
+
+      {ticket.stepReport !== null && (
+        <TestSheet ticketId={ticket.id} report={ticket.stepReport} />
       )}
 
       {ticket.worktree !== null && (

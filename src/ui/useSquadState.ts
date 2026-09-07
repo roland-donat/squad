@@ -5,6 +5,7 @@ import {
   type FeatureGraph,
   type MainSession,
   type Project,
+  type Settings,
   type SquadEvent,
   type ThreadEntry,
 } from "../shared/api";
@@ -16,6 +17,11 @@ export interface SquadState {
   threads: ThreadEntry[];
   /** The main sessions running right now, one per feature at most. */
   mainSessions: MainSession[];
+  /**
+   * What squad is configured with. Held because the snapshot carries the whole
+   * stored state and this is part of it, not because a screen edits it yet.
+   */
+  settings: Settings;
   connected: boolean;
 }
 
@@ -31,6 +37,7 @@ export function useSquadState(): SquadState {
     graphs: [],
     threads: [],
     mainSessions: [],
+    settings: { webhookUrl: null, desktopNotifications: true },
     connected: false,
   });
 
@@ -90,6 +97,7 @@ function apply(state: SquadState, event: SquadEvent): SquadState {
         graphs: event.graphs,
         threads: event.threads,
         mainSessions: event.mainSessions,
+        settings: event.settings,
       };
     case "project-registered":
       return { ...state, projects: [...state.projects, event.project] };
@@ -114,6 +122,8 @@ function apply(state: SquadState, event: SquadEvent): SquadState {
       };
     case "thread-appended":
       return { ...state, threads: [...state.threads, event.entry] };
+    case "settings-changed":
+      return { ...state, settings: event.settings };
     case "main-session-started":
       return {
         ...state,

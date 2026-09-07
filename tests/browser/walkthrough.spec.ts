@@ -1,10 +1,16 @@
 import { realpath } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
+import type { Feature, Ticket } from "../../src/shared/api";
 import { createTemporaryRepository, removeTemporaryPaths } from "../support/git";
+import { connectToSquadTools } from "../support/mcp";
 
 test.afterAll(removeTemporaryPaths);
 
-test("registers a project then opens a feature from the interface", async ({ page }) => {
+test("registers a project, opens a feature and reads the graph an agent wrote", async ({
+  page,
+  request,
+  baseURL,
+}) => {
   const repository = await createTemporaryRepository();
   // The server stores the path git reports, with its symlinks resolved.
   const repositoryRoot = await realpath(repository);
@@ -20,10 +26,49 @@ test("registers a project then opens a feature from the interface", async ({ pag
   await page.getByLabel("Intitulé de la feature").fill("Fondation");
   await page.getByRole("button", { name: "Ouvrir la feature" }).click();
 
-  await expect(page.getByText("Fondation", { exact: true })).toBeVisible();
+  // Listed among the features, and opened: the graph panel names it.
+  await expect(page.getByRole("button", { name: /^Fondation/ })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Graphe" }).getByText("Fondation")).toBeVisible();
 
-  // The state comes from the event stream, so it must survive a reload: that
-  // proves it was written on the server rather than kept in the page.
+  // The graph is written by an agent through squad's tools, never by the
+  // interface: the walk-through writes it the way an agent would.
+  const listed = await request.get("/api/features");
+  const { features } = (await listed.json()) as { features: Feature[] };
+  const feature = features.at(-1);
+  if (!feature) throw new Error("the feature just opened is missing from the API");
+
+  const tools = await connectToSquadTools(baseURL ?? "");
+  const store = (await tools.call("create_ticket", {
+    featureId: feature.id,
+    kind: "build",
+    title: "Le store",
+    description: "La base et ses migrations.",
+  })) as Ticket;
+  const mcp = (await tools.call("create_ticket", {
+    featureId: feature.id,
+    kind: "build",
+    title: "Les outils MCP",
+    description: "Le contrat avec les agents.",
+    blockedBy: [store.id],
+  })) as Ticket;
+  await tools.call("create_ticket", {
+    featureId: feature.id,
+    kind: "decision",
+    title: "Quelle disposition",
+    description: "À trancher.",
+    blockedBy: [mcp.id],
+  });
+  await tools.close();
+
+  // Three nodes and the two arrows between them, without a reload: the graph
+  // arrives on the event stream while it is being written.
+  await expect(page.getByRole("article")).toHaveCount(3);
+  await expect(page.getByLabel("Le store, construction, prêt")).toBeVisible();
+  await expect(page.getByLabel("Les outils MCP, construction, bloqué")).toBeVisible();
+  await expect(page.getByLabel("Quelle disposition, décision, bloqué")).toBeVisible();
+  await expect(page.locator(".graph__edge")).toHaveCount(2);
+
+  // The state lives on the server, so it survives a reload of the page.
   await page.reload();
-  await expect(page.getByText("Fondation", { exact: true })).toBeVisible();
+  await expect(page.getByRole("article")).toHaveCount(3);
 });

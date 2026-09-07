@@ -4,16 +4,20 @@ import {
   apiRoutes,
   openFeatureBody,
   registerProjectBody,
+  startMainSessionBody,
   type ApiErrorBody,
   type SquadEvent,
 } from "../shared/api";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
+import { buildMcpHandler } from "./mcp";
+import type { MainSessions } from "./sessions";
 import type { Store } from "./store";
 
 export interface HttpDependencies {
   store: Store;
   bus: EventBus;
+  mainSessions: MainSessions;
 }
 
 /**
@@ -21,7 +25,7 @@ export interface HttpDependencies {
  * leaves through the event stream, so the UI and the tests see squad through
  * exactly the same surface.
  */
-export function buildApiRouter({ store, bus }: HttpDependencies): express.Router {
+export function buildApiRouter({ store, bus, mainSessions }: HttpDependencies): express.Router {
   const router = express.Router();
   router.use(express.json());
 
@@ -50,6 +54,22 @@ export function buildApiRouter({ store, bus }: HttpDependencies): express.Router
     bus.publish({ type: "feature-opened", feature });
     response.status(201).json({ feature });
   });
+
+  router.get(`${apiRoutes.features}/:featureId/graph`, (request, response) => {
+    response.json(store.featureGraph(request.params.featureId));
+  });
+
+  router.post(`${apiRoutes.features}/:featureId/main-session`, async (request, response) => {
+    const body = parse(startMainSessionBody, request.body);
+    const session = await mainSessions.start(request.params.featureId, body.prompt);
+    // Accepted, not done: the session runs for as long as its agent does, and
+    // what it produces arrives on the event stream.
+    response.status(202).json({ sessionId: session.id });
+  });
+
+  // Squad's own MCP endpoint: the surface the agents talk to, on the very port
+  // that serves the interface, so a session has one address for all of squad.
+  router.all(apiRoutes.mcp, buildMcpHandler({ store, bus }));
 
   router.get(apiRoutes.events, (request, response) => {
     response.writeHead(200, {

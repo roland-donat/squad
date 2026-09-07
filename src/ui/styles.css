@@ -11,6 +11,7 @@
   --accent: #2f6dd0;
   --accent-soft: #e8f0fd;
   --danger: #b4283c;
+  --decision: #a06a06;
   --radius: 10px;
   color-scheme: light dark;
 }
@@ -25,6 +26,7 @@
     --accent: #6ea3f5;
     --accent-soft: #1e2c44;
     --danger: #f08a98;
+    --decision: #d8a33a;
   }
 }
 
@@ -216,4 +218,124 @@ button[disabled] {
   margin: 0;
   color: var(--danger);
   font-size: 0.88rem;
+}
+
+/*
+ * The graph. Nothing here is placed by hand: the layout module derives every
+ * coordinate from the edges. Kind and state are written on each node as well as
+ * coloured, so the graph keeps its meaning in greyscale.
+ */
+.panel--graph {
+  margin-top: 1.5rem;
+}
+
+.graph__legend {
+  margin: 0 0 1.25rem;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+}
+
+.graph__viewport {
+  overflow: auto;
+  padding: 0.25rem;
+}
+
+.graph {
+  position: relative;
+  margin: 0 auto;
+}
+
+.graph__edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.graph__edge {
+  fill: none;
+  stroke: var(--ink-soft);
+  stroke-width: 1.5;
+}
+
+.graph__edges marker path {
+  fill: var(--ink-soft);
+}
+
+.node {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left-width: 5px;
+  border-radius: var(--radius);
+}
+
+/* Kind: a border style as well as a colour, readable without either. */
+.node[data-kind="build"] {
+  border-left-color: var(--accent);
+}
+
+.node[data-kind="decision"] {
+  border-left-style: dashed;
+  border-left-color: var(--decision);
+}
+
+.node[data-kind="fix"] {
+  border-left-color: var(--danger);
+}
+
+/*
+ * The frontier: what can be launched now, in relief against the rest. Three
+ * sides rather than the shorthand, so a ticket on the frontier keeps the left
+ * stripe that says what kind it is.
+ */
+.node[data-state="ready"] {
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+  border-bottom-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.node[data-state="blocked"] {
+  background: var(--surface-sunken);
+  color: var(--ink-soft);
+}
+
+.node[data-state="merged"] {
+  opacity: 0.7;
+}
+
+.node__title {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.node__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.chip {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
+}
+
+.node[data-state="ready"] .chip--state {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
 }

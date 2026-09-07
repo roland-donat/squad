@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SquadEvent } from "../../src/shared/api";
+import type { AgentLauncher } from "../../src/server/agents/launcher";
 import { startSquadServer } from "../../src/server/server";
 
 /**
@@ -22,11 +23,20 @@ export interface TestSquad {
 export interface TestSquadOptions {
   /** Where the database goes; a temporary directory of its own by default. */
   dataDir?: string;
+  /** The scripted double, for a scenario that has an agent do the work. */
+  launcher?: AgentLauncher;
 }
 
 export async function startTestSquad(options: TestSquadOptions = {}): Promise<TestSquad> {
   const dataDir = options.dataDir ?? (await mkdtemp(join(tmpdir(), "squad-data-")));
-  let server = await startSquadServer({ dataDir, port: 0, ui: "none" });
+  const start = () =>
+    startSquadServer({
+      dataDir,
+      port: 0,
+      ui: "none",
+      ...(options.launcher === undefined ? {} : { launcher: options.launcher }),
+    });
+  let server = await start();
   const streams: EventStream[] = [];
 
   const squad: TestSquad = {
@@ -36,7 +46,7 @@ export async function startTestSquad(options: TestSquadOptions = {}): Promise<Te
     dataDir,
     async restart() {
       await server.close();
-      server = await startSquadServer({ dataDir, port: 0, ui: "none" });
+      server = await start();
     },
     async dispose() {
       for (const stream of streams) stream.close();

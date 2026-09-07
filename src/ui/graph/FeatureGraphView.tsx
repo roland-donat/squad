@@ -1,4 +1,4 @@
-import type { FeatureGraph, TicketKind, TicketState } from "../../shared/api";
+import type { FeatureGraph, Ticket, TicketKind, TicketState } from "../../shared/api";
 import { frontier } from "../../shared/graph";
 import { layOutGraph, nodeHeight, nodeWidth } from "./layout";
 
@@ -18,8 +18,21 @@ const kindLabels: Record<TicketKind, string> = {
 const stateLabels: Record<TicketState, string> = {
   blocked: "bloqué",
   ready: "prêt",
+  "awaiting-decision": "à trancher",
   merged: "fusionné",
 };
+
+/**
+ * A settled decision reaches the state `merged`, because that is what releases
+ * the tickets it held back, but nothing of it was ever merged into a branch:
+ * saying so on the node would be a lie the reader has no way to catch. The
+ * wording follows the conclusion the server recorded, so this reads a declared
+ * field rather than working a state out for itself.
+ */
+function stateLabel(ticket: Ticket): string {
+  if (ticket.conclusion !== null) return "tranché";
+  return stateLabels[ticket.state];
+}
 
 export function FeatureGraphView({ graph }: { graph: FeatureGraph }) {
   if (graph.tickets.length === 0) {
@@ -75,12 +88,12 @@ export function FeatureGraphView({ graph }: { graph: FeatureGraph }) {
               data-kind={ticket.kind}
               data-state={ticket.state}
               style={{ left: x, top: y, width: nodeWidth, minHeight: nodeHeight }}
-              aria-label={`${ticket.title}, ${kindLabels[ticket.kind]}, ${stateLabels[ticket.state]}`}
+              aria-label={`${ticket.title}, ${kindLabels[ticket.kind]}, ${stateLabel(ticket)}`}
             >
               <p className="node__title">{ticket.title}</p>
               <p className="node__chips">
                 <span className="chip chip--kind">{kindLabels[ticket.kind]}</span>
-                <span className="chip chip--state">{stateLabels[ticket.state]}</span>
+                <span className="chip chip--state">{stateLabel(ticket)}</span>
               </p>
             </article>
           ))}

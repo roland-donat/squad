@@ -2,7 +2,8 @@ import { useState, type FormEvent } from "react";
 import type { Feature, Project } from "../shared/api";
 import { ApiError, openFeature, registerProject } from "./api";
 import { FeatureGraphView } from "./graph/FeatureGraphView";
-import { graphOf, useSquadState } from "./useSquadState";
+import { MainSessionView } from "./session/MainSessionView";
+import { graphOf, isMainSessionRunning, threadOf, useSquadState } from "./useSquadState";
 
 export function App() {
   const state = useSquadState();
@@ -63,19 +64,34 @@ export function App() {
         </section>
       </main>
 
-      <section className="panel panel--graph" aria-labelledby="titre-graphe">
-        <h2 id="titre-graphe">Graphe</h2>
-        {openedFeature ? (
-          <>
-            <p className="panel__context">
-              de <strong>{openedFeature.title}</strong>
-            </p>
-            <FeatureGraphView graph={graphOf(state, openedFeature.id)} />
-          </>
-        ) : (
-          <p className="empty">Ouvrir une feature pour voir son graphe.</p>
-        )}
-      </section>
+      <div className="app__feature">
+        <section className="panel panel--graph" aria-labelledby="titre-graphe">
+          <h2 id="titre-graphe">Graphe</h2>
+          {openedFeature ? (
+            <>
+              <p className="panel__context">
+                de <strong>{openedFeature.title}</strong>
+              </p>
+              <FeatureGraphView graph={graphOf(state, openedFeature.id)} />
+            </>
+          ) : (
+            <p className="empty">Ouvrir une feature pour voir son graphe.</p>
+          )}
+        </section>
+
+        <section className="panel panel--session" aria-labelledby="titre-session">
+          <h2 id="titre-session">Session principale</h2>
+          {openedFeature ? (
+            <MainSessionView
+              feature={openedFeature}
+              thread={threadOf(state, openedFeature.id)}
+              running={isMainSessionRunning(state, openedFeature.id)}
+            />
+          ) : (
+            <p className="empty">Ouvrir une feature pour lui parler.</p>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

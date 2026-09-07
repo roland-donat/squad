@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
-import { asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type {
   AcceptanceCriterion,
   BlockingEdge,
@@ -9,13 +9,28 @@ import type {
   OpenFeatureBody,
   Project,
   RegisterProjectBody,
-  Snapshot,
+  StoredState,
+  ThreadEntry,
+  ThreadEntryKind,
   Ticket,
   TicketKind,
 } from "../shared/api";
-import { blockersByTicket, findCycle, resolveTicketState, type GraphEdge } from "../shared/graph";
+import {
+  blockersByTicket,
+  findCycle,
+  holdsNothingBack,
+  resolveTicketState,
+  type GraphEdge,
+} from "../shared/graph";
 import type { SquadDatabase } from "./db/open";
-import { acceptanceCriteria, blockingEdges, features, projects, tickets } from "./db/schema";
+import {
+  acceptanceCriteria,
+  blockingEdges,
+  features,
+  projects,
+  threadEntries,
+  tickets,
+} from "./db/schema";
 import { SquadError } from "./errors";
 import { resolveRepositoryRoot } from "./git";
 import { isInside } from "./paths";
@@ -31,6 +46,25 @@ export interface CreateTicketInput {
   blockedBy: string[];
   /** Tickets this one must be merged before, used when a fix lands in front of pending work. */
   blocks: string[];
+}
+
+/** What settling a decision records on the ticket that was waiting. */
+export interface SettleDecisionInput {
+  /** The feature the ticket belongs to: a session only settles its own graph. */
+  featureId: string;
+  ticketId: string;
+  conclusion: string;
+}
+
+/** One line to write on a session thread. */
+export interface AppendThreadEntryInput {
+  featureId: string;
+  /** Null on the main session; the ticket of a sub-session once those exist. */
+  ticketId?: string | null;
+  sessionId: string;
+  kind: ThreadEntryKind;
+  text: string;
+  detail?: string | null;
 }
 
 /**
@@ -54,13 +88,85 @@ export class Store {
     return query.orderBy(sql`rowid`).all();
   }
 
-  snapshot(): Snapshot {
+  storedState(): StoredState {
     const openFeatures = this.listFeatures();
     return {
       projects: this.listProjects(),
       features: openFeatures,
       graphs: openFeatures.map((feature) => this.featureGraph(feature.id)),
+      threads: this.listThreadEntries(),
     };
+  }
+
+  /** Every line written on the threads, oldest first, all features together. */
+  listThreadEntries(featureId?: string): ThreadEntry[] {
+    const query = this.db.select().from(threadEntries).$dynamic();
+    if (featureId !== undefined) query.where(eq(threadEntries.featureId, featureId));
+    return query.orderBy(sql`rowid`).all();
+  }
+
+  appendThreadEntry(input: AppendThreadEntryInput): ThreadEntry {
+    const entry: ThreadEntry = {
+      id: randomUUID(),
+      featureId: input.featureId,
+      ticketId: input.ticketId ?? null,
+      sessionId: input.sessionId,
+      kind: input.kind,
+      text: input.text,
+      detail: input.detail ?? null,
+      createdAt: new Date().toISOString(),
+    };
+    this.db.insert(threadEntries).values(entry).run();
+    return entry;
+  }
+
+  /**
+   * Closes a decision on the conclusion the developer reached. The record says
+   * `settled`, since nothing was merged anywhere, and the graph reads it as a
+   * ticket that holds nothing back, which is what releases the tickets that were
+   * waiting on the answer.
+   */
+  settleDecision(input: SettleDecisionInput): Ticket {
+    // Looked up within its feature rather than by id alone: a session is opened
+    // on one feature, and nothing it says should be able to close a decision
+    // taken on another.
+    const ticket = this.db
+      .select()
+      .from(tickets)
+      .where(and(eq(tickets.id, input.ticketId), eq(tickets.featureId, input.featureId)))
+      .get();
+    if (!ticket) {
+      throw new SquadError(
+        "ticket_not_found",
+        404,
+        `no ticket with id ${input.ticketId} in feature ${input.featureId}`,
+      );
+    }
+    if (ticket.kind !== "decision") {
+      throw new SquadError(
+        "ticket_not_a_decision",
+        400,
+        `ticket "${ticket.title}" is of kind ${ticket.kind}: only a decision ticket is settled this way`,
+      );
+    }
+    if (ticket.conclusion !== null) {
+      throw new SquadError(
+        "decision_already_settled",
+        409,
+        `decision "${ticket.title}" was already settled: ${ticket.conclusion}`,
+      );
+    }
+
+    this.db
+      .update(tickets)
+      .set({ lifecycle: "settled", conclusion: input.conclusion })
+      .where(eq(tickets.id, ticket.id))
+      .run();
+
+    const graph = this.featureGraph(ticket.featureId);
+    const settled = graph.tickets.find((each) => each.id === ticket.id);
+    if (!settled) throw new Error("the ticket just settled is missing from its own graph");
+    return settled;
   }
 
   async registerProject(input: RegisterProjectBody): Promise<Project> {
@@ -177,6 +283,7 @@ export class Store {
           description: input.description,
           lifecycle: "unstarted",
           externalId: null,
+          conclusion: null,
           createdAt,
         })
         .run();
@@ -231,7 +338,9 @@ export class Store {
       rows.map((row) => row.id),
       edges,
     );
-    const merged = new Set(rows.filter((row) => row.lifecycle === "merged").map((row) => row.id));
+    const cleared = new Set(
+      rows.filter((row) => holdsNothingBack(row.lifecycle)).map((row) => row.id),
+    );
 
     return {
       featureId: feature.id,
@@ -243,7 +352,8 @@ export class Store {
         description: row.description,
         acceptanceCriteria: criteria.get(row.id) ?? [],
         externalId: row.externalId,
-        state: resolveTicketState(row.lifecycle, blockers.get(row.id) ?? [], merged),
+        conclusion: row.conclusion,
+        state: resolveTicketState(row.kind, row.lifecycle, blockers.get(row.id) ?? [], cleared),
         createdAt: row.createdAt,
       })),
       edges: edges.map((edge) => ({

@@ -25,16 +25,27 @@ export interface OpenAgentSession {
   workingDirectory: string;
   /** Squad's MCP endpoint: the only contract the session has with squad (ADR 0002). */
   mcpUrl: string;
+  /**
+   * What the session must know about squad to be of any use: which feature it is
+   * on, and that squad's tools are where its work is written. Appended to the
+   * session's system prompt, never said in the thread.
+   */
+  briefing: string;
 }
 
 /**
- * What a session reports as it works. Tool calls are announced but their
- * arguments are not: squad already holds everything a tool wrote, and the thread
- * of a session is read from the store rather than reconstructed from here.
+ * What a session reports as it works, and the whole of what squad writes on its
+ * thread. A tool call carries what it was called with, because the interface
+ * folds it away by default and the arguments are all there is to unfold.
+ *
+ * A `notice` is what the runtime says about the session rather than what the
+ * agent says: a turn that ended in error, a limit reached. Its text comes from
+ * the runtime, so it is English like any other tool output.
  */
 export type AgentEvent =
   | { type: "text"; text: string }
-  | { type: "tool-call"; tool: string }
+  | { type: "tool-call"; tool: string; input?: unknown }
+  | { type: "notice"; text: string }
   | { type: "ended"; outcome: AgentSessionOutcome; detail?: string };
 
 export interface AgentSession {

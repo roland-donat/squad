@@ -1,9 +1,10 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SquadEvent } from "../../src/shared/api";
+import { apiRoutes, type Feature, type Project, type SquadEvent } from "../../src/shared/api";
 import type { AgentLauncher } from "../../src/server/agents/launcher";
 import { startSquadServer } from "../../src/server/server";
+import { createTemporaryRepository } from "./git";
 
 /**
  * Drives squad exactly like the browser does: over HTTP and the event stream.
@@ -138,4 +139,34 @@ async function openEventStream(url: URL): Promise<EventStream> {
       controller.abort();
     },
   };
+}
+
+/**
+ * A registered project and an open feature on it, which every scenario needs
+ * before an agent has anywhere to write. Goes through the API like the rest.
+ */
+export async function openTestFeature(
+  squad: TestSquad,
+  title: string,
+): Promise<{ project: Project; feature: Feature }> {
+  const repository = await createTemporaryRepository();
+  const registered = await squad.request("POST", apiRoutes.projects, { path: repository });
+  const { project } = (await registered.json()) as { project: Project };
+  const opened = await squad.request("POST", apiRoutes.features, {
+    projectId: project.id,
+    title,
+  });
+  const { feature } = (await opened.json()) as { feature: Feature };
+  return { project, feature };
+}
+
+/** Waits for the next event of a given type, dropping whatever comes before it. */
+export async function waitForEvent<T extends SquadEvent["type"]>(
+  stream: EventStream,
+  type: T,
+): Promise<Extract<SquadEvent, { type: T }>> {
+  for (;;) {
+    const event = await stream.next();
+    if (event.type === type) return event as Extract<SquadEvent, { type: T }>;
+  }
 }

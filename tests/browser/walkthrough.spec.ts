@@ -26,9 +26,14 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
   await page.getByLabel("Intitulé de la feature").fill("Fondation");
   await page.getByRole("button", { name: "Ouvrir la feature" }).click();
 
-  // Listed among the features, and opened: the graph panel names it.
+  // Listed among the features, and opened: the graph panel names it, and the
+  // thread of its main session is there waiting to be written to.
   await expect(page.getByRole("button", { name: /^Fondation/ })).toBeVisible();
   await expect(page.getByRole("region", { name: "Graphe" }).getByText("Fondation")).toBeVisible();
+
+  const session = page.getByRole("region", { name: "Session principale" });
+  await expect(session.getByText("Fil vide.")).toBeVisible();
+  await expect(session.getByRole("button", { name: "Ouvrir la session principale" })).toBeVisible();
 
   // The graph is written by an agent through squad's tools, never by the
   // interface: the walk-through writes it the way an agent would.

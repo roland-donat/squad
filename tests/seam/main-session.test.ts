@@ -1,10 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { Feature, FeatureGraph, Project, SquadEvent, Ticket } from "../../src/shared/api";
+import type { Feature, FeatureGraph, Ticket } from "../../src/shared/api";
 import { featureGraphRoute, mainSessionRoute } from "../../src/shared/api";
 import { frontier } from "../../src/shared/graph";
-import { createTemporaryRepository } from "../support/git";
 import { createScriptedLauncher, type AgentScript } from "../support/scripted-launcher";
-import { startTestSquad, type EventStream, type TestSquad } from "../support/squad";
+import {
+  openTestFeature,
+  startTestSquad,
+  waitForEvent,
+  type EventStream,
+  type TestSquad,
+} from "../support/squad";
 
 /**
  * The scenario every later ticket imitates: an agent, and nothing but an agent,
@@ -20,26 +25,10 @@ describe("a scripted session building the graph", () => {
 
   async function startWith(script: AgentScript): Promise<{ feature: Feature; stream: EventStream }> {
     squad = await startTestSquad({ launcher: createScriptedLauncher(script) });
-    const repository = await createTemporaryRepository();
-    const registered = await squad.request("POST", "/api/projects", { path: repository });
-    const { project } = (await registered.json()) as { project: Project };
-    const opened = await squad.request("POST", "/api/features", {
-      projectId: project.id,
-      title: "Le noyau",
-    });
-    const { feature } = (await opened.json()) as { feature: Feature };
-
+    const { feature } = await openTestFeature(squad, "Le noyau");
     const stream = await squad.openEventStream();
-    const first = await stream.next();
-    expect(first.type).toBe("snapshot");
+    expect((await stream.next()).type).toBe("snapshot");
     return { feature, stream };
-  }
-
-  async function waitFor(stream: EventStream, type: SquadEvent["type"]): Promise<SquadEvent> {
-    for (;;) {
-      const event = await stream.next();
-      if (event.type === type) return event;
-    }
   }
 
   it("writes a graph of several tickets and their blocking edges", async () => {
@@ -76,10 +65,10 @@ describe("a scripted session building the graph", () => {
     });
     expect(accepted.status).toBe(202);
 
-    const started = await waitFor(stream, "main-session-started");
+    const started = await waitForEvent(stream, "main-session-started");
     expect(started.type === "main-session-started" && started.featureId).toBe(feature.id);
 
-    const ended = await waitFor(stream, "main-session-ended");
+    const ended = await waitForEvent(stream, "main-session-ended");
     if (ended.type !== "main-session-ended") throw new Error("unreachable");
     expect(ended.outcome).toBe("completed");
 
@@ -111,11 +100,11 @@ describe("a scripted session building the graph", () => {
 
     await squad.request("POST", mainSessionRoute(feature.id), { prompt: "/to-tickets" });
 
-    const first = await waitFor(stream, "graph-changed");
+    const first = await waitForEvent(stream, "graph-changed");
     if (first.type !== "graph-changed") throw new Error("unreachable");
     expect(first.graph.tickets.map((ticket) => ticket.title)).toEqual(["Premier"]);
 
-    const second = await waitFor(stream, "graph-changed");
+    const second = await waitForEvent(stream, "graph-changed");
     if (second.type !== "graph-changed") throw new Error("unreachable");
     expect(second.graph.tickets.map((ticket) => ticket.title)).toEqual(["Premier", "Deuxième"]);
   });
@@ -150,13 +139,43 @@ describe("a scripted session building the graph", () => {
     });
 
     await squad.request("POST", mainSessionRoute(feature.id), { prompt: "/to-tickets" });
-    await waitFor(stream, "main-session-ended");
+    await waitForEvent(stream, "main-session-ended");
 
     expect(refusal).toContain("cycle");
     const response = await squad.request("GET", featureGraphRoute(feature.id));
     const graph = (await response.json()) as FeatureGraph;
     expect(graph.tickets.map((ticket) => ticket.title)).toEqual(["Premier", "Second"]);
   });
+
+  it("tells the session which feature it is on and where its work is written", async () => {
+    // Without this, a session has no way to know the id its tools ask for, and
+    // `/to-tickets` publishes to whatever tracker the repository configures
+    // rather than to the graph the developer is watching.
+    const { feature, stream } = await startWith(async (agent) => {
+      await agent.awaitMessage();
+      agent.say(agent.request.briefing);
+    });
+
+    await squad.request("POST", mainSessionRoute(feature.id), { prompt: "/to-tickets" });
+    await waitForEvent(stream, "main-session-ended");
+
+    const briefing = await readBriefing(feature.id);
+    expect(briefing).toContain(feature.id);
+    expect(briefing).toContain("Le noyau");
+    expect(briefing).toContain("mcp__squad__create_ticket");
+    expect(briefing).toContain("mcp__squad__settle_decision");
+  });
+
+  /** The briefing as the session received it, which it repeated on its thread. */
+  async function readBriefing(featureId: string): Promise<string> {
+    const stream = await squad.openEventStream();
+    const snapshot = await stream.next();
+    if (snapshot.type !== "snapshot") throw new Error("the first event is always a snapshot");
+    const said = snapshot.threads.find(
+      (entry) => entry.featureId === featureId && entry.kind === "agent",
+    );
+    return said?.text ?? "";
+  }
 
   it("refuses to open a second main session on a feature that already has one", async () => {
     const { feature } = await startWith(async (agent) => {

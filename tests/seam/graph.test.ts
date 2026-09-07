@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Feature, FeatureGraph, Project, Ticket } from "../../src/shared/api";
+import type { Feature, FeatureGraph, Ticket } from "../../src/shared/api";
 import { featureGraphRoute } from "../../src/shared/api";
 import { frontier } from "../../src/shared/graph";
 import { connectToSquadTools, type McpConnection } from "../support/mcp";
-import { createTemporaryRepository } from "../support/git";
-import { startTestSquad, type TestSquad } from "../support/squad";
+import { openTestFeature, startTestSquad, type TestSquad } from "../support/squad";
 
 describe("the graph an agent writes through the MCP tools", () => {
   let squad: TestSquad;
@@ -14,24 +13,13 @@ describe("the graph an agent writes through the MCP tools", () => {
   beforeEach(async () => {
     squad = await startTestSquad();
     tools = await connectToSquadTools(squad.url);
-    feature = await openFeature();
+    feature = (await openTestFeature(squad, "Le noyau")).feature;
   });
 
   afterEach(async () => {
     await tools.close();
     await squad.dispose();
   });
-
-  async function openFeature(): Promise<Feature> {
-    const repository = await createTemporaryRepository();
-    const registered = await squad.request("POST", "/api/projects", { path: repository });
-    const { project } = (await registered.json()) as { project: Project };
-    const opened = await squad.request("POST", "/api/features", {
-      projectId: project.id,
-      title: "Le noyau",
-    });
-    return ((await opened.json()) as { feature: Feature }).feature;
-  }
 
   async function createTicket(
     ticket: { title: string; blockedBy?: string[]; blocks?: string[] },
@@ -57,7 +45,7 @@ describe("the graph an agent writes through the MCP tools", () => {
   }
 
   it("exposes the tools an agent needs to write and read the graph", async () => {
-    expect(await tools.listTools()).toEqual(["create_ticket", "read_graph"]);
+    expect(await tools.listTools()).toEqual(["create_ticket", "read_graph", "settle_decision"]);
   });
 
   it("writes a ticket with its kind, its criteria and its reserved external identifier", async () => {
@@ -169,7 +157,7 @@ describe("the graph an agent writes through the MCP tools", () => {
   });
 
   it("refuses an edge onto a ticket of another feature", async () => {
-    const elsewhere = await openFeature();
+    const { feature: elsewhere } = await openTestFeature(squad, "Un autre chantier");
     const foreign = (await tools.call("create_ticket", {
       featureId: elsewhere.id,
       kind: "build",

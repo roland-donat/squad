@@ -4,6 +4,7 @@ import {
   apiRoutes,
   openFeatureBody,
   registerProjectBody,
+  sendMainSessionMessageBody,
   startMainSessionBody,
   type ApiErrorBody,
   type SquadEvent,
@@ -67,6 +68,17 @@ export function buildApiRouter({ store, bus, mainSessions }: HttpDependencies): 
     response.status(202).json({ sessionId: session.id });
   });
 
+  router.post(
+    `${apiRoutes.features}/:featureId/main-session/messages`,
+    async (request, response) => {
+      const body = parse(sendMainSessionMessageBody, request.body);
+      await mainSessions.send(request.params.featureId, body.text);
+      // The answer is not part of this response: it arrives on the event stream,
+      // line by line, for as long as the session keeps writing.
+      response.status(202).json({});
+    },
+  );
+
   // Squad's own MCP endpoint: the surface the agents talk to, on the very port
   // that serves the interface, so a session has one address for all of squad.
   router.all(apiRoutes.mcp, buildMcpHandler({ store, bus }));
@@ -84,7 +96,7 @@ export function buildApiRouter({ store, bus, mainSessions }: HttpDependencies): 
     const send = (event: SquadEvent) => {
       response.write(`data: ${JSON.stringify(event)}\n\n`);
     };
-    send({ type: "snapshot", ...store.snapshot() });
+    send({ type: "snapshot", ...store.storedState(), mainSessions: mainSessions.list() });
 
     const unsubscribe = bus.subscribe(send);
     // A comment frame keeps the connection alive through idle periods without

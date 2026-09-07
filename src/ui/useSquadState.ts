@@ -9,7 +9,6 @@ import {
   type SquadEvent,
   type ThreadEntry,
 } from "../shared/api";
-import { pendingActions, type PendingAction } from "../shared/pending";
 
 export interface SquadState {
   projects: Project[];
@@ -18,6 +17,10 @@ export interface SquadState {
   threads: ThreadEntry[];
   /** The main sessions running right now, one per feature at most. */
   mainSessions: MainSession[];
+  /**
+   * What squad is configured with. Held because the snapshot carries the whole
+   * stored state and this is part of it, not because a screen edits it yet.
+   */
   settings: Settings;
   connected: boolean;
 }
@@ -77,15 +80,6 @@ export function threadOf(state: SquadState, featureId: string): ThreadEntry[] {
 /** The thread of a ticket's sub-session, oldest line first. */
 export function ticketThreadOf(state: SquadState, ticketId: string): ThreadEntry[] {
   return state.threads.filter((entry) => entry.ticketId === ticketId);
-}
-
-/**
- * Everything waiting on the developer, across every feature. Derived from the
- * graphs the stream already carries: the indicator holds nothing of its own, so
- * an action that resolves itself leaves the list on the next event.
- */
-export function waitingOn(state: SquadState): PendingAction[] {
-  return pendingActions(state.graphs);
 }
 
 /** Whether a feature's main session is running, and can therefore be written to. */

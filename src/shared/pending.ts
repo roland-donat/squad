@@ -1,4 +1,4 @@
-import type { FeatureGraph, Ticket } from "./api";
+import type { FeatureGraph, StepReport, Ticket } from "./api";
 
 /**
  * What is waiting on the developer, right now, across every feature. The rule
@@ -22,18 +22,22 @@ export interface PendingAction {
 }
 
 /**
- * Whether a ticket is waiting on the developer, and why.
+ * Whether a test sheet is still waiting on a human: it holds at least one point
+ * nobody has been through. A sheet that came back empty asked for no hand check
+ * at all, and one already gone through waits on squad rather than on its reader.
  *
- * A reported step only waits while its sheet still holds a point nobody has been
- * through: a step whose sheet came back empty asked for no hand check at all,
- * and one already gone through is waiting on squad, not on its reader.
+ * The one place that question is answered. Squad raises an alert on it and the
+ * indicator lists on it, and two spellings of the same rule would drift.
  */
-export function pendingActionOf(ticket: Ticket): PendingReason | null {
+export function sheetIsWaiting(report: StepReport | null): boolean {
+  return report !== null && report.sheet.some((point) => point.verdict === "pending");
+}
+
+/** Whether a ticket is waiting on the developer, and why. */
+function pendingActionOf(ticket: Ticket): PendingReason | null {
   switch (ticket.state) {
     case "awaiting-validation":
-      return ticket.stepReport?.sheet.some((point) => point.verdict === "pending") === true
-        ? "validation"
-        : null;
+      return sheetIsWaiting(ticket.stepReport) ? "validation" : null;
     case "awaiting-decision":
       return "decision";
     case "failed":

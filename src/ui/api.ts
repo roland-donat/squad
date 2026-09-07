@@ -14,7 +14,6 @@ import {
   type ReviewTestSheetBody,
   type SendMainSessionMessageBody,
   type StartMainSessionBody,
-  type Ticket,
 } from "../shared/api";
 
 /**
@@ -104,15 +103,14 @@ export async function launchTicket(ticketId: string, angle: LaunchAngle): Promis
 
 /**
  * Hands back the test sheet the developer went through: a verdict and a comment
- * per point, plus a general return. Nothing else comes back here either; the
- * ticket changes on the event stream like everything else.
+ * per point, plus a general return. Nothing comes back here: the ticket changes
+ * on the event stream like everything else.
  */
 export async function reviewTestSheet(
   ticketId: string,
   body: ReviewTestSheetBody,
-): Promise<Ticket> {
-  const { ticket } = await send<{ ticket: Ticket }>(ticketTestSheetRoute(ticketId), body);
-  return ticket;
+): Promise<void> {
+  await send(ticketTestSheetRoute(ticketId), body);
 }
 
 async function send<T>(route: string, body: unknown): Promise<T> {

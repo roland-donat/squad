@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import type { Feature, Project } from "../shared/api";
-import type { PendingAction, PendingReason } from "../shared/pending";
+import { pendingActions, type PendingAction, type PendingReason } from "../shared/pending";
 import { ApiError, openFeature, registerProject } from "./api";
 import { FeatureGraphView } from "./graph/FeatureGraphView";
 import { MainSessionView } from "./session/MainSessionView";
@@ -11,7 +11,6 @@ import {
   threadOf,
   ticketThreadOf,
   useSquadState,
-  waitingOn,
 } from "./useSquadState";
 
 export function App() {
@@ -48,7 +47,7 @@ export function App() {
         </span>
       </header>
 
-      <WaitingPanel actions={waitingOn(state)} features={features} onOpen={open} />
+      <WaitingPanel actions={pendingActions(state.graphs)} features={features} onOpen={open} />
 
       <main className="app__body">
         <section className="panel" aria-labelledby="titre-projets">

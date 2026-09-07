@@ -3,7 +3,8 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { RequestHandler } from "express";
 import { z } from "zod";
 import { ticketKinds } from "../shared/api";
-import { alertTexts, type Alerts } from "./alerts";
+import { sheetIsWaiting } from "../shared/pending";
+import { alertFor, type Alerts } from "./alerts";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
 import type { Store } from "./store";
@@ -171,8 +172,9 @@ function buildMcpServer({ store, bus, alerts }: McpDependencies): McpServer {
         bus.publish({ type: "graph-changed", graph: store.featureGraph(ticket.featureId) });
         // An empty sheet stops nothing: it says the criteria are all covered and
         // there is nothing for a human to look at, so nobody is woken for it.
-        if ((ticket.stepReport?.sheet.length ?? 0) > 0) {
-          alerts.raise(alertTexts.testSheetWaiting(ticket.title));
+        // The same rule decides what the indicator lists, and it lives in one place.
+        if (sheetIsWaiting(ticket.stepReport)) {
+          alerts.raise(alertFor.testSheetWaiting(ticket.title));
         }
         return ticket;
       }),

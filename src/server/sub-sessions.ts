@@ -7,7 +7,7 @@ import {
   ticketAssignment,
 } from "./agents/briefing";
 import type { AgentLauncher, AgentSession } from "./agents/launcher";
-import { alertTexts, type Alert, type Alerts } from "./alerts";
+import { alertFor, type Alert, type Alerts } from "./alerts";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
 import type { Store } from "./store";
@@ -176,7 +176,7 @@ export class SubSessions {
             text: "squad could not take the sub-session back",
             detail: failure instanceof Error ? failure.message : String(failure),
           });
-          this.dependencies.alerts.raise(alertTexts.subSessionNotTakenBack(ticket.title));
+          this.dependencies.alerts.raise(alertFor.subSessionNotTakenBack(ticket.title));
         } finally {
           this.starting.delete(ticket.id);
         }
@@ -265,7 +265,7 @@ export class SubSessions {
         text: "the sub-session failed",
         detail: detail ?? null,
       });
-      this.stop(ticket, alertTexts.subSessionStopped(ticket.title));
+      this.stop(ticket, alertFor.subSessionStopped(ticket.title));
       return;
     }
 
@@ -277,7 +277,7 @@ export class SubSessions {
       this.append(ticket, sessionId, {
         kind: "notice",
         text: "the sub-session ended after reporting its step",
-        detail: "its test sheet is waiting; squad reopens this session to correct what fails",
+        detail: "its test sheet is waiting for the developer to go through it",
       });
       return;
     }
@@ -289,7 +289,7 @@ export class SubSessions {
         text: "the sub-session ended a second time without reporting its step",
         detail: detail ?? "squad asked once already; it stops here rather than asking forever",
       });
-      this.stop(ticket, alertTexts.subSessionSilent(ticket.title));
+      this.stop(ticket, alertFor.subSessionSilent(ticket.title));
       return;
     }
 
@@ -318,7 +318,7 @@ export class SubSessions {
         text: "squad could not ask the sub-session for its step report",
         detail: failure instanceof Error ? failure.message : String(failure),
       });
-      this.stop(ticket, alertTexts.subSessionStopped(ticket.title));
+      this.stop(ticket, alertFor.subSessionStopped(ticket.title));
     } finally {
       this.starting.delete(ticket.id);
     }

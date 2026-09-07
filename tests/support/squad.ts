@@ -43,11 +43,14 @@ export async function startTestSquad(options: TestSquadOptions = {}): Promise<Te
   // notification whenever progress stops, and the seam suite runs on a
   // developer's desktop: silencing that channel is a setting, not a hatch, and
   // a scenario that wants to watch an alert reads the webhook instead.
-  await fetch(new URL(apiRoutes.settings, server.url), {
+  const silenced = await fetch(new URL(apiRoutes.settings, server.url), {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ desktopNotifications: false }),
   });
+  // Checked rather than fired and forgotten: a refusal here would arm the
+  // desktop channel again, and the suite would say nothing about it.
+  if (!silenced.ok) throw new Error(`could not silence desktop notifications: ${silenced.status}`);
 
   const squad: TestSquad = {
     get url() {

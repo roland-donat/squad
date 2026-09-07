@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import type {
   AcceptanceCriterion,
   BlockingEdge,
@@ -159,21 +159,7 @@ export class Store {
    * waiting on the answer.
    */
   settleDecision(input: SettleDecisionInput): Ticket {
-    // Looked up within its feature rather than by id alone: a session is opened
-    // on one feature, and nothing it says should be able to close a decision
-    // taken on another.
-    const ticket = this.db
-      .select()
-      .from(tickets)
-      .where(and(eq(tickets.id, input.ticketId), eq(tickets.featureId, input.featureId)))
-      .get();
-    if (!ticket) {
-      throw new SquadError(
-        "ticket_not_found",
-        404,
-        `no ticket with id ${input.ticketId} in feature ${input.featureId}`,
-      );
-    }
+    const ticket = this.requireTicketIn(input.featureId, input.ticketId);
     if (ticket.kind !== "decision") {
       throw new SquadError(
         "ticket_not_a_decision",
@@ -424,6 +410,24 @@ export class Store {
     return ticket;
   }
 
+  /**
+   * One ticket of one feature, which is how every write a session makes is
+   * looked up: a session is opened on one feature, and nothing it says should
+   * be able to reach a ticket of another. A ticket of another feature reads as
+   * absent rather than as forbidden, since from where the session stands it is.
+   */
+  private requireTicketIn(featureId: string, ticketId: string): Ticket {
+    const ticket = this.featureGraph(featureId).tickets.find((each) => each.id === ticketId);
+    if (!ticket) {
+      throw new SquadError(
+        "ticket_not_found",
+        404,
+        `no ticket with id ${ticketId} in feature ${featureId}`,
+      );
+    }
+    return ticket;
+  }
+
   /** Where a feature's branch lives, written the first time it is checked out. */
   recordFeatureWorktree(featureId: string, worktree: Worktree): Feature {
     this.db
@@ -503,23 +507,14 @@ export class Store {
    * The coverage has to name every criterion of the ticket and nothing else. A
    * partial declaration is refused rather than read as "the rest is covered":
    * what is missing from the sheet is exactly what nobody will check.
+   *
+   * Only a running sub-session reports, which is why a step corrected after a
+   * red sheet reports from `running` too: handing the failing points back is
+   * what puts the ticket there, and a ticket sitting on a sheet nobody has been
+   * through has already said its piece.
    */
   recordStepReport(input: RecordStepReportInput): Ticket {
-    // Looked up within its feature, like every other write a session makes:
-    // nothing a session says should reach a ticket of another feature.
-    const row = this.db
-      .select()
-      .from(tickets)
-      .where(and(eq(tickets.id, input.ticketId), eq(tickets.featureId, input.featureId)))
-      .get();
-    if (!row) {
-      throw new SquadError(
-        "ticket_not_found",
-        404,
-        `no ticket with id ${input.ticketId} in feature ${input.featureId}`,
-      );
-    }
-    const ticket = this.requireTicket(row.id);
+    const ticket = this.requireTicketIn(input.featureId, input.ticketId);
     if (ticket.state !== "running" || ticket.sessionId === null) {
       throw new SquadError(
         "no_step_in_progress",

@@ -19,7 +19,7 @@ export interface Alert {
   text: string;
 }
 
-export const alertTexts = {
+export const alertFor = {
   testSheetWaiting: (ticketTitle: string): Alert => ({
     text: `squad : la fiche de tests de « ${ticketTitle} » attend une vérification.`,
   }),

@@ -8,6 +8,7 @@ import {
   ticketTestSheetRoute,
 } from "../../src/shared/api";
 import { pendingActions } from "../../src/shared/pending";
+import { connectToSquadTools } from "../support/mcp";
 import { createScriptedLauncher, type ScriptedAgent } from "../support/scripted-launcher";
 import {
   openTestFeature,
@@ -361,12 +362,29 @@ describe("ending a step, its test sheet and its alerts", () => {
     expect(running.stepReport).toBeNull();
   });
 
+  it("changes the alert setting it was given and leaves the other one alone", async () => {
+    await start(async () => {});
+    const receiver = await startWebhookReceiver();
+    webhook = receiver;
+
+    // The desktop channel was turned off when this squad started. Setting the
+    // webhook must not turn it back on: a partial change is a change to what it
+    // names, and a setting nobody touched is a setting nobody meant to change.
+    await squad.request("PUT", apiRoutes.settings, { webhookUrl: receiver.url });
+    const read = await squad.request("GET", apiRoutes.settings);
+    expect(await read.json()).toEqual({
+      settings: { webhookUrl: receiver.url, desktopNotifications: false },
+    });
+
+    const refused = await squad.request("PUT", apiRoutes.settings, { webhookUrl: "pas une url" });
+    expect(refused.status).toBe(400);
+  });
+
   it("refuses a report on a ticket no sub-session is running", async () => {
     const { featureId, ticket } = await start(async () => {});
     const graph = await readGraph(featureId);
     expect(graph.tickets[0]?.state).toBe("ready");
 
-    const { connectToSquadTools } = await import("../support/mcp");
     const tools = await connectToSquadTools(squad.url);
     const outcome = await tools.attempt("report_step", {
       featureId,

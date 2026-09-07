@@ -1,3 +1,4 @@
+import { realpath } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
@@ -13,9 +14,12 @@ export interface SquadServerOptions {
   dataDir?: string;
   /** 0 asks the operating system for a free port, which the tests rely on. */
   port?: number;
-  host?: string;
   ui?: UiMode;
 }
+
+/** Squad is a single-user tool on a single machine: it never leaves the loopback. */
+const host = "127.0.0.1";
+export const defaultPort = 7300;
 
 export interface RunningSquadServer {
   url: string;
@@ -27,11 +31,13 @@ export interface RunningSquadServer {
 export async function startSquadServer(
   options: SquadServerOptions = {},
 ): Promise<RunningSquadServer> {
-  const dataDir = options.dataDir ?? resolveDataDir();
-  const host = options.host ?? "127.0.0.1";
-  const port = options.port ?? 7300;
+  const requestedDataDir = options.dataDir ?? resolveDataDir();
+  const port = options.port ?? defaultPort;
 
-  const { db, close: closeDatabase } = await openDatabase(dataDir);
+  const { db, close: closeDatabase } = await openDatabase(requestedDataDir);
+  // Resolved only once the directory exists, and through its symlinks, since it
+  // is compared against repository roots git reports the same way.
+  const dataDir = await realpath(requestedDataDir);
   const store = new Store(db, dataDir);
   const bus = new EventBus();
 

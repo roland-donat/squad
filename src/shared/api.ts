@@ -12,9 +12,11 @@ import { z } from "zod";
 export const errorCodes = [
   "invalid_request",
   "path_not_found",
+  "path_not_readable",
   "not_a_git_repository",
   "project_already_registered",
   "project_not_found",
+  "not_found",
   "data_directory_inside_project",
   "internal_error",
 ] as const;
@@ -34,7 +36,6 @@ export interface Project {
   name: string;
   /** Absolute path of the repository root, as resolved by git. */
   path: string;
-  defaultBranch: string;
   createdAt: string;
 }
 

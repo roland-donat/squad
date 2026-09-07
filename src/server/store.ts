@@ -1,22 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import { eq, sql } from "drizzle-orm";
-import type { Feature, Project, Snapshot } from "../shared/api";
+import type {
+  Feature,
+  OpenFeatureBody,
+  Project,
+  RegisterProjectBody,
+  Snapshot,
+} from "../shared/api";
 import type { SquadDatabase } from "./db/open";
 import { features, projects } from "./db/schema";
 import { SquadError } from "./errors";
-import { inspectGitRepository } from "./git";
+import { resolveRepositoryRoot } from "./git";
 import { isInside } from "./paths";
-
-export interface RegisterProjectInput {
-  path: string;
-  name?: string | undefined;
-}
-
-export interface OpenFeatureInput {
-  projectId: string;
-  title: string;
-}
 
 /**
  * Every read and write of squad's durable state. Rows are ordered by SQLite's
@@ -43,42 +39,43 @@ export class Store {
     return { projects: this.listProjects(), features: this.listFeatures() };
   }
 
-  async registerProject(input: RegisterProjectInput): Promise<Project> {
-    const repository = await inspectGitRepository(input.path);
+  async registerProject(input: RegisterProjectBody): Promise<Project> {
+    const root = await resolveRepositoryRoot(input.path);
 
-    if (isInside(this.dataDir, repository.root)) {
+    if (isInside(this.dataDir, root)) {
       throw new SquadError(
         "data_directory_inside_project",
         400,
-        `squad stores its database in ${this.dataDir}, which is inside ${repository.root}`,
-      );
-    }
-
-    const existing = this.db
-      .select()
-      .from(projects)
-      .where(eq(projects.path, repository.root))
-      .get();
-    if (existing) {
-      throw new SquadError(
-        "project_already_registered",
-        409,
-        `${repository.root} is already registered as project ${existing.id}`,
+        `squad stores its database in ${this.dataDir}, which is inside ${root}`,
       );
     }
 
     const project: Project = {
       id: randomUUID(),
-      name: input.name ?? basename(repository.root),
-      path: repository.root,
-      defaultBranch: repository.currentBranch,
+      name: input.name ?? basename(root),
+      path: root,
       createdAt: new Date().toISOString(),
     };
-    this.db.insert(projects).values(project).run();
+
+    try {
+      this.db.insert(projects).values(project).run();
+    } catch (cause) {
+      // The unique index on `path` is what actually decides, rather than a
+      // preliminary read: two registrations of the same repository can be in
+      // flight at once, since resolving the path awaits git.
+      if (isUniqueViolation(cause)) {
+        throw new SquadError(
+          "project_already_registered",
+          409,
+          `${root} is already registered as a project`,
+        );
+      }
+      throw cause;
+    }
     return project;
   }
 
-  openFeature(input: OpenFeatureInput): Feature {
+  openFeature(input: OpenFeatureBody): Feature {
     const project = this.db.select().from(projects).where(eq(projects.id, input.projectId)).get();
     if (!project) {
       throw new SquadError("project_not_found", 404, `no project with id ${input.projectId}`);
@@ -93,4 +90,13 @@ export class Store {
     this.db.insert(features).values(feature).run();
     return feature;
   }
+}
+
+function isUniqueViolation(cause: unknown): boolean {
+  return (
+    cause instanceof Error &&
+    "code" in cause &&
+    typeof cause.code === "string" &&
+    cause.code.startsWith("SQLITE_CONSTRAINT")
+  );
 }

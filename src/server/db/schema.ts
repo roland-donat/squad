@@ -11,7 +11,6 @@ export const projects = sqliteTable("projects", {
   name: text("name").notNull(),
   /** Repository root, resolved by git and free of symlinks, hence unique. */
   path: text("path").notNull().unique(),
-  defaultBranch: text("default_branch").notNull(),
   createdAt: text("created_at").notNull(),
 });
 

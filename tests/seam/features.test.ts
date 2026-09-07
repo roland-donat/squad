@@ -100,5 +100,13 @@ describe("persistence", () => {
     };
     expect(projects.projects).toEqual([project]);
     expect(features.features.map((feature) => feature.title)).toEqual(["Fondation"]);
+
+    // The interface reads none of the routes above: it holds what the snapshot
+    // of a fresh connection gives it, so that is what has to survive too.
+    const stream = await squad.openEventStream();
+    const snapshot = await stream.next();
+    if (snapshot.type !== "snapshot") throw new Error("the first event is not a snapshot");
+    expect(snapshot.projects).toEqual([project]);
+    expect(snapshot.features.map((feature) => feature.title)).toEqual(["Fondation"]);
   });
 });

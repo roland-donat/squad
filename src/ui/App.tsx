@@ -33,7 +33,6 @@ export function App() {
                 >
                   <span className="row__title">{project.name}</span>
                   <span className="row__detail">{project.path}</span>
-                  <span className="row__meta">branche {project.defaultBranch}</span>
                 </button>
               </li>
             ))}
@@ -59,26 +58,47 @@ export function App() {
   );
 }
 
-function RegisterProjectForm() {
-  const [path, setPath] = useState("");
-  const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
+/**
+ * Submission state shared by every form: an action in flight, and the failure it
+ * may come back with, rendered from the error code the server sent.
+ */
+function useSubmission(action: () => Promise<void>) {
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      await registerProject({ path, ...(name.trim() ? { name } : {}) });
-      setPath("");
-      setName("");
+      await action();
     } catch (failure) {
       setError(failure instanceof ApiError ? failure.message : "Le serveur est injoignable.");
     } finally {
       setBusy(false);
     }
   }
+
+  return { busy, error, submit };
+}
+
+function Failure({ message }: { message: string | null }) {
+  if (!message) return null;
+  return (
+    <p className="error" role="alert">
+      {message}
+    </p>
+  );
+}
+
+function RegisterProjectForm() {
+  const [path, setPath] = useState("");
+  const [name, setName] = useState("");
+  const { busy, error, submit } = useSubmission(async () => {
+    await registerProject({ path, ...(name.trim() ? { name } : {}) });
+    setPath("");
+    setName("");
+  });
 
   return (
     <form className="form" onSubmit={submit}>
@@ -102,33 +122,17 @@ function RegisterProjectForm() {
       <button type="submit" disabled={busy}>
         Enregistrer le projet
       </button>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      <Failure message={error} />
     </form>
   );
 }
 
 function FeaturesPanel({ project, features }: { project: Project; features: Feature[] }) {
   const [title, setTitle] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      await openFeature({ projectId: project.id, title });
-      setTitle("");
-    } catch (failure) {
-      setError(failure instanceof ApiError ? failure.message : "Le serveur est injoignable.");
-    } finally {
-      setBusy(false);
-    }
-  }
+  const { busy, error, submit } = useSubmission(async () => {
+    await openFeature({ projectId: project.id, title });
+    setTitle("");
+  });
 
   return (
     <>
@@ -148,11 +152,7 @@ function FeaturesPanel({ project, features }: { project: Project; features: Feat
         <button type="submit" disabled={busy}>
           Ouvrir la feature
         </button>
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
+        <Failure message={error} />
       </form>
       <ul className="list">
         {features.map((feature) => (

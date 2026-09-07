@@ -9,17 +9,20 @@ import {
 } from "../shared/api";
 
 /**
- * Le seul chemin par lequel l'interface parle à squad. Elle n'atteint jamais le
- * disque ni la base : tout passe par ces requêtes et par le flux d'événements.
+ * The only way the interface talks to squad. It never reaches the disk nor the
+ * database: every action goes through these requests, every state change comes
+ * back through the event stream.
  */
 
-/** Message affichable pour chaque code d'erreur rendu par le serveur. */
+/** French wording shown for each error code the server may return. */
 const wording: Record<ErrorCode, string> = {
   invalid_request: "La demande est incomplète : vérifier les champs saisis.",
   path_not_found: "Ce chemin n'existe pas sur cette machine.",
+  path_not_readable: "Ce chemin existe mais squad ne peut pas le lire.",
   not_a_git_repository: "Ce chemin n'est pas un dépôt git.",
   project_already_registered: "Ce dépôt est déjà enregistré comme projet.",
   project_not_found: "Ce projet est introuvable.",
+  not_found: "Cette route n'existe pas.",
   data_directory_inside_project:
     "La base de squad se trouve dans ce dépôt : squad refuse de piloter un dépôt qui la contient.",
   internal_error: "Le serveur a rencontré une erreur inattendue.",

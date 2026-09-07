@@ -23,7 +23,6 @@ describe("registering a project", () => {
 
     const { project } = (await response.json()) as { project: Project };
     expect(project.path).toBe(await realpath(repository));
-    expect(project.defaultBranch).toBe("main");
     expect(project.id).toBeTruthy();
 
     const listed = await squad.request("GET", "/api/projects");
@@ -49,13 +48,6 @@ describe("registering a project", () => {
     expect(project.name).toBe("Poste de pilotage");
   });
 
-  it("records the repository's current branch as its default branch", async () => {
-    const repository = await createTemporaryRepository("trunk");
-    const response = await squad.request("POST", "/api/projects", { path: repository });
-    const { project } = (await response.json()) as { project: Project };
-    expect(project.defaultBranch).toBe("trunk");
-  });
-
   it("refuses a path that is not a git repository", async () => {
     const directory = await createTemporaryDirectory();
 
@@ -75,6 +67,18 @@ describe("registering a project", () => {
     expect(response.status).toBe(400);
     const body = (await response.json()) as ApiErrorBody;
     expect(body.error.code).toBe("path_not_found");
+  });
+
+  it("tells an unreadable path from a missing one", async () => {
+    // A path whose parent is a file: it exists in no sense, but the failure is
+    // not that it is absent.
+    const response = await squad.request("POST", "/api/projects", {
+      path: "/etc/hostname/inside-a-file",
+    });
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as ApiErrorBody;
+    expect(body.error.code).toBe("path_not_readable");
   });
 
   it("refuses a request without a path", async () => {
@@ -99,7 +103,7 @@ describe("registering a project", () => {
     // The database must never live inside a repository squad drives, since a
     // ticket's worktree would then carry it around.
     const repository = await createTemporaryRepository();
-    const inside = await startTestSquadInside(repository);
+    const inside = await startTestSquad({ dataDir: `${repository}/.squad-data` });
     try {
       const response = await inside.request("POST", "/api/projects", { path: repository });
       expect(response.status).toBe(400);
@@ -110,28 +114,3 @@ describe("registering a project", () => {
     }
   });
 });
-
-async function startTestSquadInside(repository: string): Promise<TestSquad> {
-  const { startSquadServer } = await import("../../src/server/server");
-  const server = await startSquadServer({
-    dataDir: `${repository}/.squad-data`,
-    port: 0,
-    ui: "none",
-  });
-  return {
-    url: server.url,
-    dataDir: `${repository}/.squad-data`,
-    stop: () => server.close(),
-    restart: async () => {},
-    dispose: () => server.close(),
-    request: (method, path, body) =>
-      fetch(new URL(path, server.url), {
-        method,
-        headers: body === undefined ? undefined : { "content-type": "application/json" },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      }),
-    openEventStream: () => {
-      throw new Error("not used");
-    },
-  };
-}

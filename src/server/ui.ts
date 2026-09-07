@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import express from "express";
+import { locations } from "./locations";
 
 /**
  * How the browser interface is served. `dev` hands the requests to Vite in
@@ -10,18 +10,19 @@ import express from "express";
  */
 export type UiMode = "auto" | "dev" | "static" | "none";
 
-const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
-const uiBuildDir = fileURLToPath(new URL("../../dist/ui", import.meta.url));
-
 export interface MountedUi {
   close(): Promise<void>;
 }
 
 export async function mountUi(app: express.Express, mode: UiMode): Promise<MountedUi> {
-  const resolved = mode === "auto" ? (process.env.NODE_ENV === "production" ? "static" : "dev") : mode;
+  const resolved = mode === "auto" ? resolveFromEnvironment() : mode;
   if (resolved === "none") return { close: async () => {} };
   if (resolved === "dev") return mountDevelopmentUi(app);
   return mountBuiltUi(app);
+}
+
+function resolveFromEnvironment(): "dev" | "static" {
+  return process.env.NODE_ENV === "production" ? "static" : "dev";
 }
 
 async function mountDevelopmentUi(app: express.Express): Promise<MountedUi> {
@@ -29,7 +30,7 @@ async function mountDevelopmentUi(app: express.Express): Promise<MountedUi> {
   // that only ever serves the build.
   const { createServer } = await import("vite");
   const vite = await createServer({
-    configFile: `${repositoryRoot}vite.config.ts`,
+    configFile: locations.viteConfig,
     server: { middlewareMode: true },
     appType: "spa",
   });
@@ -38,14 +39,16 @@ async function mountDevelopmentUi(app: express.Express): Promise<MountedUi> {
 }
 
 function mountBuiltUi(app: express.Express): MountedUi {
-  if (!existsSync(uiBuildDir)) {
-    throw new Error(`the interface has not been built yet: ${uiBuildDir} is missing, run "pnpm build"`);
+  if (!existsSync(locations.uiBuild)) {
+    throw new Error(
+      `the interface has not been built yet: ${locations.uiBuild} is missing, run "pnpm build"`,
+    );
   }
-  app.use(express.static(uiBuildDir));
+  app.use(express.static(locations.uiBuild));
   // Single page application: any path the API did not claim renders the shell.
   app.use((request, response, next) => {
     if (request.method !== "GET" && request.method !== "HEAD") return next();
-    response.sendFile(`${uiBuildDir}/index.html`);
+    response.sendFile(locations.uiBuildEntry);
   });
   return { close: async () => {} };
 }

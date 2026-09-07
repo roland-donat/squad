@@ -4,7 +4,7 @@ import { App } from "./App";
 import "./styles.css";
 
 const container = document.getElementById("root");
-if (!container) throw new Error("le point de montage #root est absent de la page");
+if (!container) throw new Error("the #root mount point is missing from the page");
 
 createRoot(container).render(
   <StrictMode>

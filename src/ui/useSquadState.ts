@@ -8,9 +8,9 @@ export interface SquadState {
 }
 
 /**
- * L'état affiché vient entièrement du flux d'événements : le premier message
- * d'une connexion porte l'instantané complet, les suivants les changements.
- * L'interface n'a donc aucune lecture à demander, ni rien à rafraîchir.
+ * The displayed state comes entirely from the event stream: the first message of
+ * a connection carries the whole snapshot, the following ones carry changes. The
+ * interface therefore issues no read request and has nothing to refresh.
  */
 export function useSquadState(): SquadState {
   const [state, setState] = useState<SquadState>({

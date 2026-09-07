@@ -78,6 +78,13 @@ export function buildApiRouter({ store, bus }: HttpDependencies): express.Router
     });
   });
 
+  // Anything under /api that no route claimed is an API request, and must be
+  // answered as one: letting it fall through would hand the interface's own
+  // shell to a caller expecting JSON.
+  router.use("/api", (request) => {
+    throw new SquadError("not_found", 404, `no API route for ${request.method} ${request.originalUrl}`);
+  });
+
   router.use(renderError);
   return router;
 }

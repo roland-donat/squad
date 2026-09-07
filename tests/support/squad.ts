@@ -12,17 +12,20 @@ import { startSquadServer } from "../../src/server/server";
 export interface TestSquad {
   url: string;
   dataDir: string;
-  /** Stops the server but keeps the data directory, so a restart can be tested. */
-  stop(): Promise<void>;
-  /** Starts a new server on the same data directory. */
+  /** Stops the server and starts a new one on the same data directory. */
   restart(): Promise<void>;
   dispose(): Promise<void>;
   request(method: string, path: string, body?: unknown): Promise<Response>;
   openEventStream(): Promise<EventStream>;
 }
 
-export async function startTestSquad(): Promise<TestSquad> {
-  const dataDir = await mkdtemp(join(tmpdir(), "squad-data-"));
+export interface TestSquadOptions {
+  /** Where the database goes; a temporary directory of its own by default. */
+  dataDir?: string;
+}
+
+export async function startTestSquad(options: TestSquadOptions = {}): Promise<TestSquad> {
+  const dataDir = options.dataDir ?? (await mkdtemp(join(tmpdir(), "squad-data-")));
   let server = await startSquadServer({ dataDir, port: 0, ui: "none" });
   const streams: EventStream[] = [];
 
@@ -31,9 +34,6 @@ export async function startTestSquad(): Promise<TestSquad> {
       return server.url;
     },
     dataDir,
-    async stop() {
-      await server.close();
-    },
     async restart() {
       await server.close();
       server = await startSquadServer({ dataDir, port: 0, ui: "none" });
@@ -41,7 +41,7 @@ export async function startTestSquad(): Promise<TestSquad> {
     async dispose() {
       for (const stream of streams) stream.close();
       await server.close();
-      await rm(dataDir, { recursive: true, force: true });
+      if (options.dataDir === undefined) await rm(dataDir, { recursive: true, force: true });
     },
     async request(method, path, body) {
       return fetch(new URL(path, server.url), {

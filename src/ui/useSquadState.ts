@@ -3,14 +3,19 @@ import {
   apiRoutes,
   type Feature,
   type FeatureGraph,
+  type MainSession,
   type Project,
   type SquadEvent,
+  type ThreadEntry,
 } from "../shared/api";
 
 export interface SquadState {
   projects: Project[];
   features: Feature[];
   graphs: FeatureGraph[];
+  threads: ThreadEntry[];
+  /** The main sessions running right now, one per feature at most. */
+  mainSessions: MainSession[];
   connected: boolean;
 }
 
@@ -24,6 +29,8 @@ export function useSquadState(): SquadState {
     projects: [],
     features: [],
     graphs: [],
+    threads: [],
+    mainSessions: [],
     connected: false,
   });
 
@@ -58,6 +65,16 @@ export function graphOf(state: SquadState, featureId: string): FeatureGraph {
   );
 }
 
+/** The thread of a feature's main session, oldest line first. */
+export function threadOf(state: SquadState, featureId: string): ThreadEntry[] {
+  return state.threads.filter((entry) => entry.featureId === featureId && entry.ticketId === null);
+}
+
+/** Whether a feature's main session is running, and can therefore be written to. */
+export function isMainSessionRunning(state: SquadState, featureId: string): boolean {
+  return state.mainSessions.some((session) => session.featureId === featureId);
+}
+
 function apply(state: SquadState, event: SquadEvent): SquadState {
   switch (event.type) {
     case "snapshot":
@@ -66,6 +83,8 @@ function apply(state: SquadState, event: SquadEvent): SquadState {
         projects: event.projects,
         features: event.features,
         graphs: event.graphs,
+        threads: event.threads,
+        mainSessions: event.mainSessions,
       };
     case "project-registered":
       return { ...state, projects: [...state.projects, event.project] };
@@ -81,10 +100,22 @@ function apply(state: SquadState, event: SquadEvent): SquadState {
           event.graph,
         ],
       };
+    case "thread-appended":
+      return { ...state, threads: [...state.threads, event.entry] };
     case "main-session-started":
+      return {
+        ...state,
+        mainSessions: [
+          ...state.mainSessions,
+          { featureId: event.featureId, sessionId: event.sessionId },
+        ],
+      };
     case "main-session-ended":
-      // The thread of the main session is not displayed yet; what the session
-      // writes reaches the interface as graph changes.
-      return state;
+      return {
+        ...state,
+        mainSessions: state.mainSessions.filter(
+          (session) => session.sessionId !== event.sessionId,
+        ),
+      };
   }
 }

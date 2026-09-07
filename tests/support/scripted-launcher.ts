@@ -42,7 +42,10 @@ export function createScriptedLauncher(script: AgentScript): AgentLauncher {
       const attempt = async (tool: string, input: unknown): Promise<ToolOutcome> => {
         connection.tools ??= await connectToSquadTools(request.mcpUrl);
         const outcome = await connection.tools.attempt(tool, input);
-        events.push({ type: "tool-call", tool });
+        // Announced with what it was called with, like the real launcher: the
+        // interface folds a tool call away behind its name, so the arguments
+        // are the whole of what there is left to unfold.
+        events.push({ type: "tool-call", tool, input });
         return outcome;
       };
 

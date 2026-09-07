@@ -15,8 +15,21 @@ import type { Store } from "./store";
  * remain, no prose parser anywhere in squad.
  */
 
+/**
+ * The name squad's tools are mounted under in a session. It decides how they are
+ * spelled in the model's tool list, so it is declared once and read both by the
+ * launcher that mounts them and by the briefing that names them.
+ */
+export const squadMcpServerName = "squad";
+
+/** A squad tool as a session sees it, prefix and all. */
+export function squadToolName(tool: string): string {
+  return `mcp__${squadMcpServerName}__${tool}`;
+}
+
 export const squadTools = {
   createTicket: "create_ticket",
+  settleDecision: "settle_decision",
   readGraph: "read_graph",
 } as const;
 
@@ -41,6 +54,17 @@ const createTicketShape = {
     .array(z.string().min(1))
     .default([])
     .describe("Tickets of the same feature this one must be merged before."),
+};
+
+const settleDecisionShape = {
+  ticketId: z.string().min(1).describe("The decision ticket the developer has just settled."),
+  conclusion: z
+    .string()
+    .trim()
+    .min(1)
+    .describe(
+      "What was decided, in the developer's own terms, in enough detail for a fresh session to act on it without reading this thread.",
+    ),
 };
 
 const readGraphShape = {
@@ -85,6 +109,22 @@ function buildMcpServer({ store, bus }: McpDependencies): McpServer {
       answer(() => {
         const ticket = store.createTicket(input);
         bus.publish({ type: "graph-changed", graph: store.featureGraph(input.featureId) });
+        return ticket;
+      }),
+  );
+
+  server.registerTool(
+    squadTools.settleDecision,
+    {
+      title: "Settle a decision",
+      description:
+        "Records the conclusion of a decision ticket, closes it, and releases the tickets it was blocking. Only a ticket of kind decision can be settled, and only once. Call this as soon as the developer has decided in the thread: squad reads no prose, so a decision that is not written through this tool never reaches the graph.",
+      inputSchema: settleDecisionShape,
+    },
+    async (input) =>
+      answer(() => {
+        const ticket = store.settleDecision(input);
+        bus.publish({ type: "graph-changed", graph: store.featureGraph(ticket.featureId) });
         return ticket;
       }),
   );

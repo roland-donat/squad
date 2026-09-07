@@ -3,8 +3,8 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
 import { apiRoutes } from "../shared/api";
+import { createClaudeCodeLauncher } from "./agents/claude-code";
 import type { AgentLauncher } from "./agents/launcher";
-import { unavailableLauncher } from "./agents/unavailable";
 import { openDatabase } from "./db/open";
 import { EventBus } from "./events";
 import { buildApiRouter } from "./http";
@@ -20,9 +20,9 @@ export interface SquadServerOptions {
   port?: number;
   ui?: UiMode;
   /**
-   * How claude-code sessions are opened. Defaults to a launcher that refuses,
-   * since squad cannot yet start a real one; the seam tests hand in a scripted
-   * double instead.
+   * How claude-code sessions are opened. Defaults to the real launcher; the seam
+   * tests hand in a scripted double instead, which is the only place squad's
+   * non-determinism is removed.
    */
   launcher?: AgentLauncher;
 }
@@ -57,7 +57,7 @@ export async function startSquadServer(
   const mainSessions = new MainSessions({
     store,
     bus,
-    launcher: options.launcher ?? unavailableLauncher,
+    launcher: options.launcher ?? createClaudeCodeLauncher(),
     mcpUrl: () => new URL(apiRoutes.mcp, baseUrl).toString(),
   });
 

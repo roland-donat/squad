@@ -158,6 +158,36 @@ describe("a scripted session building the graph", () => {
     expect(graph.tickets.map((ticket) => ticket.title)).toEqual(["Premier", "Second"]);
   });
 
+  it("tells the session which feature it is on and where its work is written", async () => {
+    // Without this, a session has no way to know the id its tools ask for, and
+    // `/to-tickets` publishes to whatever tracker the repository configures
+    // rather than to the graph the developer is watching.
+    const { feature, stream } = await startWith(async (agent) => {
+      await agent.awaitMessage();
+      agent.say(agent.request.briefing);
+    });
+
+    await squad.request("POST", mainSessionRoute(feature.id), { prompt: "/to-tickets" });
+    await waitFor(stream, "main-session-ended");
+
+    const briefing = await readBriefing(feature.id);
+    expect(briefing).toContain(feature.id);
+    expect(briefing).toContain("Le noyau");
+    expect(briefing).toContain("mcp__squad__create_ticket");
+    expect(briefing).toContain("mcp__squad__settle_decision");
+  });
+
+  /** The briefing as the session received it, which it repeated on its thread. */
+  async function readBriefing(featureId: string): Promise<string> {
+    const stream = await squad.openEventStream();
+    const snapshot = await stream.next();
+    if (snapshot.type !== "snapshot") throw new Error("the first event is always a snapshot");
+    const said = snapshot.threads.find(
+      (entry) => entry.featureId === featureId && entry.kind === "agent",
+    );
+    return said?.text ?? "";
+  }
+
   it("refuses to open a second main session on a feature that already has one", async () => {
     const { feature } = await startWith(async (agent) => {
       // Never returns on its own: the session stays alive until squad stops it.

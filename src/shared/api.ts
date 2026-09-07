@@ -21,7 +21,9 @@ export const errorCodes = [
   "edge_crosses_features",
   "edge_would_create_cycle",
   "main_session_already_running",
-  "agent_launcher_unavailable",
+  "main_session_not_running",
+  "ticket_not_a_decision",
+  "decision_already_settled",
   "not_found",
   "data_directory_inside_project",
   "internal_error",
@@ -59,11 +61,12 @@ export type TicketKind = (typeof ticketKinds)[number];
 
 /**
  * What the pilot reads on a node. Every value is computed by the server, so the
- * interface never derives a state of its own: `merged` is recorded, `blocked`
- * and `ready` follow from the blocking edges. The list grows as the execution
- * states arrive; nothing here is stored under these names.
+ * interface never derives a state of its own: `merged` is recorded, `blocked`,
+ * `ready` and `awaiting-decision` follow from the blocking edges and the kind.
+ * The list grows as the execution states arrive; nothing here is stored under
+ * these names.
  */
-export const ticketStates = ["blocked", "ready", "merged"] as const;
+export const ticketStates = ["blocked", "ready", "awaiting-decision", "merged"] as const;
 export type TicketState = (typeof ticketStates)[number];
 
 /**
@@ -90,6 +93,11 @@ export interface Ticket {
    * adding the projection later asks for no migration.
    */
   externalId: string | null;
+  /**
+   * What was decided, on a `decision` ticket that has been settled from the
+   * main session. Null everywhere else, and null until the decision is taken.
+   */
+  conclusion: string | null;
   state: TicketState;
   createdAt: string;
 }
@@ -111,6 +119,42 @@ export interface FeatureGraph {
   edges: BlockingEdge[];
 }
 
+/**
+ * What one line of a session thread is. `pilot` is what the developer typed,
+ * `agent` what the session said, `tool` a call it made, and `notice` what squad
+ * or the runtime reported about the session itself.
+ */
+export const threadEntryKinds = ["pilot", "agent", "tool", "notice"] as const;
+export type ThreadEntryKind = (typeof threadEntryKinds)[number];
+
+/**
+ * One line of a session thread, stored as it happens so the thread survives a
+ * reload of the interface and a restart of the server. The thread is the whole
+ * record of a session: squad never reconstructs it from a transcript on disk.
+ */
+export interface ThreadEntry {
+  id: string;
+  featureId: string;
+  /** Null on the main session; the ticket of a sub-session once those exist. */
+  ticketId: string | null;
+  sessionId: string;
+  kind: ThreadEntryKind;
+  /** The message said, or the name of the tool called. */
+  text: string;
+  /**
+   * What the interface folds away by default: the arguments of a tool call, the
+   * detail of a failure. Null when the entry has nothing more to show.
+   */
+  detail: string | null;
+  createdAt: string;
+}
+
+/** A main session squad is holding open right now. */
+export interface MainSession {
+  featureId: string;
+  sessionId: string;
+}
+
 export const registerProjectBody = z.object({
   path: z.string().trim().min(1),
   name: z.string().trim().min(1).optional(),
@@ -123,20 +167,40 @@ export const openFeatureBody = z.object({
 });
 export type OpenFeatureBody = z.infer<typeof openFeatureBody>;
 
+/**
+ * The first message is optional: the developer may open the thread first and
+ * paste the spec into it afterwards, which is what the interface does.
+ */
 export const startMainSessionBody = z.object({
-  prompt: z.string().trim().min(1),
+  prompt: z.string().trim().min(1).optional(),
 });
 export type StartMainSessionBody = z.infer<typeof startMainSessionBody>;
+
+export const sendMainSessionMessageBody = z.object({
+  text: z.string().trim().min(1),
+});
+export type SendMainSessionMessageBody = z.infer<typeof sendMainSessionMessageBody>;
 
 /** How a session ended, as the launcher reported it. */
 export const agentSessionOutcomes = ["completed", "failed"] as const;
 export type AgentSessionOutcome = (typeof agentSessionOutcomes)[number];
 
-export interface Snapshot {
+/** Everything squad has written down, as the store hands it over. */
+export interface StoredState {
   projects: Project[];
   features: Feature[];
   /** One entry per feature, empty graphs included. */
   graphs: FeatureGraph[];
+  /** Every thread, oldest line first, all features together. */
+  threads: ThreadEntry[];
+}
+
+/**
+ * The first message of a connection: what is stored, plus what is running,
+ * which lives in the server's memory and nowhere else.
+ */
+export interface Snapshot extends StoredState {
+  mainSessions: MainSession[];
 }
 
 /**
@@ -153,6 +217,7 @@ export type SquadEvent =
   | { type: "project-registered"; project: Project }
   | { type: "feature-opened"; feature: Feature }
   | { type: "graph-changed"; graph: FeatureGraph }
+  | { type: "thread-appended"; entry: ThreadEntry }
   | { type: "main-session-started"; featureId: string; sessionId: string }
   | {
       type: "main-session-ended";
@@ -180,4 +245,8 @@ export function featureGraphRoute(featureId: string): string {
 
 export function mainSessionRoute(featureId: string): string {
   return `${apiRoutes.features}/${featureId}/main-session`;
+}
+
+export function mainSessionMessagesRoute(featureId: string): string {
+  return `${mainSessionRoute(featureId)}/messages`;
 }

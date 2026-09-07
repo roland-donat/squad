@@ -8,7 +8,7 @@ import {
   text,
   unique,
 } from "drizzle-orm/sqlite-core";
-import { ticketKinds } from "../../shared/api";
+import { threadEntryKinds, ticketKinds } from "../../shared/api";
 import { ticketLifecycles } from "../../shared/graph";
 
 /**
@@ -53,6 +53,8 @@ export const tickets = sqliteTable(
     lifecycle: text("lifecycle", { enum: ticketLifecycles }).notNull().default("unstarted"),
     /** Reserved for a projection towards an issue tracker, never written (ADR 0001). */
     externalId: text("external_id"),
+    /** What was settled, on a `decision` ticket the developer has closed. */
+    conclusion: text("conclusion"),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
@@ -88,6 +90,34 @@ export const acceptanceCriteria = sqliteTable(
   (table) => [
     index("acceptance_criteria_ticket_idx").on(table.ticketId),
     unique("acceptance_criteria_position").on(table.ticketId, table.position),
+  ],
+);
+
+/**
+ * Every line of every session thread, written as it happens. Squad keeps the
+ * thread itself rather than pointing at a transcript on disk: what the developer
+ * comes back to read must survive a restart of the server, and it is the same
+ * record the interface renders live.
+ */
+export const threadEntries = sqliteTable(
+  "thread_entries",
+  {
+    id: text("id").primaryKey(),
+    featureId: text("feature_id")
+      .notNull()
+      .references(() => features.id, { onDelete: "cascade" }),
+    /** Null on the main session; the ticket of a sub-session once those exist. */
+    ticketId: text("ticket_id").references(() => tickets.id, { onDelete: "cascade" }),
+    sessionId: text("session_id").notNull(),
+    kind: text("kind", { enum: threadEntryKinds }).notNull(),
+    text: text("text").notNull(),
+    /** What the interface folds away: a tool call's arguments, a failure's detail. */
+    detail: text("detail"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("thread_entries_feature_idx").on(table.featureId),
+    check("thread_entries_kind", sql`${table.kind} in (${literals(threadEntryKinds)})`),
   ],
 );
 

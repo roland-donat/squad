@@ -15,6 +15,13 @@
       "when": 1788809764656,
       "tag": "0001_tough_amazoness",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788812000787,
+      "tag": "0002_dizzy_deadpool",
+      "breakpoints": true
     }
   ]
 }

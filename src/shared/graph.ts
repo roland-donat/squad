@@ -1,4 +1,4 @@
-import type { FeatureGraph, Ticket, TicketState } from "./api";
+import type { FeatureGraph, Ticket, TicketKind, TicketState } from "./api";
 
 /**
  * The rules of the graph, held away from storage, HTTP and rendering so they can
@@ -87,15 +87,22 @@ export function findCycle(nodeIds: readonly string[], edges: readonly GraphEdge[
 }
 
 /**
- * A ticket is blocked as long as one of its blockers is not merged, and ready
- * otherwise. Nothing is stored under those two names: they follow from the
- * edges, so an edge added later needs no write to make them true again.
+ * A ticket is blocked as long as one of its blockers is not merged. Once they
+ * all are, a `build` or `fix` ticket is ready to launch, and a `decision` one
+ * waits for the developer instead: it never enters the frontier, which is what
+ * makes "a decision ticket opens no sub-session" a property of the graph rather
+ * than a check the launcher has to remember.
+ *
+ * Nothing is stored under these names: they follow from the edges and the kind,
+ * so an edge added later needs no write to make them true again.
  */
 export function resolveTicketState(
+  kind: TicketKind,
   lifecycle: TicketLifecycle,
   blockerIds: readonly string[],
   merged: ReadonlySet<string>,
 ): TicketState {
   if (lifecycle === "merged") return "merged";
-  return blockerIds.every((blockerId) => merged.has(blockerId)) ? "ready" : "blocked";
+  if (!blockerIds.every((blockerId) => merged.has(blockerId))) return "blocked";
+  return kind === "decision" ? "awaiting-decision" : "ready";
 }

@@ -340,6 +340,24 @@ button[disabled] {
   opacity: 0.7;
 }
 
+/*
+ * Asked for and waiting for a place: it belongs to the frontier still, so it
+ * keeps its relief, dimmed to say that nothing is happening on it yet.
+ */
+.node[data-state="queued"] {
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+  border-bottom-color: var(--accent);
+  border-style: dashed;
+  border-left-style: solid;
+}
+
+.node[data-state="queued"] .chip--state {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 /* In flight: the one node that is changing while it is being looked at. */
 .node[data-state="running"] {
   border-top-color: var(--accent);

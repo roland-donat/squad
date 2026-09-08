@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { FeatureGraph, StepReport, ThreadEntry, Ticket } from "../../src/shared/api";
 import {
   apiRoutes,
+  defaultConcurrencyCaps,
   featureGraphRoute,
   mainSessionRoute,
   ticketSessionRoute,
@@ -373,7 +374,11 @@ describe("ending a step, its test sheet and its alerts", () => {
     await squad.request("PUT", apiRoutes.settings, { webhookUrl: receiver.url });
     const read = await squad.request("GET", apiRoutes.settings);
     expect(await read.json()).toEqual({
-      settings: { webhookUrl: receiver.url, desktopNotifications: false },
+      settings: {
+        webhookUrl: receiver.url,
+        desktopNotifications: false,
+        machineConcurrencyCap: defaultConcurrencyCaps.machine,
+      },
     });
 
     const refused = await squad.request("PUT", apiRoutes.settings, { webhookUrl: "pas une url" });

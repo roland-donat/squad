@@ -119,6 +119,12 @@ export interface McpDependencies {
   store: Store;
   bus: EventBus;
   alerts: Alerts;
+  /**
+   * What opens the sub-sessions the caps allow. Declared by what is needed of
+   * it rather than by who provides it: a settled decision releases the tickets
+   * it blocked, and one of them may be a launch already waiting for it.
+   */
+  subSessions: { schedule(): void };
 }
 
 /**
@@ -139,7 +145,7 @@ export function buildMcpHandler(dependencies: McpDependencies): RequestHandler {
   };
 }
 
-function buildMcpServer({ store, bus, alerts }: McpDependencies): McpServer {
+function buildMcpServer({ store, bus, alerts, subSessions }: McpDependencies): McpServer {
   const server = new McpServer({ name: "squad", version: "0.1.0" });
 
   server.registerTool(
@@ -192,6 +198,10 @@ function buildMcpServer({ store, bus, alerts }: McpDependencies): McpServer {
       answer(() => {
         const ticket = store.settleDecision(input);
         bus.publish({ type: "graph-changed", graph: store.featureGraph(ticket.featureId) });
+        // A blocker that clears is a launch that may now be admissible: a ticket
+        // whose launch was asked for before a decision was posted in front of it
+        // has been waiting on this answer, not on a place.
+        subSessions.schedule();
         return ticket;
       }),
   );

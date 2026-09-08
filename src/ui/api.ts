@@ -45,6 +45,8 @@ const wording: Record<ErrorCode, string> = {
   ticket_not_launchable:
     "Ce ticket ne peut pas partir : une décision se tranche, et un ticket bloqué attend la fusion de ses bloqueurs.",
   sub_session_already_running: "La sous-session de ce ticket tourne déjà.",
+  launch_already_requested:
+    "Le lancement de ce ticket est déjà demandé : il attend une place sous les plafonds de concurrence.",
   no_step_in_progress: "Aucune sous-session ne tourne sur ce ticket : il n'y a pas d'étape à clore.",
   coverage_mismatch:
     "Le rapport doit dire, pour chaque critère d'acceptation du ticket et pour ceux-là seuls, s'il est couvert par un test automatique.",

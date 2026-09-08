@@ -8,7 +8,13 @@ import {
   text,
   unique,
 } from "drizzle-orm/sqlite-core";
-import { sheetVerdicts, threadEntryKinds, ticketKinds } from "../../shared/api";
+import {
+  defaultConcurrencyCaps,
+  launchAngles,
+  sheetVerdicts,
+  threadEntryKinds,
+  ticketKinds,
+} from "../../shared/api";
 import { ticketLifecycles } from "../../shared/graph";
 
 /**
@@ -28,6 +34,13 @@ export const projects = sqliteTable("projects", {
    * written before it: every registration resolves it from the repository.
    */
   defaultBranch: text("default_branch").notNull().default("main"),
+  /**
+   * How many sub-sessions one feature of this project may run at once. The
+   * machine-wide cap in the settings bounds their sum.
+   */
+  featureConcurrencyCap: integer("feature_concurrency_cap")
+    .notNull()
+    .default(defaultConcurrencyCaps.feature),
   createdAt: text("created_at").notNull(),
 });
 
@@ -77,6 +90,17 @@ export const tickets = sqliteTable(
      * opening a blank one.
      */
     sessionId: text("session_id"),
+    /**
+     * The launch squad accepted and has not opened yet, because the caps were
+     * full: when it was asked for, and under which angle. Written together and
+     * cleared together, the moment the sub-session opens.
+     *
+     * Stored rather than held in memory: squad owes the developer a launch it
+     * accepted, and a restart that forgot it would leave a ticket waiting for a
+     * place that had already come back.
+     */
+    queuedAt: text("queued_at"),
+    queuedAngle: text("queued_angle", { enum: launchAngles }),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
@@ -86,6 +110,7 @@ export const tickets = sqliteTable(
     // cannot appear behind its back either.
     check("tickets_kind", sql`${table.kind} in (${literals(ticketKinds)})`),
     check("tickets_lifecycle", sql`${table.lifecycle} in (${literals(ticketLifecycles)})`),
+    check("tickets_queued_angle", sql`${table.queuedAngle} in (${literals(launchAngles)})`),
   ],
 );
 
@@ -211,6 +236,13 @@ export const settings = sqliteTable(
     desktopNotifications: integer("desktop_notifications", { mode: "boolean" })
       .notNull()
       .default(true),
+    /**
+     * How many sub-sessions may run at once on this machine, every project and
+     * every feature together.
+     */
+    machineConcurrencyCap: integer("machine_concurrency_cap")
+      .notNull()
+      .default(defaultConcurrencyCaps.machine),
   },
   (table) => [check("settings_single_row", sql`${table.id} = 1`)],
 );

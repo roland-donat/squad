@@ -21,6 +21,8 @@ const kindLabels: Record<TicketKind, string> = {
 const stateExplanations: Record<TicketState, string> = {
   blocked: "Bloqué : il partira quand tous ses bloqueurs auront fusionné.",
   ready: "Prêt : tous ses bloqueurs ont fusionné, il peut partir maintenant.",
+  queued:
+    "En attente d'une place : le lancement est demandé, et la sous-session s'ouvrira dès qu'un plafond de concurrence le permettra.",
   running: "En cours : sa sous-session travaille dans son worktree.",
   "awaiting-validation":
     "Étape rapportée : la fiche de tests ci-dessous attend d'être passée en revue. La sous-session n'est pas détruite, elle reste le fil où la correction se fera.",

@@ -28,6 +28,7 @@ export const errorCodes = [
   "decision_already_settled",
   "ticket_not_launchable",
   "sub_session_already_running",
+  "launch_already_requested",
   "no_step_in_progress",
   "coverage_mismatch",
   "test_sheet_not_found",
@@ -59,6 +60,13 @@ export interface Project {
    * the base of the next feature.
    */
   defaultBranch: string;
+  /**
+   * How many sub-sessions one feature of this project may run at once. Declared
+   * on the project and applied to each of its features separately: two features
+   * of the same repository are two pieces of work, and neither has to wait on
+   * the other. The machine-wide cap is what bounds their sum.
+   */
+  featureConcurrencyCap: number;
   createdAt: string;
 }
 
@@ -97,13 +105,15 @@ export type TicketKind = (typeof ticketKinds)[number];
 /**
  * What the pilot reads on a node. Every value is computed by the server, so the
  * interface never derives a state of its own: `merged` is recorded, `blocked`,
- * `ready` and `awaiting-decision` follow from the blocking edges and the kind.
+ * `ready` and `awaiting-decision` follow from the blocking edges and the kind,
+ * and `queued` is a launch squad accepted and has not opened yet.
  * The list grows as the execution states arrive; nothing here is stored under
  * these names.
  */
 export const ticketStates = [
   "blocked",
   "ready",
+  "queued",
   "running",
   "awaiting-validation",
   "failed",
@@ -219,6 +229,13 @@ export interface Ticket {
    */
   sessionId: string | null;
   /**
+   * When the developer asked for this launch, on a ticket squad has accepted
+   * but not opened yet: the caps were full. Null the rest of the time, and
+   * cleared the moment the sub-session opens. It is also what orders the
+   * waiting launches, so the one that has waited longest goes first.
+   */
+  queuedAt: string | null;
+  /**
    * The last step this ticket's sub-session reported, with its test sheet. Null
    * until a step is reported; the latest one afterwards, since a ticket
    * corrected after a red sheet reports its step again.
@@ -280,13 +297,40 @@ export interface MainSession {
   sessionId: string;
 }
 
+/**
+ * A cap of zero would be a way of stopping everything that nobody asked for,
+ * and one nothing else in squad would explain: a feature would sit still with
+ * every ticket ready and no reason on screen.
+ */
+const concurrencyCapSchema = z.number().int().min(1);
+
+/**
+ * What the caps are until someone declares otherwise. Declared here rather than
+ * in the schema alone, so the column default, the value read back from a row
+ * written before these columns existed, and what the interface shows before its
+ * first snapshot are one and the same number.
+ *
+ * Four sub-sessions on the machine: each is a claude-code process doing real
+ * work, and a laptop hosting more of them spends its time swapping. Three per
+ * feature: wide enough for a usual frontier to move on several fronts, narrow
+ * enough that one piece of work does not take the whole machine.
+ */
+export const defaultConcurrencyCaps = { machine: 4, feature: 3 } as const;
+
 export const registerProjectBody = z.object({
   path: z.string().trim().min(1),
   name: z.string().trim().min(1).optional(),
   /** Taken from the branch the repository is on when it is left out. */
   defaultBranch: z.string().trim().min(1).optional(),
+  featureConcurrencyCap: concurrencyCapSchema.optional(),
 });
 export type RegisterProjectBody = z.infer<typeof registerProjectBody>;
+
+/** What can be changed on a registered project. What is left out is left alone. */
+export const updateProjectBody = z.object({
+  featureConcurrencyCap: concurrencyCapSchema.optional(),
+});
+export type UpdateProjectBody = z.infer<typeof updateProjectBody>;
 
 export const openFeatureBody = z.object({
   projectId: z.string().trim().min(1),
@@ -352,12 +396,19 @@ export interface Settings {
   webhookUrl: string | null;
   /** Whether an alert also raises a notification on this machine's desktop. */
   desktopNotifications: boolean;
+  /**
+   * How many sub-sessions may run at once on this machine, every feature and
+   * every project together. The more restrictive of this and the project's own
+   * cap is the one that decides.
+   */
+  machineConcurrencyCap: number;
 }
 
 export const updateSettingsBody = z.object({
   /** Null clears it: an alert then goes to the desktop and nowhere else. */
   webhookUrl: z.url().nullable().optional(),
   desktopNotifications: z.boolean().optional(),
+  machineConcurrencyCap: concurrencyCapSchema.optional(),
 });
 export type UpdateSettingsBody = z.infer<typeof updateSettingsBody>;
 
@@ -396,6 +447,8 @@ export interface Snapshot extends StoredState {
 export type SquadEvent =
   | ({ type: "snapshot" } & Snapshot)
   | { type: "project-registered"; project: Project }
+  // A project changes when its settings do, the concurrency cap among them.
+  | { type: "project-changed"; project: Project }
   | { type: "feature-opened"; feature: Feature }
   // A feature changes when squad checks its branch out, which happens on the
   // first launch of one of its tickets. Sent so a client that only listens to
@@ -426,6 +479,11 @@ export const apiRoutes = {
    */
   mcp: "/api/mcp",
 } as const;
+
+/** Where a registered project's own settings are changed. */
+export function projectRoute(projectId: string): string {
+  return `${apiRoutes.projects}/${projectId}`;
+}
 
 export function featureGraphRoute(featureId: string): string {
   return `${apiRoutes.features}/${featureId}/graph`;

@@ -1,5 +1,5 @@
 import type { AgentSessionOutcome, LaunchAngle, Ticket, TicketState } from "../shared/api";
-import { isResumable } from "../shared/graph";
+import { isResumable, type TicketLifecycle } from "../shared/graph";
 import {
   resumeInstruction,
   stepReportDemand,
@@ -10,6 +10,7 @@ import type { AgentLauncher, AgentSession } from "./agents/launcher";
 import { alertFor, type Alert, type Alerts } from "./alerts";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
+import { nextLaunches } from "./scheduler";
 import type { Store } from "./store";
 import { appendToThread, drainSession, type ThreadLine } from "./threads";
 import type { Worktrees } from "./worktrees";
@@ -33,7 +34,7 @@ export interface SubSessionDependencies {
  */
 type Opening =
   | { kind: "assign" }
-  | { kind: "resume"; sessionId: string; angle: LaunchAngle }
+  | { kind: "resume"; sessionId: string; angle: LaunchAngle; after: TicketLifecycle }
   | { kind: "remind"; sessionId: string };
 
 /**
@@ -58,11 +59,12 @@ function isLaunchable(state: TicketState): boolean {
  */
 export class SubSessions {
   private readonly running = new Map<string, AgentSession>();
-  // Reserved the moment a launch is accepted, and held until its session is in
-  // `running`. Opening one takes a checkout and a process, and two requests for
-  // the same ticket arriving during that window would both pass the check below
-  // and leave one of the two sessions running with nothing pointing at it.
-  private readonly starting = new Set<string>();
+  // The sub-sessions being opened right now, held from the moment a scheduling
+  // hands one out until its session is recorded as running. Opening one takes a
+  // checkout and a process, and every scheduling during that window would hand
+  // the same ticket out again without this. Held as promises so a shutdown can
+  // wait for what is half open rather than leave a process behind it.
+  private readonly opening = new Map<string, Promise<void>>();
   // Held so shutdown can wait for them: a drain still writing when the database
   // closes loses the last thing the session had to say, which is exactly the
   // line worth keeping when a session died rather than finished.
@@ -72,19 +74,24 @@ export class SubSessions {
   // is read as a failure. In memory on purpose: it is about this run's chain of
   // relaunches, and a restart takes the ticket back from its own state anyway.
   private readonly asked = new Set<string>();
-  private reconciliation: Promise<void> = Promise.resolve();
   private stopping = false;
 
   constructor(private readonly dependencies: SubSessionDependencies) {}
 
   /**
-   * Launches a ticket, or takes its stopped sub-session back. The angle only
-   * means something in the second case: a first launch is handed the ticket and
-   * has nothing to resume from.
+   * Records a launch, and lets the scheduler decide when it opens. Accepted is
+   * not started: the caps may well be full, and a launch that waits is held
+   * rather than refused, because a refusal would put the developer in charge of
+   * coming back to click again. The angle travels with the request, since the
+   * place it waits for may only free after a restart.
+   *
+   * Nothing here awaits: the whole of the answer is written before the request
+   * returns, so two clicks arriving together cannot both find the ticket free.
    */
-  async launch(ticketId: string, angle: LaunchAngle): Promise<AgentSession> {
-    const ticket = this.dependencies.store.requireTicket(ticketId);
-    if (this.running.has(ticket.id) || this.starting.has(ticket.id)) {
+  launch(ticketId: string, angle: LaunchAngle): Ticket {
+    const { store } = this.dependencies;
+    const ticket = store.requireTicket(ticketId);
+    if (this.running.has(ticket.id) || this.opening.has(ticket.id)) {
       throw new SquadError(
         "sub_session_already_running",
         409,
@@ -98,6 +105,13 @@ export class SubSessions {
         `ticket "${ticket.title}" is a decision: it is settled in the main session and never implemented`,
       );
     }
+    if (ticket.state === "queued") {
+      throw new SquadError(
+        "launch_already_requested",
+        409,
+        `the launch of ticket "${ticket.title}" is already waiting for a place under the concurrency caps`,
+      );
+    }
     if (!isLaunchable(ticket.state)) {
       throw new SquadError(
         "ticket_not_launchable",
@@ -108,19 +122,108 @@ export class SubSessions {
     // A launch the developer asked for starts the count of reminders over: this
     // is a new attempt, not the continuation of one squad already chased.
     this.asked.delete(ticket.id);
-    this.starting.add(ticket.id);
-    try {
-      return await this.open(ticket, this.resumeOrAssign(ticket, angle));
-    } finally {
-      this.starting.delete(ticket.id);
+    const queued = store.queueLaunch(ticket.id, angle);
+    this.publishGraph(ticket.featureId);
+    this.schedule();
+    return queued;
+  }
+
+  /**
+   * Opens what the caps allow, and nothing more. Called every time the state it
+   * reads may have moved: a launch asked for, a sub-session ended, a cap
+   * raised. It decides nothing itself, the scheduler does, and it never opens a
+   * ticket twice, since the place it takes is held before anything is awaited.
+   */
+  schedule(): void {
+    if (this.stopping) return;
+    const { store } = this.dependencies;
+    const launches = nextLaunches({
+      features: store.scheduledFeatures(),
+      machineCap: store.settings().machineConcurrencyCap,
+      opening: [...this.opening.keys()],
+    });
+    for (const ticketId of launches) {
+      // Held as a promise that never rejects: a shutdown awaits these to know
+      // nothing is half open, and one rejection would leave the others waited
+      // on by nobody. Whatever opening could not deal with is a bug, and it is
+      // logged rather than left to take the process down.
+      const opening = this.startQueued(ticketId).catch((failure: unknown) => {
+        console.error(`opening the sub-session of ticket ${ticketId} failed`, failure);
+      });
+      this.opening.set(ticketId, opening);
+      void opening.then(() => {
+        this.opening.delete(ticketId);
+        // A launch that could not be opened gives its place straight back, and
+        // whatever was behind it in the queue takes it.
+        this.schedule();
+      });
     }
   }
 
-  /** Taking a stopped session back, or handing the ticket to a blank one. */
-  private resumeOrAssign(ticket: Ticket, angle: LaunchAngle): Opening {
-    return isResumable(ticket.state) && ticket.sessionId !== null
-      ? { kind: "resume", sessionId: ticket.sessionId, angle }
+  /** Opens the sub-session of a launch the scheduler has just handed out. */
+  private async startQueued(ticketId: string): Promise<void> {
+    const { store } = this.dependencies;
+    const request = store.queuedLaunch(ticketId);
+    // Nothing waiting any more: a scheduling that crossed a change of state.
+    if (request === null) return;
+    const ticket = store.requireTicket(ticketId);
+    try {
+      await this.open(ticket, this.resumeOrAssign(ticket, request));
+    } catch (failure) {
+      this.abandon(ticket, request.lifecycle, failure);
+    }
+  }
+
+  /**
+   * Taking a stopped session back, or handing the ticket to a blank one. Read
+   * from what squad recorded of the ticket's runs rather than from the state it
+   * shows: a ticket waiting for a place reads as `queued`, whatever it did
+   * before, and reading that would open a blank session over an hour of work.
+   */
+  private resumeOrAssign(
+    ticket: Ticket,
+    request: { angle: LaunchAngle; lifecycle: TicketLifecycle },
+  ): Opening {
+    return isResumable(request.lifecycle) && ticket.sessionId !== null
+      ? {
+          kind: "resume",
+          sessionId: ticket.sessionId,
+          angle: request.angle,
+          after: request.lifecycle,
+        }
       : { kind: "assign" };
+  }
+
+  /**
+   * Drops a launch that could not be opened at all, and says so. Nothing else
+   * is written: no session was opened, so what squad recorded of this ticket's
+   * runs is still the truth, and reading the failure as a fresh one would
+   * suggest an attempt was made and lost.
+   */
+  private abandon(ticket: Ticket, lifecycle: TicketLifecycle, failure: unknown): void {
+    const { store, alerts } = this.dependencies;
+    store.dropQueuedLaunch(ticket.id);
+    this.publishGraph(ticket.featureId);
+    const detail = failure instanceof Error ? failure.message : String(failure);
+    const takingBack = isResumable(lifecycle);
+    if (ticket.sessionId === null) {
+      // A ticket that never ran has no thread to carry this, so the alert is
+      // the whole of what says it, and the log is what says why.
+      console.error(`no sub-session could be opened for ticket ${ticket.id}: ${detail}`);
+    } else {
+      this.append(ticket, ticket.sessionId, {
+        kind: "notice",
+        text: takingBack
+          ? "squad could not take the sub-session back"
+          : "squad could not open the sub-session",
+        detail,
+      });
+    }
+    alerts.raise(
+      takingBack
+        ? alertFor.subSessionNotTakenBack(ticket.title)
+        : alertFor.subSessionNotOpened(ticket.title),
+    );
   }
 
   /**
@@ -148,47 +251,31 @@ export class SubSessions {
   }
 
   /**
-   * Takes the interrupted sub-sessions back, each on the session id it was
-   * running under, so a restart costs the turn that was in flight and nothing
-   * more. Started once squad is listening, and never awaited by the startup
-   * path: opening a session is slow, and the interface has to be up before it.
+   * Asks for every interrupted sub-session to be taken back, each on the session
+   * id it was running under, so a restart costs the turn that was in flight and
+   * nothing more. They queue like any other launch rather than opening all at
+   * once: a machine that was over its caps when it stopped must not come back
+   * up over them, and a restart is exactly when that is likely.
    */
   takeBack(stranded: readonly Ticket[]): void {
-    if (stranded.length === 0) return;
-    this.reconciliation = (async () => {
-      for (const stopped of stranded) {
-        if (this.stopping) return;
-        const ticket = this.dependencies.store.requireTicket(stopped.id);
-        if (ticket.state !== "interrupted" || ticket.sessionId === null) continue;
-        this.starting.add(ticket.id);
-        try {
-          await this.open(ticket, {
-            kind: "resume",
-            sessionId: ticket.sessionId,
-            angle: "implement",
-          });
-        } catch (failure) {
-          // Left interrupted, which is the truth: nothing is running, and the
-          // work is still on its branch. Reading it as a fresh failure would
-          // suggest an attempt that was made and lost.
-          this.append(ticket, ticket.sessionId, {
-            kind: "notice",
-            text: "squad could not take the sub-session back",
-            detail: failure instanceof Error ? failure.message : String(failure),
-          });
-          this.dependencies.alerts.raise(alertFor.subSessionNotTakenBack(ticket.title));
-        } finally {
-          this.starting.delete(ticket.id);
-        }
-      }
-    })();
+    const { store } = this.dependencies;
+    for (const stopped of stranded) {
+      const ticket = store.requireTicket(stopped.id);
+      if (ticket.state !== "interrupted" || ticket.sessionId === null) continue;
+      store.queueLaunch(ticket.id, "implement");
+      this.publishGraph(ticket.featureId);
+    }
+    // Always, even with nothing stranded: a launch squad accepted before it
+    // stopped is still owed, and a machine killed between accepting one and
+    // opening it comes back up with a row nothing else would ever look at.
+    this.schedule();
   }
 
   async stopAll(): Promise<void> {
     this.stopping = true;
-    // Awaited first: a resume still opening would otherwise register its session
+    // Awaited first: a session still opening would otherwise register itself
     // after this method has already stopped everything it could see.
-    await this.reconciliation;
+    await Promise.all([...this.opening.values()]);
     await Promise.all([...this.running.values()].map((session) => session.stop()));
     await Promise.all([...this.draining]);
   }
@@ -225,7 +312,20 @@ export class SubSessions {
     // Written on the thread before it is handed over, so what the session was
     // asked for is on the record even if it dies reading it.
     this.append(ticket, session.id, { kind: "pilot", text: message });
-    await session.send(message);
+    try {
+      await session.send(message);
+    } catch (failure) {
+      // The session is open and its place is taken: a message that could not be
+      // handed over is this session's ending, not a launch that never happened.
+      // Stopping it lets the drain started above record that ending like any
+      // other, and keeps `abandon` meaning what it says.
+      this.append(ticket, session.id, {
+        kind: "notice",
+        text: "squad could not hand the sub-session what it is to work on",
+        detail: failure instanceof Error ? failure.message : String(failure),
+      });
+      await session.stop();
+    }
     return session;
   }
 
@@ -233,6 +333,9 @@ export class SubSessions {
     const ending = await drainSession(session, (line) => this.append(ticket, session.id, line));
     this.running.delete(ticket.id);
     await this.recordEnd(ticket, session.id, ending.outcome, ending.detail);
+    // Whatever the ending was, the place this session held may be free again,
+    // and the launch that has waited longest for it goes now.
+    this.schedule();
   }
 
   /**
@@ -309,7 +412,8 @@ export class SubSessions {
    */
   private async askAgain(ticket: Ticket, sessionId: string): Promise<void> {
     if (this.stopping) return;
-    this.starting.add(ticket.id);
+    // Not held as an opening: the ticket is still `running`, so it already
+    // holds its place, and nothing else can be launched onto it either.
     try {
       await this.open(ticket, { kind: "remind", sessionId });
     } catch (failure) {
@@ -319,8 +423,6 @@ export class SubSessions {
         detail: failure instanceof Error ? failure.message : String(failure),
       });
       this.stop(ticket, alertFor.subSessionStopped(ticket.title));
-    } finally {
-      this.starting.delete(ticket.id);
     }
   }
 
@@ -348,15 +450,15 @@ function firstMessage(ticket: Ticket, opening: Opening): string {
     case "assign":
       return ticketAssignment(ticket);
     case "resume":
-      return resumeInstruction(opening.angle, whyResumed(ticket.state));
+      return resumeInstruction(opening.angle, whyResumed(opening.after));
     case "remind":
       return stepReportDemand(ticket);
   }
 }
 
 /** Why squad is taking a session back, said in the message that resumes it. */
-function whyResumed(state: TicketState): string {
-  return state === "interrupted"
+function whyResumed(lifecycle: TicketLifecycle): string {
+  return lifecycle === "interrupted"
     ? "the server restarted while you were working."
     : "the previous attempt stopped without finishing.";
 }

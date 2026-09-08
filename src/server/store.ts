@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
-import { asc, eq, inArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { defaultConcurrencyCaps } from "../shared/api";
 import type {
   AcceptanceCriterion,
   BlockingEdge,
   CriterionCoverage,
   Feature,
   FeatureGraph,
+  LaunchAngle,
   OpenFeatureBody,
   Project,
   RegisterProjectBody,
@@ -18,6 +20,7 @@ import type {
   ThreadEntryKind,
   Ticket,
   TicketKind,
+  UpdateProjectBody,
   UpdateSettingsBody,
   Worktree,
 } from "../shared/api";
@@ -27,6 +30,7 @@ import {
   holdsNothingBack,
   resolveTicketState,
   type GraphEdge,
+  type TicketLifecycle,
 } from "../shared/graph";
 import type { SquadDatabase } from "./db/open";
 import {
@@ -44,6 +48,7 @@ import {
 import { SquadError } from "./errors";
 import { resolveDefaultBranch, resolveRepositoryRoot } from "./git";
 import { isInside } from "./paths";
+import type { ScheduledFeature } from "./scheduler";
 
 /** What an agent hands over when it writes a node of the graph. */
 export interface CreateTicketInput {
@@ -207,6 +212,7 @@ export class Store {
       name: input.name ?? basename(root),
       path: root,
       defaultBranch,
+      featureConcurrencyCap: input.featureConcurrencyCap ?? defaultConcurrencyCaps.feature,
       createdAt: new Date().toISOString(),
     };
 
@@ -226,6 +232,19 @@ export class Store {
       throw cause;
     }
     return project;
+  }
+
+  /** Changes what was named on a project, and leaves the rest as it stands. */
+  updateProject(projectId: string, patch: UpdateProjectBody): Project {
+    const project = this.requireProject(projectId);
+    if (patch.featureConcurrencyCap !== undefined) {
+      this.db
+        .update(projects)
+        .set({ featureConcurrencyCap: patch.featureConcurrencyCap })
+        .where(eq(projects.id, project.id))
+        .run();
+    }
+    return this.requireProject(project.id);
   }
 
   openFeature(input: OpenFeatureBody): Feature {
@@ -385,9 +404,10 @@ export class Store {
         acceptanceCriteria: criteria.get(row.id) ?? [],
         externalId: row.externalId,
         conclusion: row.conclusion,
-        state: resolveTicketState(row.kind, row.lifecycle, blockers.get(row.id) ?? [], cleared),
+        state: resolveTicketState(row, blockers.get(row.id) ?? [], cleared),
         worktree: toWorktree(row.branch, row.worktreePath),
         sessionId: row.sessionId,
+        queuedAt: row.queuedAt,
         stepReport: reports.get(row.id) ?? null,
         createdAt: row.createdAt,
       })),
@@ -447,6 +467,85 @@ export class Store {
   }
 
   /**
+   * Records a launch the developer asked for and squad has not opened yet. It
+   * is a request, not a run: the lifecycle underneath is left alone, so a
+   * failed ticket waiting for a place is still known to have failed, and the
+   * session it resumes is still the one written on its row.
+   */
+  queueLaunch(ticketId: string, angle: LaunchAngle): Ticket {
+    this.db
+      .update(tickets)
+      .set({ queuedAt: new Date().toISOString(), queuedAngle: angle })
+      .where(eq(tickets.id, ticketId))
+      .run();
+    return this.requireTicket(ticketId);
+  }
+
+  /**
+   * The launch waiting on a ticket, with the run recorded under it: opening the
+   * sub-session needs both, one to know what to say to it and one to know
+   * whether there is a session to take back.
+   */
+  queuedLaunch(ticketId: string): { angle: LaunchAngle; lifecycle: TicketLifecycle } | null {
+    const row = this.db
+      .select({
+        queuedAt: tickets.queuedAt,
+        queuedAngle: tickets.queuedAngle,
+        lifecycle: tickets.lifecycle,
+      })
+      .from(tickets)
+      .where(eq(tickets.id, ticketId))
+      .get();
+    if (!row || row.queuedAt === null) return null;
+    // The two columns are written together and cleared together, so an angle is
+    // there whenever a timestamp is. The fallback is what the type asks for,
+    // and it reads as a first launch, which is what a missing angle would be.
+    return { angle: row.queuedAngle ?? "implement", lifecycle: row.lifecycle };
+  }
+
+  /**
+   * Drops a launch request without touching what squad recorded of the ticket's
+   * runs. Used when the sub-session could not be opened at all: nothing ran, so
+   * the ticket goes back to reading exactly as it did before the request.
+   */
+  dropQueuedLaunch(ticketId: string): Ticket {
+    this.db
+      .update(tickets)
+      .set({ queuedAt: null, queuedAngle: null })
+      .where(eq(tickets.id, ticketId))
+      .run();
+    return this.requireTicket(ticketId);
+  }
+
+  /**
+   * What the scheduler decides on: every feature holding a launch that waits or
+   * a sub-session that runs, each beside the cap its project declares. The
+   * others are left out because they contribute nothing to the count, not as an
+   * approximation: a feature with neither would change no answer.
+   */
+  scheduledFeatures(): ScheduledFeature[] {
+    const inFlight = this.db
+      .selectDistinct({ featureId: tickets.featureId })
+      .from(tickets)
+      .where(or(eq(tickets.lifecycle, "running"), isNotNull(tickets.queuedAt)))
+      .all();
+    if (inFlight.length === 0) return [];
+
+    const caps = new Map(
+      this.db
+        .select({ featureId: features.id, cap: projects.featureConcurrencyCap })
+        .from(features)
+        .innerJoin(projects, eq(features.projectId, projects.id))
+        .all()
+        .map((row) => [row.featureId, row.cap]),
+    );
+    return inFlight.map((row) => ({
+      graph: this.featureGraph(row.featureId),
+      cap: caps.get(row.featureId) ?? defaultConcurrencyCaps.feature,
+    }));
+  }
+
+  /**
    * Records that a step has begun: a sub-session is carrying the ticket, and
    * this is the one. The session id is what a later resume runs on, so it is
    * written the moment the session opens rather than when it first speaks.
@@ -454,7 +553,9 @@ export class Store {
   startStep(ticketId: string, sessionId: string): Ticket {
     this.db
       .update(tickets)
-      .set({ lifecycle: "running", sessionId })
+      // The launch request is consumed here and nowhere else: what was asked
+      // for has happened, and a row that still said so would be scheduled again.
+      .set({ lifecycle: "running", sessionId, queuedAt: null, queuedAngle: null })
       .where(eq(tickets.id, ticketId))
       .run();
     return this.requireTicket(ticketId);
@@ -677,6 +778,7 @@ export class Store {
     return {
       webhookUrl: row?.webhookUrl ?? null,
       desktopNotifications: row?.desktopNotifications ?? true,
+      machineConcurrencyCap: row?.machineConcurrencyCap ?? defaultConcurrencyCaps.machine,
     };
   }
 

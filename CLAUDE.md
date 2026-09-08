@@ -45,7 +45,7 @@ aucun proxy propre au développement. Voir `docs/adr/0005`.
 ## Commandes
 
 ```bash
-pnpm install          # dépendances ; les scripts de build natifs sont déjà autorisés
+pnpm install          # dépendances ; les scripts de build natifs sont autorisés dans pnpm-workspace.yaml
 pnpm dev              # démarre le serveur et sert l'interface (la commande unique)
 pnpm verify           # typage puis tests au seam : la commande de vérification du projet
 pnpm typecheck        # typage seul

@@ -1,0 +1,8 @@
+# Les paquets dont squad autorise les scripts de construction. pnpm 10 et
+# au-delà ne les lancent que sur déclaration explicite, et pnpm 12 ne lit plus
+# le champ `pnpm.onlyBuiltDependencies` du package.json : sans ce fichier,
+# `pnpm install` laisse better-sqlite3 non construit et s'arrête sur
+# ERR_PNPM_IGNORED_BUILDS, ce qui ne se voit qu'au premier démarrage du serveur.
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true

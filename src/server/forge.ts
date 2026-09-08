@@ -1,7 +1,4 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const run = promisify(execFile);
+import { runCommand } from "./command";
 
 /**
  * The forge, reached through the `gh` command line rather than through its HTTP
@@ -68,23 +65,9 @@ export async function requestAutoMerge(repositoryRoot: string, pullRequest: stri
 }
 
 /**
- * A `gh` call, with what it said carried on the failure: this is what reaches
- * the developer through an alert, and "the command failed" would send them to
- * the terminal to find out what squad already knew.
+ * A `gh` call. Its failure travels as it is: what the forge said is what the
+ * developer reads in the alert that follows, and nothing here can say it better.
  */
-async function gh(cwd: string, args: string[]): Promise<string> {
-  try {
-    const { stdout } = await run("gh", args, { cwd });
-    return stdout;
-  } catch (cause) {
-    throw new Error(`gh ${args[0]} ${args[1]} failed: ${reasonOf(cause)}`);
-  }
-}
-
-function reasonOf(cause: unknown): string {
-  if (cause instanceof Error && "stderr" in cause && typeof cause.stderr === "string") {
-    const said = cause.stderr.trim();
-    if (said !== "") return said;
-  }
-  return cause instanceof Error ? cause.message : String(cause);
+function gh(cwd: string, args: string[]): Promise<string> {
+  return runCommand(cwd, "gh", args);
 }

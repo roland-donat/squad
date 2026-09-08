@@ -18,6 +18,7 @@ import type { EventBus } from "./events";
 import { buildMcpHandler } from "./mcp";
 import type { MainSessions } from "./sessions";
 import type { Store } from "./store";
+import type { Merges } from "./merges";
 import type { SubSessions } from "./sub-sessions";
 import type { Validations } from "./validations";
 
@@ -27,6 +28,7 @@ export interface HttpDependencies {
   mainSessions: MainSessions;
   subSessions: SubSessions;
   validations: Validations;
+  merges: Merges;
 }
 
 /**
@@ -40,6 +42,7 @@ export function buildApiRouter({
   mainSessions,
   subSessions,
   validations,
+  merges,
 }: HttpDependencies): express.Router {
   const router = express.Router();
   router.use(express.json());
@@ -139,7 +142,7 @@ export function buildApiRouter({
 
   // Squad's own MCP endpoint: the surface the agents talk to, on the very port
   // that serves the interface, so a session has one address for all of squad.
-  router.all(apiRoutes.mcp, buildMcpHandler({ store, bus, validations, subSessions }));
+  router.all(apiRoutes.mcp, buildMcpHandler({ store, bus, validations, subSessions, merges }));
 
   router.get(apiRoutes.events, (request, response) => {
     response.writeHead(200, {

@@ -180,27 +180,29 @@ commit restent en anglais.
 ## Structure
 
 ```
-src/shared/             # contrat API partagé serveur et interface, sans dépendance node
-src/server/             # serveur : base, store, git, événements, routes HTTP, outils MCP
-src/server/db/          # schéma drizzle et ouverture de la base
-src/server/agents/      # lanceur d'agent : l'interface étroite et son repli
-src/server/alerts.ts    # bureau et webhook, quand la progression s'arrête
-src/server/scheduler.ts # ce qui part maintenant : fonction pure du graphe et des plafonds
-src/server/validations.ts # ce qui suit une fiche : merger, corriger, ou attendre
-src/server/merges.ts    # la chaîne de fusion, sérialisée par projet, jusqu'à la livraison
-src/server/integration.ts # la commande de vérification du projet, sur la branche de feature
-src/server/forge.ts     # la ligne de commande `gh` : pousser, ouvrir, faire fusionner
+src/shared/                # contrat API partagé serveur et interface, sans dépendance node
+src/server/                # serveur : base, store, git, événements, routes HTTP, outils MCP
+src/server/db/             # schéma drizzle et ouverture de la base
+src/server/agents/         # lanceur d'agent : l'interface étroite et son repli
+src/server/alerts.ts       # bureau et webhook, quand la progression s'arrête
+src/server/scheduler.ts    # ce qui part maintenant : fonction pure du graphe et des plafonds
+src/server/validations.ts  # ce qui suit une fiche : fusionner, corriger, ou attendre
+src/server/merges.ts       # la chaîne de fusion, sérialisée par projet, jusqu'à la livraison
+src/server/integration.ts  # la commande de vérification du projet, sur la branche de feature
+src/server/forge.ts        # la ligne de commande `gh` : pousser, ouvrir, faire fusionner
+src/server/command.ts      # lancer un outil en ligne de commande et rapporter ce qu'il a dit
 src/server/pull-request.ts # la description d'une pull request, écrite depuis le graphe
-src/ui/                 # interface React servie par le serveur
-src/ui/graph/           # disposition en couches et rendu du graphe
-src/ui/ticket/          # le panneau d'un nœud du graphe, fiche de tests comprise
-drizzle/                # migrations générées, versionnées
-tests/seam/             # tests au seam : HTTP, flux d'événements et outils MCP
-tests/support/          # instance de test, dépôts git temporaires, double du lanceur
-tests/browser/          # test navigateur unique, parcours nominal
-docs/adr/               # décisions d'architecture
-docs/agents/            # configuration lue par les skills d'ingénierie
-CONTEXT.md              # glossaire du domaine
+src/server/fix-ticket.ts   # le ticket qu'écrit une vérification d'intégration rouge
+src/ui/                    # interface React servie par le serveur
+src/ui/graph/              # disposition en couches et rendu du graphe
+src/ui/ticket/             # le panneau d'un nœud du graphe, fiche de tests comprise
+drizzle/                   # migrations générées, versionnées
+tests/seam/                # tests au seam : HTTP, flux d'événements et outils MCP
+tests/support/             # instance de test, dépôts git temporaires, double du lanceur
+tests/browser/             # test navigateur unique, parcours nominal
+docs/adr/                  # décisions d'architecture
+docs/agents/               # configuration lue par les skills d'ingénierie
+CONTEXT.md                 # glossaire du domaine
 ```
 
 ### Où vivent les worktrees
@@ -234,10 +236,12 @@ et ce n'est pas un double d'un module de squad.
 
 ### Le double du lanceur d'agent
 
-Le seul double de la suite. Au lieu de démarrer un processus claude-code, il rejoue un
-scénario scripté d'appels d'outils et de messages, puis se termine. Il appelle les outils
-par HTTP comme le ferait un agent : le transport, la base et le dépôt git restent réels,
-seul le non-déterminisme du modèle est retiré. Voir `tests/support/scripted-launcher.ts`.
+Le seul double d'un module de squad, et il le reste : le webhook d'alerte et la ligne de
+commande `gh` sont de vrais programmes qui tiennent la place de services extérieurs, pas
+des doubles. Au lieu de démarrer un processus claude-code, celui-ci rejoue un scénario
+scripté d'appels d'outils et de messages, puis se termine. Il appelle les outils par HTTP
+comme le ferait un agent : le transport, la base et le dépôt git restent réels, seul le
+non-déterminisme du modèle est retiré. Voir `tests/support/scripted-launcher.ts`.
 
 ### Où écrire un test
 

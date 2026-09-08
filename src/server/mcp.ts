@@ -129,6 +129,11 @@ export interface McpDependencies {
    * it blocked, and one of them may be a launch already waiting for it.
    */
   subSessions: { schedule(): void };
+  /**
+   * Likewise: a settled decision may be the last node of its graph to come to
+   * rest, and a feature that has come back whole is one to send off.
+   */
+  merges: { deliver(featureId: string): void };
 }
 
 /**
@@ -149,7 +154,13 @@ export function buildMcpHandler(dependencies: McpDependencies): RequestHandler {
   };
 }
 
-function buildMcpServer({ store, bus, validations, subSessions }: McpDependencies): McpServer {
+function buildMcpServer({
+  store,
+  bus,
+  validations,
+  subSessions,
+  merges,
+}: McpDependencies): McpServer {
   const server = new McpServer({ name: "squad", version: "0.1.0" });
 
   server.registerTool(
@@ -204,6 +215,9 @@ function buildMcpServer({ store, bus, validations, subSessions }: McpDependencie
         // whose launch was asked for before a decision was posted in front of it
         // has been waiting on this answer, not on a place.
         subSessions.schedule();
+        // And a decision settled after everything else has merged is the last
+        // node of its graph coming to rest: nothing else would ever look again.
+        merges.deliver(ticket.featureId);
         return ticket;
       }),
   );

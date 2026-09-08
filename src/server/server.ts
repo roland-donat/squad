@@ -75,7 +75,7 @@ export async function startSquadServer(
   const stranded = subSessions.markInterrupted();
 
   const app = express();
-  app.use(buildApiRouter({ store, bus, mainSessions, subSessions, validations }));
+  app.use(buildApiRouter({ store, bus, mainSessions, subSessions, validations, merges }));
   const ui = await mountUi(app, options.ui ?? "auto");
 
   const server = createServer(app);

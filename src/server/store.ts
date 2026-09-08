@@ -599,15 +599,19 @@ export class Store {
   }
 
   /**
-   * Records a merged ticket, and forgets where its work used to live: the
-   * branch is gone from the repository and the worktree from the disk, so a row
-   * still naming them would send whoever reads it to a path that is not there.
-   * The session id stays: it is the record of who did the work.
+   * Records a merged ticket. Where its work used to live is forgotten only when
+   * that place is really gone: a row naming a checkout nobody can open sends its
+   * reader to a path that is not there, and a checkout squad could not remove
+   * has to stay nameable, since removing it by hand is the only way out. The
+   * session id stays either way: it is the record of who did the work.
    */
-  markMerged(ticketId: string): Ticket {
+  markMerged(ticketId: string, cleanedUp: boolean): Ticket {
     this.db
       .update(tickets)
-      .set({ lifecycle: "merged", branch: null, worktreePath: null })
+      .set({
+        lifecycle: "merged",
+        ...(cleanedUp ? { branch: null, worktreePath: null } : {}),
+      })
       .where(eq(tickets.id, ticketId))
       .run();
     return this.requireTicket(ticketId);

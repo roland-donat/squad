@@ -11,7 +11,7 @@ import {
 import type { AgentLauncher, AgentSession } from "./agents/launcher";
 import { alertFor, type Alert, type Alerts } from "./alerts";
 import { SquadError } from "./errors";
-import type { EventBus } from "./events";
+import { publishGraph, type EventBus } from "./events";
 import { nextLaunches } from "./scheduler";
 import type { Store } from "./store";
 import { appendToThread, drainSession, type ThreadLine } from "./threads";
@@ -532,8 +532,7 @@ export class SubSessions {
   }
 
   private publishGraph(featureId: string): void {
-    const { store, bus } = this.dependencies;
-    bus.publish({ type: "graph-changed", graph: store.featureGraph(featureId) });
+    publishGraph(this.dependencies.store, this.dependencies.bus, featureId);
   }
 }
 

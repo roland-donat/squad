@@ -5,7 +5,8 @@ import {
 } from "./agents/briefing";
 import type { AgentLauncher, AgentSession } from "./agents/launcher";
 import { alertFor, type Alerts } from "./alerts";
-import type { EventBus } from "./events";
+import { publishGraph, type EventBus } from "./events";
+import { fixTicketFor } from "./fix-ticket";
 import { openPullRequest, requestAutoMerge } from "./forge";
 import { deleteBranch, hasRemote, mergeBranch, pushBranch, removeWorktree } from "./git";
 import { runVerification, type IntegrationCheck } from "./integration";
@@ -53,6 +54,20 @@ export interface MergeDependencies {
  */
 const remote = "origin";
 
+/**
+ * Everything one merge is about, gathered once. The four travel together through
+ * every step of the chain, and passing them as one thing is what keeps a step
+ * from being handed a feature and another feature's checkout.
+ */
+interface Merge {
+  /** The ticket being merged, as the store read it when the merge started. */
+  ticket: Ticket;
+  feature: Feature;
+  project: Project;
+  /** Where the ticket branch is merged, and where the check then runs. */
+  featureWorktree: Worktree;
+}
+
 export class Merges {
   /** One chain per project, which is what "one merge at a time" is made of. */
   private readonly chains = new Map<string, Promise<void>>();
@@ -73,6 +88,25 @@ export class Merges {
   merge(ticket: Ticket): void {
     const feature = this.dependencies.store.requireFeature(ticket.featureId);
     this.enqueue(feature.projectId, () => this.carryOut(ticket.id));
+  }
+
+  /**
+   * Queues the check that a feature has come back whole, without a merge having
+   * just happened. A merge is the usual way a graph drains, and not the only
+   * one: settling the last decision of a feature releases nothing and merges
+   * nothing, yet it is exactly the moment every ticket of that graph has come
+   * to rest. Queued on the project's chain like a merge, since what it may do
+   * is push a branch and open a pull request.
+   */
+  deliver(featureId: string): void {
+    const feature = this.dependencies.store.requireFeature(featureId);
+    this.enqueue(feature.projectId, async () => {
+      if (this.stopping) return;
+      await this.deliverIfDrained(
+        feature,
+        this.dependencies.store.requireProject(feature.projectId),
+      );
+    });
   }
 
   /**
@@ -125,17 +159,21 @@ export class Merges {
 
     const feature = store.requireFeature(merging.featureId);
     const project = store.requireProject(feature.projectId);
-    const featureWorktree = await this.dependencies.worktrees.forFeature(feature);
-    const merged = await this.bringBranchBack(merging, feature, project, featureWorktree);
-    if (!merged) {
+    const merge: Merge = {
+      ticket: merging,
+      feature,
+      project,
+      featureWorktree: await this.dependencies.worktrees.forFeature(feature),
+    };
+    if (!(await this.bringBranchBack(merge))) {
       // Whatever the ticket was holding up stays held up, but a place under the
       // caps has just been freed by the session that was closed above.
       subSessions.schedule();
       return;
     }
 
-    await this.check(merging, feature, project, featureWorktree);
-    await this.deliverIfDrained(merging, feature, project);
+    await this.check(merge);
+    await this.deliverIfDrained(feature, project);
     subSessions.schedule();
   }
 
@@ -146,12 +184,8 @@ export class Merges {
    * that will not resolve it on the third try either, and the developer is the
    * one who decides what the two sides meant.
    */
-  private async bringBranchBack(
-    ticket: Ticket,
-    feature: Feature,
-    project: Project,
-    featureWorktree: Worktree,
-  ): Promise<boolean> {
+  private async bringBranchBack(merge: Merge): Promise<boolean> {
+    const { ticket, featureWorktree } = merge;
     if (ticket.worktree === null) {
       this.stopMerging(ticket, "squad has no branch written down for this ticket", false);
       return false;
@@ -166,7 +200,7 @@ export class Merges {
         text: "merging this branch into the feature branch conflicted",
         detail: `${outcome.detail}\n\nsquad is opening a resolution session in this ticket's own worktree, and will try again once it ends`,
       });
-      await this.resolveConflict(ticket, feature, featureWorktree);
+      await this.resolveConflict(merge);
       // A shutdown that cut the resolution session short is not a conflict
       // nobody could settle. The ticket is left saying `merging`, which is
       // exactly what the next start reads as a merge to run again.
@@ -183,29 +217,29 @@ export class Merges {
     // Cleaning it up is not allowed to undo the merge, though: a directory that
     // could not be removed is a directory to remove by hand, and reading it as
     // a ticket that did not merge would send the work through again.
-    const cleaned = await this.cleanUp(project, featureWorktree, ticket.worktree.path, branch);
-    this.publishGraph(this.dependencies.store.markMerged(ticket.id).featureId);
+    const worktreePath = ticket.worktree.path;
+    const cleaned = await this.cleanUp(merge, worktreePath, branch);
+    this.publishGraph(this.dependencies.store.markMerged(ticket.id, cleaned === null).featureId);
     this.note(ticket, {
       kind: "notice",
       text: `the branch was merged into ${featureWorktree.branch}`,
       detail:
         cleaned === null
           ? "its worktree and its branch are gone: the work is on the feature branch"
-          : `the work is on the feature branch, but what carried it is still there: ${cleaned}`,
+          : `the work is on the feature branch, but ${branch} and ${worktreePath} are still there and have to go by hand: ${cleaned}`,
     });
     return true;
   }
 
   /** Throws away what carried the work, and says so rather than failing. */
   private async cleanUp(
-    project: Project,
-    featureWorktree: Worktree,
+    merge: Merge,
     worktreePath: string,
     branch: string,
   ): Promise<string | null> {
     try {
-      await removeWorktree(project.path, worktreePath);
-      await deleteBranch(featureWorktree.path, branch);
+      await removeWorktree(merge.project.path, worktreePath);
+      await deleteBranch(merge.featureWorktree.path, branch);
       return null;
     } catch (failure) {
       return failure instanceof Error ? failure.message : String(failure);
@@ -238,11 +272,8 @@ export class Merges {
    * Nothing is read from what it says. Squad retries the merge when it ends, and
    * git is what answers.
    */
-  private async resolveConflict(
-    ticket: Ticket,
-    feature: Feature,
-    featureWorktree: Worktree,
-  ): Promise<void> {
+  private async resolveConflict(merge: Merge): Promise<void> {
+    const { ticket, feature, featureWorktree } = merge;
     const { launcher, mcpUrl } = this.dependencies;
     if (ticket.worktree === null) return;
     const session = await launcher.open({
@@ -285,12 +316,8 @@ export class Merges {
    * What it catches is what no sub-session can see from its own worktree: two
    * tickets that were green apart and are red together.
    */
-  private async check(
-    ticket: Ticket,
-    feature: Feature,
-    project: Project,
-    featureWorktree: Worktree,
-  ): Promise<void> {
+  private async check(merge: Merge): Promise<void> {
+    const { ticket, feature, project, featureWorktree } = merge;
     const check = await runVerification(project.verifyCommand, featureWorktree.path);
     if (!check.ran) return;
     this.note(ticket, {
@@ -301,47 +328,26 @@ export class Merges {
       detail: `${project.verifyCommand}\n\n${check.output}`,
     });
     if (check.passed) return;
-    this.raiseFix(ticket, feature, project, check);
+    // The command is what ran, hence non-null: passed on rather than read again
+    // from the project, so the ticket cannot name a command other than the one
+    // that came back red.
+    this.raiseFix(ticket, feature, project.verifyCommand ?? "", check);
   }
 
   /**
    * A red check becomes a ticket, posted in front of everything that has not
    * started: work piled on a broken feature branch is work to do twice.
-   *
-   * Decision tickets are left out of it. They are questions for the developer
-   * and nothing is built on their answer until squad is told it, so blocking
-   * them would only stop the developer from answering.
    */
   private raiseFix(
     ticket: Ticket,
     feature: Feature,
-    project: Project,
+    command: string,
     check: IntegrationCheck,
   ): void {
     const { store, alerts } = this.dependencies;
-    const graph = store.featureGraph(feature.id);
-    const command = project.verifyCommand ?? "";
-    const fix = store.createTicket({
-      featureId: feature.id,
-      kind: "fix",
-      title: `Vérification d'intégration rouge après « ${ticket.title} »`,
-      description: [
-        `La branche de feature ne passe plus la vérification du projet depuis la fusion de « ${ticket.title} ».`,
-        "",
-        `Commande : \`${command}\``,
-        "",
-        "Sortie :",
-        "",
-        "```",
-        check.output,
-        "```",
-        "",
-        "Ce ticket a été créé par squad, pas par la session principale : la casse vient de la rencontre de deux tranches vertes séparément, et elle se corrige avant que quoi que ce soit d'autre s'empile dessus.",
-      ].join("\n"),
-      acceptanceCriteria: [`La commande \`${command}\` repasse au vert sur la branche de feature.`],
-      blockedBy: [],
-      blocks: notStarted(graph),
-    });
+    const fix = store.createTicket(
+      fixTicketFor(store.featureGraph(feature.id), ticket, command, check),
+    );
     this.publishGraph(feature.id);
     alerts.raise(alertFor.integrationCheckFailed(feature.title));
     this.note(ticket, {
@@ -359,11 +365,7 @@ export class Merges {
    * written on the feature says: a drain is worked out again after every merge,
    * and a fix ticket merged after the delivery would otherwise open a second one.
    */
-  private async deliverIfDrained(
-    ticket: Ticket,
-    feature: Feature,
-    project: Project,
-  ): Promise<void> {
+  private async deliverIfDrained(feature: Feature, project: Project): Promise<void> {
     const { store, alerts, bus } = this.dependencies;
     const graph = store.featureGraph(feature.id);
     if (graph.tickets.length === 0) return;
@@ -371,6 +373,11 @@ export class Merges {
     const current = store.requireFeature(feature.id);
     if (current.pullRequestUrl !== null || current.worktree === null) return;
 
+    // Whose thread the delivery is told on: the last ticket of this feature
+    // that actually ran one. A feature is not a session and has no thread of its
+    // own, and the node that drained the graph may be a decision, which never
+    // opened one.
+    const ticket = lastWithSession(graph);
     const branch = current.worktree.branch;
     try {
       if (!(await hasRemote(project.path, remote))) {
@@ -413,7 +420,7 @@ export class Merges {
    * the forge, which merges when its own checks allow it.
    */
   private async settleAutoMerge(
-    ticket: Ticket,
+    ticket: Ticket | null,
     feature: Feature,
     project: Project,
     url: string,
@@ -428,18 +435,36 @@ export class Merges {
       alerts.raise(alertFor.pullRequestWaiting(feature.title, url));
       return;
     }
-    await requestAutoMerge(project.path, url);
-    this.note(ticket, {
-      kind: "notice",
-      text: "the forge was asked to merge the pull request as soon as its checks allow",
-      detail: "no step of this feature asked for a hand check, so nobody is waiting on it",
-    });
+    try {
+      await requestAutoMerge(project.path, url);
+      this.note(ticket, {
+        kind: "notice",
+        text: "the forge was asked to merge the pull request as soon as its checks allow",
+        detail: "no step of this feature asked for a hand check, so nobody is waiting on it",
+      });
+    } catch (failure) {
+      // Caught here rather than with the delivery: the pull request is open and
+      // the branch is pushed, so saying the feature could not be sent off would
+      // send the developer looking for something that is already there. What
+      // did not happen is the merge, and that is what waits for them now.
+      const why = failure instanceof Error ? failure.message : String(failure);
+      this.note(ticket, {
+        kind: "notice",
+        text: "the forge would not take the pull request on its own",
+        detail: why,
+      });
+      alerts.raise(alertFor.pullRequestWaiting(feature.title, url));
+    }
   }
 
-  /** A line on the thread of the sub-session that built this ticket. */
-  private note(ticket: Ticket, line: ThreadLine): void {
-    if (ticket.sessionId === null) {
-      console.error(`${line.text} (ticket ${ticket.id}, which has no session to say it on)`);
+  /**
+   * A line on the thread of the sub-session that built a ticket. A feature with
+   * no ticket that ever ran one has nowhere to say this, and the alert beside it
+   * is then the whole of what reaches the developer.
+   */
+  private note(ticket: Ticket | null, line: ThreadLine): void {
+    if (ticket === null || ticket.sessionId === null) {
+      console.error(`${line.text} (${ticket === null ? "no ticket" : ticket.id} to say it on)`);
       return;
     }
     this.append(ticket, ticket.sessionId, line);
@@ -456,19 +481,16 @@ export class Merges {
   }
 
   private publishGraph(featureId: string): void {
-    const { store, bus } = this.dependencies;
-    bus.publish({ type: "graph-changed", graph: store.featureGraph(featureId) });
+    publishGraph(this.dependencies.store, this.dependencies.bus, featureId);
   }
 }
 
 /**
- * The tickets no sub-session has ever opened. Read from the session written on
- * the row rather than from the state: a ticket waiting for a place reads as
- * `queued` and has never run, while one that failed has a branch of its own and
- * blocking it would only strand it.
+ * The last ticket of a graph whose sub-session ever opened, which is where a
+ * line about the feature as a whole is written. The last rather than the first:
+ * what is said there is about what has just happened, so it belongs on the
+ * thread the developer would look at next.
  */
-function notStarted(graph: FeatureGraph): string[] {
-  return graph.tickets
-    .filter((ticket) => ticket.sessionId === null && ticket.kind !== "decision")
-    .map((ticket) => ticket.id);
+function lastWithSession(graph: FeatureGraph): Ticket | null {
+  return [...graph.tickets].reverse().find((ticket) => ticket.sessionId !== null) ?? null;
 }

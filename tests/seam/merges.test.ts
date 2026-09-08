@@ -23,6 +23,7 @@ import {
   resolveConflictWith,
 } from "../support/git";
 import { installGhStub, type GhStub } from "../support/gh";
+import { connectToSquadTools } from "../support/mcp";
 import { createScriptedLauncher, type ScriptedAgent } from "../support/scripted-launcher";
 import { openTestFeature, startTestSquad, type TestSquad } from "../support/squad";
 import { startWebhookReceiver, type WebhookReceiver } from "../support/webhook";
@@ -344,6 +345,37 @@ describe("validating, merging, checking and delivering", () => {
     expect(await commitSubjects(scene.repository, featureBranch)).toEqual(["initial"]);
   });
 
+  it("lance la vérification du projet sur le worktree de feature, après la fusion", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "squad-check-"));
+    const where = join(directory, "ou");
+    const scene = await start({
+      // Green only if it runs where the merge just landed: the file it looks
+      // for is on the feature branch and nowhere else, and the directory it
+      // records is read back below.
+      verifyCommand: `pwd > ${where} && test -f store.ts`,
+      tickets: [
+        { title: "Le store", criteria: ["La base s'ouvre"] },
+        { title: "L'API", criteria: ["Les routes répondent"] },
+      ],
+      subSession: async (agent) => {
+        await agent.awaitMessage();
+        await commitFile(agent.request.workingDirectory, "store.ts", "1\n", "feat: the store");
+        await reportCovered(agent, "Fait.");
+      },
+    });
+
+    await scene.launch("Le store");
+    await scene.reaches("Le store", "merged");
+    await expect.poll(async () => await pathExists(where), { timeout: 15_000 }).toBe(true);
+
+    const featureWorktree = (await scene.feature()).worktree?.path ?? "";
+    expect((await readFile(where, "utf8")).trim()).toBe(featureWorktree);
+    // Green, so nothing was posted in front of the rest: the ticket that had not
+    // started is still on the frontier.
+    expect((await scene.graph()).tickets.map((ticket) => ticket.kind)).toEqual(["build", "build"]);
+    expect((await scene.ticket("L'API")).state).toBe("ready");
+  });
+
   it("engendre un ticket de correction quand la vérification d'intégration est rouge", async () => {
     const scene = await start({
       // Red until something writes the file, which the ticket below never does.
@@ -477,18 +509,38 @@ describe("validating, merging, checking and delivering", () => {
 
   it("pousse la branche et ouvre une pull request dès que le graphe est drainé", async () => {
     gh = await installGhStub();
+    const second = gate();
     const scene = await start({
-      tickets: [{ title: "Le store", criteria: ["La base s'ouvre"] }],
-      subSession: async (agent) => {
+      // Two tickets: the first to merge drains nothing, and that is what says
+      // the pull request waits for the graph rather than for a merge.
+      tickets: [
+        { title: "Le store", criteria: ["La base s'ouvre"] },
+        { title: "L'API", criteria: ["Les routes répondent"] },
+      ],
+      subSession: async (agent, title) => {
         await agent.awaitMessage();
-        await commitFile(agent.request.workingDirectory, "store.ts", "1\n", "feat: the store");
-        await reportCovered(agent, "La base s'ouvre et les migrations tournent.");
+        await commitFile(
+          agent.request.workingDirectory,
+          title === "Le store" ? "store.ts" : "api.ts",
+          "1\n",
+          `feat: ${title}`,
+        );
+        if (title === "L'API") await second.passed;
+        await reportCovered(
+          agent,
+          title === "Le store" ? "La base s'ouvre et les migrations tournent." : "Les routes répondent.",
+        );
       },
     });
     const remote = await addOrigin(scene.repository);
 
     await scene.launch("Le store");
+    await scene.launch("L'API");
     await scene.reaches("Le store", "merged");
+    expect((await scene.feature()).pullRequestUrl).toBeNull();
+
+    second.open();
+    await scene.reaches("L'API", "merged");
     await expect
       .poll(async () => (await scene.feature()).pullRequestUrl, { timeout: 15_000 })
       .toBe("https://forge.test/squad/pull/1");
@@ -496,16 +548,21 @@ describe("validating, merging, checking and delivering", () => {
     const featureBranch = (await scene.feature()).worktree?.branch ?? "";
     expect(await listBranches(remote)).toContain(featureBranch);
 
-    const [opened] = await gh.callsTo("pr", "create");
-    expect(opened).toContain("--base");
-    expect(opened?.[opened.indexOf("--base") + 1]).toBe("main");
-    expect(opened?.[opened.indexOf("--head") + 1]).toBe(featureBranch);
-    expect(opened?.[opened.indexOf("--title") + 1]).toBe("Le noyau");
+    // One pull request and not two: the first merge drained nothing, so it
+    // opened nothing.
+    const created = await gh.callsTo("pr", "create");
+    expect(created).toHaveLength(1);
+    const [opened] = created;
+    expect(opened?.[(opened?.indexOf("--base") ?? -1) + 1]).toBe("main");
+    expect(opened?.[(opened?.indexOf("--head") ?? -1) + 1]).toBe(featureBranch);
+    expect(opened?.[(opened?.indexOf("--title") ?? -1) + 1]).toBe("Le noyau");
     // Described from the graph: one section per ticket, with what its
     // sub-session reported.
-    const body = opened?.[opened.indexOf("--body") + 1] ?? "";
+    const body = opened?.[(opened?.indexOf("--body") ?? -1) + 1] ?? "";
     expect(body).toContain("Le store");
     expect(body).toContain("les migrations tournent");
+    expect(body).toContain("L'API");
+    expect(body).toContain("Les routes répondent.");
 
     // Nothing of this feature went through anyone's hands, so nobody is waiting
     // on it: the forge is asked to merge it as soon as its checks allow. Asked
@@ -514,6 +571,49 @@ describe("validating, merging, checking and delivering", () => {
       .poll(async () => (await gh?.callsTo("pr", "merge"))?.length, { timeout: 15_000 })
       .toBe(1);
     expect((await gh.callsTo("pr", "merge"))[0]).toContain("--auto");
+  });
+
+  it("draine aussi une feature dont la dernière décision vient d'être tranchée", async () => {
+    gh = await installGhStub();
+    const scene = await start({
+      tickets: [{ title: "Le store", criteria: ["La base s'ouvre"] }],
+      subSession: async (agent) => {
+        await agent.awaitMessage();
+        await commitFile(agent.request.workingDirectory, "store.ts", "1\n", "feat: the store");
+        await reportCovered(agent, "Fait.");
+      },
+    });
+    await addOrigin(scene.repository);
+
+    // A decision nobody has settled: it holds nothing back, and it is not
+    // merged either, so the graph has not come back whole.
+    const tools = await connectToSquadTools(squad.url);
+    const decision = (await tools.call("create_ticket", {
+      featureId: scene.featureId,
+      kind: "decision",
+      title: "Quelle base",
+      description: "SQLite ou Postgres.",
+    })) as Ticket;
+
+    await scene.launch("Le store");
+    await scene.reaches("Le store", "merged");
+    expect((await scene.feature()).pullRequestUrl).toBeNull();
+
+    // Settling it merges nothing and releases nobody, and it is still the
+    // moment the last node of this graph comes to rest.
+    await tools.call("settle_decision", {
+      featureId: scene.featureId,
+      ticketId: decision.id,
+      conclusion: "SQLite, pour rester local.",
+    });
+    await tools.close();
+
+    await expect
+      .poll(async () => (await scene.feature()).pullRequestUrl, { timeout: 15_000 })
+      .toBe("https://forge.test/squad/pull/1");
+    const [opened] = await gh.callsTo("pr", "create");
+    const body = opened?.[(opened?.indexOf("--body") ?? -1) + 1] ?? "";
+    expect(body).toContain("SQLite, pour rester local.");
   });
 
   it("laisse la pull request attendre dès qu'un test manuel a été demandé", async () => {
@@ -537,12 +637,48 @@ describe("validating, merging, checking and delivering", () => {
     await expect
       .poll(async () => (await scene.feature()).pullRequestUrl, { timeout: 15_000 })
       .toBe("https://forge.test/squad/pull/1");
-    // A person looked at this work, so a person decides when it goes in.
-    expect(await gh.callsTo("pr", "merge")).toEqual([]);
+
+    // Waited for first: the alert is raised where squad decides not to merge on
+    // its own, so reading it is what says the decision has been taken. Checking
+    // the forge before that would pass whatever squad went on to do.
     const alerts = await Promise.all([receiver.next(), receiver.next()]);
     expect(alerts.map((alert) => alert.text).join("\n")).toContain(
       "https://forge.test/squad/pull/1",
     );
+    // A person looked at this work, so a person decides when it goes in.
+    expect(await gh.callsTo("pr", "merge")).toEqual([]);
+    // And what they checked is in the description, beside what the agent said.
+    const [opened] = await gh.callsTo("pr", "create");
+    const body = opened?.[(opened?.indexOf("--body") ?? -1) + 1] ?? "";
+    expect(body).toContain("Vérifié à la main");
+    expect(body).toContain("La base s'ouvre");
+  });
+
+  it("laisse la pull request ouverte quand la forge refuse de la fusionner seule", async () => {
+    gh = await installGhStub();
+    await gh.refuse("pr merge", "auto-merge is not enabled on this repository");
+    const scene = await start({
+      tickets: [{ title: "Le store", criteria: ["La base s'ouvre"] }],
+      subSession: async (agent) => {
+        await agent.awaitMessage();
+        await commitFile(agent.request.workingDirectory, "store.ts", "1\n", "feat: the store");
+        await reportCovered(agent, "Fait.");
+      },
+    });
+    await addOrigin(scene.repository);
+    const receiver = await catchAlerts();
+
+    await scene.launch("Le store");
+    await scene.reaches("Le store", "merged");
+    await expect
+      .poll(async () => (await scene.feature()).pullRequestUrl, { timeout: 15_000 })
+      .toBe("https://forge.test/squad/pull/1");
+
+    // The branch is pushed and the pull request is open: what did not happen is
+    // the merge, and that is what the developer is told about.
+    const alert = await receiver.next();
+    expect(alert.text).toContain("https://forge.test/squad/pull/1");
+    expect(alert.text).not.toMatch(/n'a pas pu partir/);
   });
 
   it("sérialise les fusions d'un même projet, une seule à la fois", async () => {

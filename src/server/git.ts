@@ -1,10 +1,7 @@
-import { execFile } from "node:child_process";
 import { mkdir, realpath, stat } from "node:fs/promises";
 import { dirname } from "node:path";
-import { promisify } from "node:util";
+import { CommandFailure, runCommand } from "./command";
 import { SquadError } from "./errors";
-
-const run = promisify(execFile);
 
 /**
  * Resolves a path into the git repository squad would drive, and returns its
@@ -15,8 +12,8 @@ const run = promisify(execFile);
 export async function resolveRepositoryRoot(path: string): Promise<string> {
   const readable = await inspectPath(path);
   try {
-    const { stdout } = await run("git", ["rev-parse", "--show-toplevel"], { cwd: readable });
-    return await realpath(stdout.trim());
+    const root = await runCommand(readable, "git", ["rev-parse", "--show-toplevel"]);
+    return await realpath(root.trim());
   } catch {
     throw new SquadError("not_a_git_repository", 400, `${path} is not a git repository`);
   }
@@ -54,10 +51,8 @@ function isSystemError(cause: unknown): cause is NodeJS.ErrnoException {
  */
 export async function resolveDefaultBranch(repositoryRoot: string): Promise<string> {
   try {
-    const { stdout } = await run("git", ["symbolic-ref", "--short", "HEAD"], {
-      cwd: repositoryRoot,
-    });
-    return stdout.trim();
+    const head = await runCommand(repositoryRoot, "git", ["symbolic-ref", "--short", "HEAD"]);
+    return head.trim();
   } catch {
     throw new SquadError(
       "detached_head",
@@ -102,9 +97,12 @@ export async function createWorktree(request: WorktreeRequest): Promise<void> {
 
 async function branchExists(repositoryRoot: string, branch: string): Promise<boolean> {
   try {
-    await run("git", ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], {
-      cwd: repositoryRoot,
-    });
+    await runCommand(repositoryRoot, "git", [
+      "show-ref",
+      "--verify",
+      "--quiet",
+      `refs/heads/${branch}`,
+    ]);
     return true;
   } catch {
     return false;
@@ -113,24 +111,16 @@ async function branchExists(repositoryRoot: string, branch: string): Promise<boo
 
 /**
  * A git command squad runs on a repository it drives. Its failure comes back as
- * a squad error carrying what git said: a worktree that could not be created is
- * something the developer has to read, not a stack trace.
+ * a squad error carrying what git said and where: a worktree that could not be
+ * created is something the developer has to read, not a stack trace.
  */
 async function git(cwd: string, args: string[]): Promise<string> {
   try {
-    const { stdout } = await run("git", args, { cwd });
-    return stdout;
+    return await runCommand(cwd, "git", args);
   } catch (cause) {
-    throw new SquadError("git_failed", 500, `git ${args.join(" ")} failed in ${cwd}: ${reasonOf(cause)}`);
+    const said = cause instanceof CommandFailure ? cause.reason : String(cause);
+    throw new SquadError("git_failed", 500, `git ${args.join(" ")} failed in ${cwd}: ${said}`);
   }
-}
-
-function reasonOf(cause: unknown): string {
-  if (cause instanceof Error && "stderr" in cause && typeof cause.stderr === "string") {
-    const said = cause.stderr.trim();
-    if (said !== "") return said;
-  }
-  return cause instanceof Error ? cause.message : String(cause);
 }
 
 /** What a merge attempt did, which is the only thing its caller decides on. */
@@ -161,10 +151,10 @@ export async function mergeBranch(
 ): Promise<MergeOutcome> {
   await abortMergeInProgress(worktreePath);
   try {
-    await run("git", ["merge", "--no-ff", "-m", message, branch], { cwd: worktreePath });
+    await runCommand(worktreePath, "git", ["merge", "--no-ff", "-m", message, branch]);
     return { merged: true };
   } catch (cause) {
-    const detail = reasonOf(cause);
+    const detail = cause instanceof CommandFailure ? cause.reason : String(cause);
     if (!(await hasUnmergedPaths(worktreePath))) return { merged: false, conflicted: false, detail };
     // Left clean whatever happens next: a conflict is resolved on the ticket's
     // own branch, and a feature worktree sitting on an unfinished merge would
@@ -178,7 +168,7 @@ export async function mergeBranch(
 async function abortMergeInProgress(worktreePath: string): Promise<void> {
   if (!(await hasUnmergedPaths(worktreePath))) return;
   try {
-    await run("git", ["merge", "--abort"], { cwd: worktreePath });
+    await runCommand(worktreePath, "git", ["merge", "--abort"]);
   } catch {
     // Nothing to abort after all: the index held unmerged paths for another
     // reason, and the merge below will say so far better than a guess here.
@@ -186,8 +176,8 @@ async function abortMergeInProgress(worktreePath: string): Promise<void> {
 }
 
 async function hasUnmergedPaths(worktreePath: string): Promise<boolean> {
-  const { stdout } = await run("git", ["ls-files", "--unmerged"], { cwd: worktreePath });
-  return stdout.trim() !== "";
+  const unmerged = await runCommand(worktreePath, "git", ["ls-files", "--unmerged"]);
+  return unmerged.trim() !== "";
 }
 
 /**
@@ -215,8 +205,8 @@ export async function deleteBranch(worktreePath: string, branch: string): Promis
 
 /** Whether the repository knows a remote under this name. */
 export async function hasRemote(repositoryRoot: string, remote: string): Promise<boolean> {
-  const { stdout } = await run("git", ["remote"], { cwd: repositoryRoot });
-  return stdout.split("\n").some((line) => line.trim() === remote);
+  const remotes = await runCommand(repositoryRoot, "git", ["remote"]);
+  return remotes.split("\n").some((line) => line.trim() === remote);
 }
 
 /**

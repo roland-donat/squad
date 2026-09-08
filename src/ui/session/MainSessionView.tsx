@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
-import type { Feature, ThreadEntry } from "../../shared/api";
+import type { Feature, Question, ThreadEntry } from "../../shared/api";
 import { ApiError, sendMainSessionMessage, startMainSession } from "../api";
+import { Questions } from "../question/Questions";
 import { Thread } from "./Thread";
 
 /**
@@ -12,10 +13,12 @@ import { Thread } from "./Thread";
 export function MainSessionView({
   feature,
   thread,
+  questions,
   running,
 }: {
   feature: Feature;
   thread: ThreadEntry[];
+  questions: Question[];
   running: boolean;
 }) {
   return (
@@ -26,6 +29,7 @@ export function MainSessionView({
           {running ? "en cours" : "arrêtée"}
         </span>
       </p>
+      <Questions questions={questions} />
       <Thread
         entries={thread}
         empty={

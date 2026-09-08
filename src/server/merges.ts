@@ -43,6 +43,12 @@ export interface MergeDependencies {
    * touched, and a merge frees whatever was waiting behind the ticket.
    */
   subSessions: { close(ticketId: string): Promise<void>; schedule(): void };
+  /**
+   * What go-as-recommended does with a ticket squad wrote itself. Declared by
+   * what is needed of it: a fix ticket born of a fix ticket is a cascade like
+   * any other, and the depth cap has to see it.
+   */
+  autonomy: { ticketCreated(ticket: Ticket): void };
   /** Resolved late: squad only knows its own address once it is listening. */
   mcpUrl: () => string;
 }
@@ -344,10 +350,14 @@ export class Merges {
     command: string,
     check: IntegrationCheck,
   ): void {
-    const { store, alerts } = this.dependencies;
+    const { store, alerts, autonomy } = this.dependencies;
     const fix = store.createTicket(
       fixTicketFor(store.featureGraph(feature.id), ticket, command, check),
     );
+    // Before the graph is announced, for the same reason the tools do it in
+    // that order: what the mode does next is decided by what it is told, and a
+    // cascade that reached its depth stops it before it launches.
+    autonomy.ticketCreated(fix);
     this.publishGraph(feature.id);
     alerts.raise(alertFor.integrationCheckFailed(feature.title));
     this.note(ticket, {

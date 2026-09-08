@@ -702,3 +702,138 @@ button[disabled] {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/*
+ * A question an agent is waiting on. It sits at the top of the panel it belongs
+ * to and it is the only block with the accent border: everything else on that
+ * panel is work already done, this one is a session standing still.
+ */
+.question {
+  margin: 0 0 1.25rem;
+  padding: 0.85rem 0.9rem;
+  background: var(--surface-sunken);
+  border: 1px solid var(--accent);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  gap: 0.6rem;
+}
+
+.question--settled {
+  display: grid;
+  border-color: var(--line);
+  border-left-color: var(--line);
+}
+
+.question__prompt {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-weight: 600;
+}
+
+.question__options {
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.question__option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  cursor: pointer;
+}
+
+.question__option input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--accent);
+}
+
+/* What is at stake, said on the question itself: the perimeter never moves
+   without the developer, whatever the mode. */
+.chip--scope {
+  border-color: var(--decision);
+  color: var(--decision);
+}
+
+/*
+ * Go-as-recommandé, on the feature it drives. The state is a control rather
+ * than a badge: reading that the mode stopped and starting it again are the
+ * same gesture.
+ */
+.autonomy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.autonomy button.chip {
+  cursor: pointer;
+  padding: 0.2rem 0.55rem;
+  background: none;
+  font-size: 0.72rem;
+}
+
+.chip--armed {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.autonomy__halt {
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+}
+
+/*
+ * The settings screen. It takes the place of the panels rather than sitting
+ * among them: what squad is configured with is read and changed on its own, not
+ * while watching a graph move.
+ */
+.app__settings {
+  display: grid;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.settings__project fieldset {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.settings__project legend {
+  padding: 0 0.4rem;
+  font-weight: 600;
+}
+
+.settings__note {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+}
+
+.settings__saved {
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+
+.field--check {
+  grid-auto-flow: column;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.field--check input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--accent);
+}

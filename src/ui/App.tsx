@@ -1,14 +1,17 @@
 import { useState, type FormEvent } from "react";
-import type { Feature, Project } from "../shared/api";
+import type { AutonomyHaltReason, Feature, Project } from "../shared/api";
 import { pendingActions, type PendingAction, type PendingReason } from "../shared/pending";
-import { ApiError, openFeature, registerProject } from "./api";
+import { ApiError, openFeature, registerProject, setGoAsRecommended } from "./api";
 import { FeatureGraphView } from "./graph/FeatureGraphView";
 import { MainSessionView } from "./session/MainSessionView";
+import { SettingsView } from "./settings/SettingsView";
 import { TicketPanel } from "./ticket/TicketPanel";
 import {
+  featureQuestionsOf,
   graphOf,
   isMainSessionRunning,
   threadOf,
+  ticketQuestionsOf,
   ticketThreadOf,
   useSquadState,
 } from "./useSquadState";
@@ -19,6 +22,10 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [openFeatureId, setOpenFeatureId] = useState<string | null>(null);
   const [openTicketId, setOpenTicketId] = useState<string | null>(null);
+  // Which of the two screens is up. Squad is one page: piloting is what it is
+  // for, and the settings are what it is configured with, so they take the
+  // place of the panels rather than sitting among them.
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const selected = projects.find((project) => project.id === selectedId) ?? projects[0] ?? null;
   const featuresOfProject = features.filter((feature) => feature.projectId === selected?.id);
   const openedFeature =
@@ -33,7 +40,10 @@ export function App() {
   function open(action: PendingAction) {
     const feature = features.find((each) => each.id === action.featureId);
     if (feature) setSelectedId(feature.projectId);
+    setSettingsOpen(false);
     setOpenFeatureId(action.featureId);
+    // Null on a question the main session asked: it hangs on no ticket, and the
+    // thread to answer it in is the feature's own.
     setOpenTicketId(action.ticketId);
   }
 
@@ -45,11 +55,20 @@ export function App() {
         <span className={connected ? "badge badge--live" : "badge"}>
           {connected ? "connecté" : "hors ligne"}
         </span>
+        <button type="button" className="link" onClick={() => setSettingsOpen(!settingsOpen)}>
+          {settingsOpen ? "revenir au pilotage" : "réglages"}
+        </button>
       </header>
 
-      <WaitingPanel actions={pendingActions(state.graphs)} features={features} onOpen={open} />
+      <WaitingPanel
+        actions={pendingActions(state.graphs, state.questions)}
+        features={features}
+        onOpen={open}
+      />
 
-      <main className="app__body">
+      {settingsOpen && <SettingsView settings={state.settings} projects={projects} />}
+
+      <main className="app__body" hidden={settingsOpen}>
         <section className="panel" aria-labelledby="titre-projets">
           <h2 id="titre-projets">Projets</h2>
           <RegisterProjectForm />
@@ -88,7 +107,7 @@ export function App() {
         </section>
       </main>
 
-      <div className="app__feature">
+      <div className="app__feature" hidden={settingsOpen}>
         <section className="panel panel--graph" aria-labelledby="titre-graphe">
           <h2 id="titre-graphe">Graphe</h2>
           {openedFeature && graph ? (
@@ -125,6 +144,7 @@ export function App() {
             <TicketPanel
               ticket={openedTicket}
               thread={ticketThreadOf(state, openedTicket.id)}
+              questions={ticketQuestionsOf(state, openedTicket.id)}
               onClose={() => setOpenTicketId(null)}
             />
           </section>
@@ -135,6 +155,7 @@ export function App() {
               <MainSessionView
                 feature={openedFeature}
                 thread={threadOf(state, openedFeature.id)}
+                questions={featureQuestionsOf(state, openedFeature.id)}
                 running={isMainSessionRunning(state, openedFeature.id)}
               />
             ) : (
@@ -149,6 +170,7 @@ export function App() {
 
 /** What each reason means for the developer, said as the thing they have to do. */
 const reasonLabels: Record<PendingReason, string> = {
+  question: "question d'un agent",
   validation: "fiche de tests à vérifier",
   decision: "décision à trancher",
   failure: "sous-session arrêtée",
@@ -178,9 +200,9 @@ function WaitingPanel({
       ) : (
         <ul className="list">
           {actions.map((action) => (
-            <li key={action.ticketId}>
+            <li key={`${action.reason}:${action.ticketId ?? action.featureId}:${action.title}`}>
               <button type="button" className="row" onClick={() => onOpen(action)}>
-                <span className="row__title">{action.ticketTitle}</span>
+                <span className="row__title">{action.title}</span>
                 <span className="row__meta">
                   {reasonLabels[action.reason]}
                   {" · "}
@@ -193,6 +215,70 @@ function WaitingPanel({
         </ul>
       )}
     </section>
+  );
+}
+
+/** Why the mode stopped, said as the thing the developer has to look at. */
+const haltLabels: Record<AutonomyHaltReason, string> = {
+  "scope-question": "une question change le périmètre",
+  decision: "un ticket de décision attend d'être tranché",
+  failure: "un ticket s'est arrêté",
+  "depth-cap": "le plafond de profondeur d'engendrement est atteint",
+};
+
+/**
+ * Go-as-recommandé sur une feature : squad lance seul ce que la frontière
+ * permet et répond aux questions d'implémentation par la recommandation de
+ * l'agent. Ce qui l'a interrompu se lit ici, et le relancer est ce qui dit que
+ * c'est traité : rien d'autre ne rearme une nuit d'autonomie.
+ */
+function AutonomySwitch({ feature }: { feature: Feature }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const halt = feature.autonomyHalt;
+
+  async function set(goAsRecommended: boolean) {
+    setBusy(true);
+    setError(null);
+    try {
+      await setGoAsRecommended(feature.id, goAsRecommended);
+    } catch (failure) {
+      setError(failure instanceof ApiError ? failure.message : "Le serveur est injoignable.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <span className="autonomy">
+      <button
+        type="button"
+        className={feature.goAsRecommended && halt === null ? "chip chip--armed" : "chip"}
+        disabled={busy}
+        onClick={() => void set(!feature.goAsRecommended || halt !== null)}
+      >
+        {feature.goAsRecommended
+          ? halt === null
+            ? "go-as-recommandé : en cours"
+            : "go-as-recommandé : interrompu, relancer"
+          : "go-as-recommandé : arrêté"}
+      </button>
+      {feature.goAsRecommended && halt !== null && (
+        <span className="autonomy__halt">
+          {haltLabels[halt.reason]} : « {halt.detail} »
+        </span>
+      )}
+      {feature.goAsRecommended && (
+        <button type="button" className="link" disabled={busy} onClick={() => void set(false)}>
+          arrêter
+        </button>
+      )}
+      {error && (
+        <span className="error" role="alert">
+          {error}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -317,6 +403,10 @@ function FeaturesPanel({
                 ouverte le {new Date(feature.createdAt).toLocaleString("fr-FR")}
               </span>
             </button>
+            {/* On the feature rather than beside its graph: how much of it runs
+                without me is a property of the piece of work, and the graph
+                panel holds the graph and nothing else. */}
+            {feature.id === openedId && <AutonomySwitch feature={feature} />}
           </li>
         ))}
         {features.length === 0 && <li className="empty">Aucune feature en vol sur ce projet.</li>}

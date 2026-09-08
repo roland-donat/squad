@@ -1,9 +1,13 @@
 import {
   apiRoutes,
+  featureRoute,
   mainSessionMessagesRoute,
   mainSessionRoute,
+  projectRoute,
+  questionAnswerRoute,
   ticketSessionRoute,
   ticketTestSheetRoute,
+  type AnswerQuestionBody,
   type ApiErrorBody,
   type ErrorCode,
   type Feature,
@@ -13,7 +17,10 @@ import {
   type RegisterProjectBody,
   type ReviewTestSheetBody,
   type SendMainSessionMessageBody,
+  type Settings,
   type StartMainSessionBody,
+  type UpdateProjectBody,
+  type UpdateSettingsBody,
 } from "../shared/api";
 
 /**
@@ -30,6 +37,14 @@ const wording: Record<ErrorCode, string> = {
   not_a_git_repository: "Ce chemin n'est pas un dépôt git.",
   detached_head:
     "Ce dépôt n'est sur aucune branche : squad a besoin d'une branche par défaut d'où partir.",
+  branch_not_found: "Ce dépôt n'a pas de branche de ce nom.",
+  project_has_work_in_flight:
+    "Ce projet a du travail sorti en worktree : son chemin ne change qu'une fois que plus rien n'en est sorti.",
+  question_not_found: "Cette question est introuvable.",
+  question_not_pending:
+    "Cette question ne peut plus recevoir de réponse : elle a déjà été répondue ou abandonnée.",
+  recommendation_not_an_option:
+    "La recommandation de l'agent doit être l'une des options qu'il propose.",
   git_failed: "Une commande git a échoué : consulter le détail côté serveur.",
   project_already_registered: "Ce dépôt est déjà enregistré comme projet.",
   project_not_found: "Ce projet est introuvable.",
@@ -117,9 +132,46 @@ export async function reviewTestSheet(
   await send(ticketTestSheetRoute(ticketId), body);
 }
 
-async function send<T>(route: string, body: unknown): Promise<T> {
+/**
+ * The developer's answer to a question, which releases the agent that asked it.
+ * Nothing comes back here either: the question changes on the event stream, and
+ * the agent carries on writing to its own thread.
+ */
+export async function answerQuestion(questionId: string, body: AnswerQuestionBody): Promise<void> {
+  await send(questionAnswerRoute(questionId), body);
+}
+
+/** Arms or disarms go-as-recommended on a feature, and clears what stopped it. */
+export async function setGoAsRecommended(
+  featureId: string,
+  goAsRecommended: boolean,
+): Promise<Feature> {
+  const { feature } = await send<{ feature: Feature }>(
+    featureRoute(featureId),
+    { goAsRecommended },
+    "PUT",
+  );
+  return feature;
+}
+
+/** Changes a project's own settings: what is left out is left as it stands. */
+export async function updateProject(
+  projectId: string,
+  body: UpdateProjectBody,
+): Promise<Project> {
+  const { project } = await send<{ project: Project }>(projectRoute(projectId), body, "PUT");
+  return project;
+}
+
+/** Changes squad's own settings, which are the same for every project. */
+export async function updateSettings(body: UpdateSettingsBody): Promise<Settings> {
+  const { settings } = await send<{ settings: Settings }>(apiRoutes.settings, body, "PUT");
+  return settings;
+}
+
+async function send<T>(route: string, body: unknown, method: "POST" | "PUT" = "POST"): Promise<T> {
   const response = await fetch(route, {
-    method: "POST",
+    method,
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });

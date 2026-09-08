@@ -1,6 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import type { ZodType } from "zod";
 import {
+  answerQuestionBody,
   apiRoutes,
   launchTicketBody,
   openFeatureBody,
@@ -8,14 +9,17 @@ import {
   reviewTestSheetBody,
   sendMainSessionMessageBody,
   startMainSessionBody,
+  updateFeatureBody,
   updateProjectBody,
   updateSettingsBody,
   type ApiErrorBody,
   type SquadEvent,
 } from "../shared/api";
+import type { Autonomy } from "./autonomy";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
 import { buildMcpHandler } from "./mcp";
+import type { Questions } from "./questions";
 import type { MainSessions } from "./sessions";
 import type { Store } from "./store";
 import type { Merges } from "./merges";
@@ -29,6 +33,8 @@ export interface HttpDependencies {
   subSessions: SubSessions;
   validations: Validations;
   merges: Merges;
+  questions: Questions;
+  autonomy: Autonomy;
 }
 
 /**
@@ -43,6 +49,8 @@ export function buildApiRouter({
   subSessions,
   validations,
   merges,
+  questions,
+  autonomy,
 }: HttpDependencies): express.Router {
   const router = express.Router();
   router.use(express.json());
@@ -58,9 +66,9 @@ export function buildApiRouter({
     response.status(201).json({ project });
   });
 
-  router.put(`${apiRoutes.projects}/:projectId`, (request, response) => {
+  router.put(`${apiRoutes.projects}/:projectId`, async (request, response) => {
     const body = parse(updateProjectBody, request.body);
-    const project = store.updateProject(request.params.projectId, body);
+    const project = await store.updateProject(request.params.projectId, body);
     bus.publish({ type: "project-changed", project });
     // A cap raised is a place freed: whatever was waiting on it starts now,
     // rather than at the next thing that happens to move.
@@ -81,6 +89,14 @@ export function buildApiRouter({
     const feature = store.openFeature(body);
     bus.publish({ type: "feature-opened", feature });
     response.status(201).json({ feature });
+  });
+
+  router.put(`${apiRoutes.features}/:featureId`, (request, response) => {
+    const body = parse(updateFeatureBody, request.body);
+    // Through the mode rather than through the store: arming a feature is also
+    // what starts it moving, and what clears whatever stopped it last time.
+    const feature = autonomy.arm(request.params.featureId, body.goAsRecommended);
+    response.json({ feature });
   });
 
   router.get(`${apiRoutes.features}/:featureId/graph`, (request, response) => {
@@ -126,6 +142,14 @@ export function buildApiRouter({
     response.json({ ticket: store.requireTicket(reviewed.id) });
   });
 
+  router.post(`${apiRoutes.questions}/:questionId/answer`, (request, response) => {
+    const body = parse(answerQuestionBody, request.body);
+    // The agent waiting on this question is released by this very call: what it
+    // asked for comes back to it as the result of its own tool call.
+    const question = questions.answer(request.params.questionId, body.answer);
+    response.json({ question });
+  });
+
   router.get(apiRoutes.settings, (_request, response) => {
     response.json({ settings: store.settings() });
   });
@@ -142,7 +166,10 @@ export function buildApiRouter({
 
   // Squad's own MCP endpoint: the surface the agents talk to, on the very port
   // that serves the interface, so a session has one address for all of squad.
-  router.all(apiRoutes.mcp, buildMcpHandler({ store, bus, validations, subSessions, merges }));
+  router.all(
+    apiRoutes.mcp,
+    buildMcpHandler({ store, bus, questions, autonomy, validations, subSessions, merges }),
+  );
 
   router.get(apiRoutes.events, (request, response) => {
     response.writeHead(200, {

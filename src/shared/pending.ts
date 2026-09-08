@@ -1,4 +1,4 @@
-import type { FeatureGraph, Ticket } from "./api";
+import type { FeatureGraph, Question, Ticket } from "./api";
 import { sheetIsWaiting } from "./validation";
 
 /**
@@ -13,6 +13,7 @@ import { sheetIsWaiting } from "./validation";
 
 /** Why a ticket is waiting, which is also what the developer has to do about it. */
 export const pendingReasons = [
+  "question",
   "validation",
   "decision",
   "failure",
@@ -23,8 +24,10 @@ export type PendingReason = (typeof pendingReasons)[number];
 
 export interface PendingAction {
   featureId: string;
-  ticketId: string;
-  ticketTitle: string;
+  /** Null on a question the main session asked: it hangs on no ticket. */
+  ticketId: string | null;
+  /** What is waiting, named: a ticket's title, or a question's statement. */
+  title: string;
   reason: PendingReason;
 }
 
@@ -46,9 +49,24 @@ function pendingActionOf(ticket: Ticket): PendingReason | null {
   }
 }
 
-/** Everything waiting on the developer, in the order the graphs list it. */
-export function pendingActions(graphs: readonly FeatureGraph[]): PendingAction[] {
-  const waiting: PendingAction[] = [];
+/**
+ * Everything waiting on the developer: the questions first, then what the
+ * graphs say. The questions first because an agent is blocked on each of them,
+ * doing nothing until it is answered, where a ticket waiting for a test sheet
+ * has at least finished its work.
+ */
+export function pendingActions(
+  graphs: readonly FeatureGraph[],
+  questions: readonly Question[],
+): PendingAction[] {
+  const waiting: PendingAction[] = questions
+    .filter((question) => question.state === "pending")
+    .map((question) => ({
+      featureId: question.featureId,
+      ticketId: question.ticketId,
+      title: question.prompt,
+      reason: "question" as const,
+    }));
   for (const graph of graphs) {
     for (const ticket of graph.tickets) {
       const reason = pendingActionOf(ticket);
@@ -56,7 +74,7 @@ export function pendingActions(graphs: readonly FeatureGraph[]): PendingAction[]
       waiting.push({
         featureId: graph.featureId,
         ticketId: ticket.id,
-        ticketTitle: ticket.title,
+        title: ticket.title,
         reason,
       });
     }

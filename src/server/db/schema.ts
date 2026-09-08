@@ -9,8 +9,12 @@ import {
   unique,
 } from "drizzle-orm/sqlite-core";
 import {
+  answerSources,
+  autonomyHaltReasons,
   defaultConcurrencyCaps,
+  defaultGenerationDepthCap,
   launchAngles,
+  questionStates,
   sheetVerdicts,
   threadEntryKinds,
   ticketKinds,
@@ -50,28 +54,49 @@ export const projects = sqliteTable("projects", {
   createdAt: text("created_at").notNull(),
 });
 
-export const features = sqliteTable("features", {
-  id: text("id").primaryKey(),
-  projectId: text("project_id")
-    .notNull()
-    .references(() => projects.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  /**
-   * The feature branch and where it is checked out, written together the first
-   * time a ticket of the feature is launched. Null before that: opening a
-   * feature to paste a spec into it checks out nothing.
-   */
-  branch: text("branch"),
-  worktreePath: text("worktree_path"),
-  /**
-   * The pull request opened once every ticket of the graph had merged. Null
-   * while the feature is being built, and what tells a feature already
-   * delivered from one to deliver: a drain is recomputed at every merge, and
-   * without this the same pull request would be opened twice.
-   */
-  pullRequestUrl: text("pull_request_url"),
-  createdAt: text("created_at").notNull(),
-});
+export const features = sqliteTable(
+  "features",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    /**
+     * The feature branch and where it is checked out, written together the
+     * first time a ticket of the feature is launched. Null before that: opening
+     * a feature to paste a spec into it checks out nothing.
+     */
+    branch: text("branch"),
+    worktreePath: text("worktree_path"),
+    /**
+     * The pull request opened once every ticket of the graph had merged. Null
+     * while the feature is being built, and what tells a feature already
+     * delivered from one to deliver: a drain is recomputed at every merge, and
+     * without this the same pull request would be opened twice.
+     */
+    pullRequestUrl: text("pull_request_url"),
+    /** Whether squad drives this feature on its own. */
+    goAsRecommended: integer("go_as_recommended", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    /**
+     * Why squad stopped driving, and on what. The three are written together
+     * and cleared together: either the mode is halted and all three say why, or
+     * none of them is there.
+     */
+    autonomyHaltReason: text("autonomy_halt_reason", { enum: autonomyHaltReasons }),
+    autonomyHaltDetail: text("autonomy_halt_detail"),
+    autonomyHaltedAt: text("autonomy_halted_at"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    check(
+      "features_autonomy_halt_reason",
+      sql`${table.autonomyHaltReason} in (${literals(autonomyHaltReasons)})`,
+    ),
+  ],
+);
 
 /**
  * The nodes of the graph. `lifecycle` holds what squad has recorded of a
@@ -114,6 +139,13 @@ export const tickets = sqliteTable(
      */
     queuedAt: text("queued_at"),
     queuedAngle: text("queued_angle", { enum: launchAngles }),
+    /**
+     * How deep in a cascade of agent-written tickets this one sits: 0 for what
+     * the main session wrote, one more than the ticket it was born of
+     * otherwise. Written here rather than walked back through the graph,
+     * because the ticket it came from may be gone.
+     */
+    generation: integer("generation").notNull().default(0),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
@@ -256,6 +288,13 @@ export const settings = sqliteTable(
     machineConcurrencyCap: integer("machine_concurrency_cap")
       .notNull()
       .default(defaultConcurrencyCaps.machine),
+    /**
+     * How deep a cascade of agent-written tickets may go before squad stops
+     * driving on its own and asks.
+     */
+    generationDepthCap: integer("generation_depth_cap")
+      .notNull()
+      .default(defaultGenerationDepthCap),
   },
   (table) => [check("settings_single_row", sql`${table.id} = 1`)],
 );
@@ -285,6 +324,61 @@ export const threadEntries = sqliteTable(
   (table) => [
     index("thread_entries_feature_idx").on(table.featureId),
     check("thread_entries_kind", sql`${table.kind} in (${literals(threadEntryKinds)})`),
+  ],
+);
+
+/**
+ * The questions agents ask, and what they were answered. Stored rather than held
+ * in memory for the length of the tool call: what squad answered on its own in
+ * the middle of the night has to be readable the next morning, and a question
+ * whose session died has to be tellable from one still waiting.
+ */
+export const questions = sqliteTable(
+  "questions",
+  {
+    id: text("id").primaryKey(),
+    featureId: text("feature_id")
+      .notNull()
+      .references(() => features.id, { onDelete: "cascade" }),
+    /** The ticket whose sub-session asked; null when the main session did. */
+    ticketId: text("ticket_id").references(() => tickets.id, { onDelete: "cascade" }),
+    sessionId: text("session_id").notNull(),
+    prompt: text("prompt").notNull(),
+    /** One of the options below, checked when the question is written. */
+    recommendation: text("recommendation").notNull(),
+    scopeChanging: integer("scope_changing", { mode: "boolean" }).notNull(),
+    state: text("state", { enum: questionStates }).notNull().default("pending"),
+    answer: text("answer"),
+    /** Who answered: the developer, or squad in go-as-recommended. */
+    answeredBy: text("answered_by", { enum: answerSources }),
+    answeredAt: text("answered_at"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("questions_feature_idx").on(table.featureId),
+    index("questions_ticket_idx").on(table.ticketId),
+    check("questions_state", sql`${table.state} in (${literals(questionStates)})`),
+    check("questions_answered_by", sql`${table.answeredBy} in (${literals(answerSources)})`),
+  ],
+);
+
+/**
+ * What a question offers to choose from. Rows rather than a JSON list, for the
+ * same reason acceptance criteria are rows: the recommendation names one of
+ * them, and what is offered is read back and shown one line at a time.
+ */
+export const questionOptions = sqliteTable(
+  "question_options",
+  {
+    questionId: text("question_id")
+      .notNull()
+      .references(() => questions.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    text: text("text").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.questionId, table.position] }),
+    index("question_options_question_idx").on(table.questionId),
   ],
 );
 

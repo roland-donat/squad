@@ -1,6 +1,6 @@
 import { realpath } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
-import type { Feature, Ticket } from "../../src/shared/api";
+import type { Feature, Project, Settings, Ticket } from "../../src/shared/api";
 import { createTemporaryRepository, removeTemporaryPaths } from "../support/git";
 import { connectToSquadTools } from "../support/mcp";
 
@@ -106,6 +106,47 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
 
   await opened.getByRole("button", { name: "fermer" }).click();
   await expect(page.getByRole("region", { name: "Session principale" })).toBeVisible();
+
+  // Go-as-recommandé, on the feature it drives. It is armed here on a feature
+  // whose graph is empty, so squad has nothing to launch and this walk-through
+  // opens no session: what is proven is the control, not the drain, which the
+  // seam covers with a scripted agent.
+  const featuresPanel = page.getByRole("region", { name: "Features" });
+  await page.getByLabel("Intitulé de la feature").fill("Sans graphe");
+  await page.getByRole("button", { name: "Ouvrir la feature" }).click();
+  await featuresPanel.getByRole("button", { name: "go-as-recommandé : arrêté" }).click();
+  await expect(
+    featuresPanel.getByRole("button", { name: "go-as-recommandé : en cours" }),
+  ).toBeVisible();
+  await featuresPanel.getByRole("button", { name: "arrêter" }).click();
+  await expect(
+    featuresPanel.getByRole("button", { name: "go-as-recommandé : arrêté" }),
+  ).toBeVisible();
+
+  // The settings screen: what squad is configured with, changed where it is
+  // read. Both scopes are on it, the machine's and the project's.
+  await page.getByRole("button", { name: "réglages" }).click();
+  const machine = page.getByRole("region", { name: "Réglages de la machine" });
+  await machine.getByLabel("Profondeur d'engendrement maximale").fill("2");
+  await machine.getByRole("button", { name: "Enregistrer les réglages" }).click();
+  await expect(machine.getByText("Enregistré.")).toBeVisible();
+
+  const ofProject = page.getByRole("group", { name: repositoryRoot.split("/").at(-1) ?? "" });
+  await ofProject.getByLabel("Commande de vérification").fill("pnpm verify");
+  await ofProject.getByRole("button", { name: "Enregistrer le projet" }).click();
+  await expect(ofProject.getByText("Enregistré.")).toBeVisible();
+
+  // Held by the server, not by the screen: what was typed is what squad applies.
+  const { settings } = (await (await request.get("/api/settings")).json()) as {
+    settings: Settings;
+  };
+  expect(settings.generationDepthCap).toBe(2);
+  const { projects } = (await (await request.get("/api/projects")).json()) as {
+    projects: Project[];
+  };
+  expect(projects.at(-1)?.verifyCommand).toBe("pnpm verify");
+
+  await page.getByRole("button", { name: "revenir au pilotage" }).click();
 
   // The state lives on the server, so it survives a reload of the page.
   await page.reload();

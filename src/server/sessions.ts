@@ -42,6 +42,15 @@ export class MainSessions {
     }));
   }
 
+  /**
+   * The session holding a feature's main thread, or null when none is open. It
+   * is what a question asked outside any ticket is written on: squad names the
+   * session itself rather than taking one from whoever calls.
+   */
+  sessionIdOf(featureId: string): string | null {
+    return this.running.get(featureId)?.id ?? null;
+  }
+
   async start(featureId: string, prompt?: string): Promise<AgentSession> {
     const { store, bus, launcher, mcpUrl } = this.dependencies;
     const feature = store.requireFeature(featureId);

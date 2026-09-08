@@ -839,9 +839,8 @@ button[disabled] {
 }
 
 /*
- * Les conversations enregistrées, d'où une feature peut partir. Une ligne par
- * conversation, avec ce qui permet de la reconnaître et le seul geste qu'elle
- * offre : la rattacher.
+ * The recorded conversations a feature can start from. One row each, carrying
+ * what it is recognised by and the one gesture it offers: attaching it.
  */
 .panel--recorded {
   margin: 1.5rem 0;

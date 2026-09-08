@@ -184,13 +184,14 @@ export async function updateSettings(body: UpdateSettingsBody): Promise<Settings
  * the event stream: they are another program's files, and squad does not hear
  * about them changing.
  */
-export async function listRecordedSessions(search: string): Promise<RecordedSession[]> {
+export async function listRecordedSessions(
+  search: string,
+): Promise<{ sessions: RecordedSession[]; matching: number; readable: boolean }> {
   const route =
     search.trim() === ""
       ? apiRoutes.recordedSessions
       : `${apiRoutes.recordedSessions}?search=${encodeURIComponent(search)}`;
-  const { sessions } = await read<{ sessions: RecordedSession[] }>(route);
-  return sessions;
+  return read<{ sessions: RecordedSession[]; matching: number; readable: boolean }>(route);
 }
 
 /**
@@ -203,12 +204,7 @@ export async function attachRecordedSession(sessionId: string): Promise<Feature>
 }
 
 async function read<T>(route: string): Promise<T> {
-  const response = await fetch(route);
-  if (!response.ok) {
-    const failure = (await response.json().catch(() => null)) as ApiErrorBody | null;
-    throw new ApiError(failure?.error.code ?? "internal_error");
-  }
-  return (await response.json()) as T;
+  return answerOf<T>(await fetch(route));
 }
 
 async function send<T>(route: string, body: unknown, method: "POST" | "PUT" = "POST"): Promise<T> {
@@ -217,6 +213,14 @@ async function send<T>(route: string, body: unknown, method: "POST" | "PUT" = "P
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+  return answerOf<T>(response);
+}
+
+/**
+ * What the server answered, or the refusal it answered instead. One place reads
+ * an error code, whichever request brought it back.
+ */
+async function answerOf<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const failure = (await response.json().catch(() => null)) as ApiErrorBody | null;
     throw new ApiError(failure?.error.code ?? "internal_error");

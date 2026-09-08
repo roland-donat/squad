@@ -36,10 +36,18 @@ export class Resumptions {
    * lets one be found beyond the ten shown, and it reads what identifies a
    * session rather than what was said in it.
    */
-  async list(search: string): Promise<RecordedSession[]> {
-    const recorded = await listRecordedSessions(this.dependencies.recordedSessionsDir);
-    const matching = recorded.filter((session) => matchesSearch(session, search));
-    return matching.slice(0, shownByDefault);
+  async list(
+    search: string,
+  ): Promise<{ sessions: RecordedSession[]; matching: number; readable: boolean }> {
+    const read = await listRecordedSessions(this.dependencies.recordedSessionsDir);
+    const matching = read.sessions.filter((session) => matchesSearch(session, search));
+    // How many were found as well as the few shown: a list that quietly keeps
+    // ten of thirty tells the reader their search was narrow when it was not.
+    return {
+      sessions: matching.slice(0, shownByDefault),
+      matching: matching.length,
+      readable: read.readable,
+    };
   }
 
   /**
@@ -47,9 +55,14 @@ export class Resumptions {
    * ran in, registered if squad did not know it yet, a feature on it, and its
    * main session resumed on that very conversation.
    *
-   * All of it or none of it is the point of doing it here rather than in three
-   * requests from the interface: a project registered next to a feature that was
-   * never opened is a state nobody asked for and nobody would clean up.
+   * One gesture rather than three requests from the interface: registering a
+   * repository, opening a feature on it and resuming its conversation are one
+   * decision, and an interface that made them separately would leave a project
+   * registered beside a feature nobody opened whenever the second call failed.
+   *
+   * A session that cannot be opened is the one thing left behind: the feature
+   * exists and its thread says why the session did not start, which is where a
+   * main session that fails to open already leaves things.
    */
   async attach(sessionId: string, title?: string): Promise<{ project: Project; feature: Feature }> {
     const { store, bus, mainSessions } = this.dependencies;
@@ -79,8 +92,8 @@ export class Resumptions {
   }
 
   private async require(sessionId: string): Promise<RecordedSession> {
-    const recorded = await listRecordedSessions(this.dependencies.recordedSessionsDir);
-    const found = recorded.find((session) => session.id === sessionId);
+    const read = await listRecordedSessions(this.dependencies.recordedSessionsDir);
+    const found = read.sessions.find((session) => session.id === sessionId);
     if (!found) {
       throw new SquadError(
         "recorded_session_not_found",
@@ -99,9 +112,13 @@ export class Resumptions {
    */
   private async projectOf(recorded: RecordedSession): Promise<Project> {
     const { store, bus } = this.dependencies;
-    const known = await store.projectAt(recorded.cwd);
+    // The repository rather than the directory the session ran in, though git
+    // would resolve either: what is registered is what the developer was shown
+    // in the list, and the two must be the same repository.
+    const path = recorded.repository ?? recorded.cwd;
+    const known = await store.projectAt(path);
     if (known !== null) return known;
-    const registered = await store.registerProject({ path: recorded.cwd });
+    const registered = await store.registerProject({ path });
     bus.publish({ type: "project-registered", project: registered });
     return registered;
   }

@@ -243,16 +243,22 @@ une. Trois règles tiennent cette lecture :
   sous `<session>/subagents/` est le fil d'un agent qu'une session a lancé : sur
   un poste réel, 169 sessions cohabitent avec 1250 de ces fils, et aucun ne se
   reprend comme session principale.
-- **Seulement l'en-tête.** Les transcripts atteignent 75 Mo pièce, 1,6 Go au
+- **Seulement l'en-tête.** Les transcripts atteignent 79 Mo pièce, 1,6 Go au
   total ; tout ce que squad affiche (identifiant, chemin, branche, titre,
-  premier message) tient dans les premières lignes.
+  premier message) tient dans les premières lignes. Elles sont lues dans un
+  tampon de 16 ko ouvert sur le fichier, jamais par un `readFile` qu'on
+  tronquerait ensuite : mesuré sur le poste, 167 sessions listées en 53 ms pour
+  17 Mo de mémoire, là où lire les fichiers entiers en ferait passer 1,6 Go.
 - **En mode dégradé.** C'est le stockage privé d'un autre programme, non
   documenté : un répertoire absent, un fichier illisible ou une ligne d'une
   forme inconnue donnent moins de sessions, jamais une erreur.
 
-Ce qui s'est dit dans une conversation n'est jamais lu ni recopié. Ce que la
-conversation contient, c'est à la session reprise de le dire, par un appel
-d'outil, jamais à squad de l'analyser (ADR 0002).
+Squad lit ce qui identifie une conversation, l'identifiant, le chemin, la
+branche, le titre et le début du premier message, qui sert à nommer la feature.
+Le corps de la conversation n'est jamais lu, et rien de ce qui s'y trouve ne
+devient un état de squad. Ce que la conversation contient, c'est à la session
+reprise de le dire, par un appel d'outil, jamais à squad de l'analyser
+(ADR 0002).
 
 ### Les alertes pendant les tests
 

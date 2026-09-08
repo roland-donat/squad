@@ -83,6 +83,7 @@ export function App() {
         // drives: this is where a feature comes from when it comes from work
         // already done at the terminal.
         <RecordedSessions
+          projects={projects}
           onAttached={(feature) => {
             setSelectedId(feature.projectId);
             setOpenFeatureId(feature.id);

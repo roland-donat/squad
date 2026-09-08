@@ -1,3 +1,5 @@
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Feature, Project, RecordedSession, ThreadEntry } from "../../src/shared/api";
 import { apiRoutes, attachRecordedSessionRoute } from "../../src/shared/api";
@@ -54,15 +56,24 @@ describe("resuming a recorded conversation", () => {
     return { opened };
   }
 
-  async function list(search?: string): Promise<RecordedSession[]> {
+  async function read(
+    search?: string,
+  ): Promise<{ sessions: RecordedSession[]; matching: number; readable: boolean }> {
     const route =
       search === undefined
         ? apiRoutes.recordedSessions
         : `${apiRoutes.recordedSessions}?search=${encodeURIComponent(search)}`;
     const response = await squad.request("GET", route);
     expect(response.status).toBe(200);
-    const { sessions } = (await response.json()) as { sessions: RecordedSession[] };
-    return sessions;
+    return (await response.json()) as {
+      sessions: RecordedSession[];
+      matching: number;
+      readable: boolean;
+    };
+  }
+
+  async function list(search?: string): Promise<RecordedSession[]> {
+    return (await read(search)).sessions;
   }
 
   /** The whole thread of a feature, as a fresh connection is handed it. */
@@ -115,9 +126,27 @@ describe("resuming a recorded conversation", () => {
     // The sub-agent transcript is the most recent file of all, and it is not a
     // session: resuming it would resume something that never drove anything.
     expect(shown.map((session) => session.id)).not.toContain("sous-agent");
+    // And what is not shown is said rather than kept quiet: twelve conversations
+    // match, ten are on screen.
+    expect((await read()).matching).toBe(12);
     // What identifies a session, and nothing of what was said in it.
-    expect(shown[0]).toMatchObject({ cwd: repository, branch: "main" });
+    expect(shown[0]).toMatchObject({ cwd: repository, repository, branch: "main" });
     expect(shown[0]?.bytes).toBeGreaterThan(0);
+  });
+
+  it("names the repository a conversation ran in, not the directory it ran from", async () => {
+    const repository = await createTemporaryRepository();
+    const inside = join(repository, "src", "server");
+    await mkdir(inside, { recursive: true });
+    await start([{ id: "en-sous-dossier", cwd: inside, title: "Depuis un sous-dossier" }]);
+
+    const [session] = await list();
+
+    // Where it ran is kept as it was recorded; what it belongs to is the
+    // repository, which is what the reader recognises and what attaching
+    // registers.
+    expect(session?.cwd).toBe(inside);
+    expect(session?.repository).toBe(repository);
   });
 
   it("finds a conversation beyond the ten shown, by what identifies it", async () => {
@@ -204,12 +233,24 @@ describe("resuming a recorded conversation", () => {
     expect(((await listed.json()) as { features: Feature[] }).features).toHaveLength(1);
   });
 
-  it("says there is nothing to resume rather than failing, when nothing was recorded", async () => {
+  it("tells a store it cannot read from a machine that recorded nothing", async () => {
     await start([], { withoutDirectory: true });
 
-    expect(await list()).toEqual([]);
+    const unreadable = await read();
+    expect(unreadable.sessions).toEqual([]);
+    // Said rather than shown as an empty shelf: a directory squad cannot open
+    // is a diagnosis, and the two answers must not look the same.
+    expect(unreadable.readable).toBe(false);
     // And a conversation nobody recorded cannot be attached.
     const response = await squad.request("POST", attachRecordedSessionRoute("inconnue"), {});
     expect(response.status).toBe(404);
+  });
+
+  it("reads an empty store as an empty shelf, not as a failure", async () => {
+    await start([]);
+
+    const empty = await read();
+    expect(empty.sessions).toEqual([]);
+    expect(empty.readable).toBe(true);
   });
 });

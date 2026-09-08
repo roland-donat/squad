@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Feature, RecordedSession } from "../../shared/api";
+import type { Feature, Project, RecordedSession } from "../../shared/api";
 import { ApiError, attachRecordedSession, listRecordedSessions } from "../api";
 import { Failure, useSubmission } from "../submission";
 
@@ -14,9 +14,18 @@ import { Failure, useSubmission } from "../submission";
  * identifies a conversation, the repository, the branch, the title and the first
  * thing asked; what was said in it is never read, here or anywhere else.
  */
-export function RecordedSessions({ onAttached }: { onAttached: (feature: Feature) => void }) {
+export function RecordedSessions({
+  projects,
+  onAttached,
+}: {
+  /** What squad already drives, which is what tells a click that registers. */
+  projects: Project[];
+  onAttached: (feature: Feature) => void;
+}) {
   const [search, setSearch] = useState("");
   const [sessions, setSessions] = useState<RecordedSession[] | null>(null);
+  const [matching, setMatching] = useState(0);
+  const [readable, setReadable] = useState(true);
   const [failure, setFailure] = useState<string | null>(null);
 
   useEffect(() => {
@@ -27,7 +36,9 @@ export function RecordedSessions({ onAttached }: { onAttached: (feature: Feature
       listRecordedSessions(search)
         .then((found) => {
           if (current) {
-            setSessions(found);
+            setSessions(found.sessions);
+            setMatching(found.matching);
+            setReadable(found.readable);
             setFailure(null);
           }
         })
@@ -63,16 +74,33 @@ export function RecordedSessions({ onAttached }: { onAttached: (feature: Feature
         <p className="empty">Lecture des conversations enregistrées.</p>
       ) : sessions.length === 0 ? (
         <p className="empty">
-          {search.trim() === ""
-            ? "Aucune conversation enregistrée sur cette machine."
-            : "Aucune conversation ne correspond."}
+          {!readable
+            ? "Squad n'a pas pu lire le dossier des conversations de claude-code : il n'existe pas, ou il n'est pas lisible."
+            : search.trim() === ""
+              ? "Aucune conversation enregistrée sur cette machine."
+              : "Aucune conversation ne correspond."}
         </p>
       ) : (
-        <ul className="list">
-          {sessions.map((session) => (
-            <RecordedRow key={session.id} session={session} onAttached={onAttached} />
-          ))}
-        </ul>
+        <>
+          {matching > sessions.length && (
+            // Never a cap kept quiet: a reader who cannot see the other twenty
+            // would read their search as narrower than it is.
+            <p className="empty">
+              {sessions.length} conversations sur {matching}. Préciser la recherche pour voir
+              les autres.
+            </p>
+          )}
+          <ul className="list">
+            {sessions.map((session) => (
+              <RecordedRow
+                key={session.id}
+                session={session}
+                known={projects.some((project) => project.path === session.repository)}
+                onAttached={onAttached}
+              />
+            ))}
+          </ul>
+        </>
       )}
     </section>
   );
@@ -80,9 +108,12 @@ export function RecordedSessions({ onAttached }: { onAttached: (feature: Feature
 
 function RecordedRow({
   session,
+  known,
   onAttached,
 }: {
   session: RecordedSession;
+  /** Whether squad already drives the repository this conversation ran in. */
+  known: boolean;
   onAttached: (feature: Feature) => void;
 }) {
   const { busy, error, run } = useSubmission(async () => {
@@ -93,14 +124,18 @@ function RecordedRow({
     <li className="recorded">
       <span className="row__title">{session.title ?? session.firstMessage ?? session.cwd}</span>
       <span className="row__detail">
-        {session.cwd}
+        {session.repository ?? session.cwd}
         {session.branch === null ? "" : ` · ${session.branch}`}
       </span>
       <span className="row__meta">
         {new Date(session.recordedAt).toLocaleString("fr-FR")} · {sizeOf(session.bytes)}
+        {known ? "" : " · dépôt pas encore enregistré"}
       </span>
+      {/* What the click will do, said before it is clicked: attaching a
+          conversation of a repository squad does not drive is first of all
+          handing it that repository. */}
       <button type="button" disabled={busy} onClick={() => void run()}>
-        Rattacher
+        {known ? "Rattacher" : "Enregistrer le dépôt et rattacher"}
       </button>
       <Failure message={error} />
     </li>
@@ -108,8 +143,8 @@ function RecordedRow({
 }
 
 /**
- * How big a conversation is, said in what the reader decides on: reprendre une
- * conversation de plusieurs dizaines de mégaoctets se paie au premier tour.
+ * How big a conversation is, which is what the reader decides on: resuming one
+ * of several tens of megabytes is paid for at its first turn.
  */
 function sizeOf(bytes: number): string {
   const mega = bytes / 1_048_576;

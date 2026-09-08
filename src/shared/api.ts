@@ -410,8 +410,14 @@ export interface ThreadEntry {
 export interface RecordedSession {
   /** The session id, which is what resuming it runs on. */
   id: string;
-  /** Where it ran, which is what says the repository it belongs to. */
+  /** Where it ran, which is not always the root of the repository it ran in. */
   cwd: string;
+  /**
+   * The repository that directory belongs to, found by walking up to the
+   * nearest `.git`, or null when it belongs to none. What the reader recognises
+   * a session by, and what attaching it registers.
+   */
+  repository: string | null;
   branch: string | null;
   /** What it was named, when it was named. */
   title: string | null;

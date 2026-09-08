@@ -101,6 +101,7 @@ export class MainSessions {
         kind: "notice",
         text: "the main session was resumed from a recorded conversation",
         detail: [
+          `${resume.title ?? "untitled"} (${resume.id})`,
           `recorded in ${resume.cwd}${resume.branch === null ? "" : ` on ${resume.branch}`}`,
           `last written to on ${resume.recordedAt}, ${Math.round(resume.bytes / 1024)} kB`,
           "what was said in it is not repeated here: claude-code keeps it, and this session remembers it",

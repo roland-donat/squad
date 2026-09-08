@@ -247,8 +247,8 @@ une. Trois règles tiennent cette lecture :
   total ; tout ce que squad affiche (identifiant, chemin, branche, titre,
   premier message) tient dans les premières lignes. Elles sont lues dans un
   tampon de 16 ko ouvert sur le fichier, jamais par un `readFile` qu'on
-  tronquerait ensuite : mesuré sur le poste, 167 sessions listées en 53 ms pour
-  17 Mo de mémoire, là où lire les fichiers entiers en ferait passer 1,6 Go.
+  tronquerait ensuite : mesuré sur le poste, 168 sessions listées en 71 ms pour
+  19 Mo de mémoire, là où lire les fichiers entiers coûtait 1,9 s et 280 Mo.
 - **En mode dégradé.** C'est le stockage privé d'un autre programme, non
   documenté : un répertoire absent, un fichier illisible ou une ligne d'une
   forme inconnue donnent moins de sessions, jamais une erreur.

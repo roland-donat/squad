@@ -266,7 +266,7 @@ describe("a question asked from a session, and the wait it opens", () => {
           featureId: agent.request.featureId,
           ticketId: agent.request.ticketId,
           summary: "La base s'ouvre.",
-          coverage: criteria.map((criterion) => ({ criterionId: criterion.id, covered: false })),
+          coverage: criteria.map((criterion) => ({ criterionId: criterion.id, verdict: "judgement" })),
           recommendation: "Fusionner une fois la fiche passée.",
         });
         asking.question = (await agent.call("ask_question", {

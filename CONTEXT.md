@@ -98,25 +98,40 @@ _Éviter_ : itération, phase, passe, cycle
 ## La validation
 
 **Rapport de fin d'étape** (`StepReport`) :
-Ce que remet une sous-session quand son étape se termine : ce qu'elle a construit, la
-couverture automatique déclarée critère par critère, les points qu'elle suggère de
-vérifier à l'œil, et ce qu'elle recommande de faire ensuite. Il arrive par un appel
-d'outil, jamais en prose, et c'est lui qui engendre la fiche de tests.
+Ce que remet une sous-session quand son étape se termine : ce qu'elle a construit, le
+verdict de règlement déclaré critère par critère, les points qu'elle suggère de faire
+juger, et ce qu'elle recommande de faire ensuite. Il arrive par un appel d'outil, jamais
+en prose, et c'est lui qui engendre la fiche de tests.
 _Éviter_ : compte rendu, résumé de fin, livrable
 
+**Verdict de règlement** (`CriterionVerdict`) :
+Comment un critère d'acceptation a été réglé, déclaré par la sous-session : `automated`
+quand un test le couvre et continuera de le couvrir, `checked` quand aucun test ne le
+couvre mais que l'agent l'a réglé lui-même en lançant quelque chose, `judgement` quand
+seul un humain peut trancher. Trois verdicts et non deux, parce qu'entre « un test le
+couvre » et « seul un humain peut le dire » se trouve tout ce qu'un agent règle en
+lançant une commande, et c'en est la plus grande part. Un `checked` porte
+obligatoirement la note de ce qui a été lancé et de ce que ça a répondu : sans elle, le
+développeur ne distingue pas une vérification d'une affirmation, et refaire le travail
+est son seul recours.
+_Éviter_ : couverture (le mot ne nomme que le premier des trois)
+
 **Fiche de tests** (`TestSheet`) :
-La liste des points qu'un humain doit vérifier à la main en fin d'étape : les critères
-d'acceptation du ticket qu'aucun test automatique ne couvre, augmentés des suggestions
-libres de l'agent. Écrite une fois pour toutes au moment du rapport, et non recalculée
-depuis le ticket : des critères retouchés après coup ne doivent pas changer ce qui a été
-mis sous les yeux du développeur. Une fiche non validée interdit la fusion.
+La liste des points qu'un humain doit juger en fin d'étape : les critères d'acceptation
+déclarés `judgement`, augmentés des suggestions libres de l'agent. Ce qu'une commande, un
+test ou un script tranche n'y figure pas : le porter reviendrait à rendre au développeur
+le travail qui lui a été délégué, sous la seule forme qu'il ne peut pas traiter. Écrite
+une fois pour toutes au moment du rapport, et non recalculée depuis le ticket : des
+critères retouchés après coup ne doivent pas changer ce qui a été mis sous les yeux du
+développeur. Une fiche non validée interdit la fusion.
 _Éviter_ : checklist, plan de test, recette, QA
 
 **Point de vérification** (`TestSheetPoint`) :
-Une ligne de la fiche. Elle vient soit d'un critère d'acceptation non couvert, et elle le
-nomme, soit d'une suggestion libre de l'agent, et elle n'en nomme aucun : un champ déclaré
-les distingue, jamais leur formulation. Cochée, elle est vérifiée ; laissée décochée avec
-un commentaire, c'est ce commentaire qui repart dans la sous-session.
+Une ligne de la fiche. Elle vient soit d'un critère d'acceptation que seul un humain peut
+trancher, et elle le nomme, soit d'une suggestion libre de l'agent, et elle n'en nomme
+aucun : un champ déclaré les distingue, jamais leur formulation. Cochée, elle est
+vérifiée ; laissée décochée avec un commentaire, c'est ce commentaire qui repart dans la
+sous-session.
 _Éviter_ : item, case, entrée
 
 **Alerte** (`Alert`) :

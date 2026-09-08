@@ -11,6 +11,7 @@ import {
 import {
   answerSources,
   autonomyHaltReasons,
+  criterionVerdicts,
   defaultConcurrencyCaps,
   defaultGenerationDepthCap,
   launchAngles,
@@ -250,10 +251,11 @@ export const stepReports = sqliteTable(
 );
 
 /**
- * What the agent declared, criterion by criterion: covered by an automatic test,
- * or not. Kept even for the covered ones, which are exactly the ones absent from
- * the test sheet: without this row nothing would say the agent had claimed to
- * automate them.
+ * What the agent declared, criterion by criterion: covered by a test, checked by
+ * the agent itself, or left for a person to judge. Kept for all three, and not
+ * only for what reaches the sheet: without these rows nothing would say what the
+ * agent claimed to have automated or run, which is exactly what the developer
+ * reads instead of doing the work again.
  */
 export const criterionCoverage = sqliteTable(
   "criterion_coverage",
@@ -267,11 +269,17 @@ export const criterionCoverage = sqliteTable(
     position: integer("position").notNull(),
     /** The criterion as it read when the step was reported. */
     text: text("text").notNull(),
-    covered: integer("covered", { mode: "boolean" }).notNull(),
+    verdict: text("verdict", { enum: criterionVerdicts }).notNull(),
+    /** What was run and what it answered, on a criterion the agent checked. */
+    note: text("note"),
   },
   (table) => [
     primaryKey({ columns: [table.reportId, table.criterionId] }),
     index("criterion_coverage_report_idx").on(table.reportId),
+    check(
+      "criterion_coverage_verdict",
+      sql`${table.verdict} in (${literals(criterionVerdicts)})`,
+    ),
   ],
 );
 

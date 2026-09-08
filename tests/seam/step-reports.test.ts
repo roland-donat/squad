@@ -10,7 +10,7 @@ import {
   ticketTestSheetRoute,
 } from "../../src/shared/api";
 import { pendingActions } from "../../src/shared/pending";
-import { connectToSquadTools } from "../support/mcp";
+import { connectToSquadTools, type ToolOutcome } from "../support/mcp";
 import { createScriptedLauncher, type ScriptedAgent } from "../support/scripted-launcher";
 import {
   openTestFeature,
@@ -155,8 +155,12 @@ describe("ending a step, its test sheet and its alerts", () => {
         ticketId: agent.request.ticketId,
         summary: "La base s'ouvre et les migrations tournent au démarrage.",
         coverage: [
-          { criterionId: opens, covered: true },
-          { criterionId: migrations, covered: false },
+          { criterionId: opens, verdict: "automated" },
+          {
+            criterionId: migrations,
+            verdict: "judgement",
+            note: "Les onze migrations passent ; reste à juger si le message affiché pendant leur application est le bon.",
+          },
         ],
         suggestions: ["Ouvrir une base écrite par la version précédente"],
         recommendation: "Fusionner une fois la fiche passée.",
@@ -169,8 +173,9 @@ describe("ending a step, its test sheet and its alerts", () => {
     await squad.request("POST", ticketSessionRoute(ticket.id), {});
     const waiting = await waitForState(stream, featureId, ticket.id, "awaiting-validation");
 
-    // The sheet is what nobody automated, then what the agent suggested. The
-    // covered criterion is not on it, and the coverage still records that claim.
+    // The sheet is what only a person can settle, then what the agent
+    // suggested. What a test covers is not on it, and the coverage still
+    // records that claim.
     const report = reportOf(waiting);
     expect(report.sheet.map((point) => point.text)).toEqual([
       "Les migrations s'appliquent",
@@ -179,10 +184,13 @@ describe("ending a step, its test sheet and its alerts", () => {
     expect(report.sheet[0]?.criterionId).toBe(criterionIds(ticket)[1]);
     expect(report.sheet[1]?.criterionId).toBeNull();
     expect(report.sheet.every((point) => point.verdict === "pending")).toBe(true);
-    expect(report.coverage.map((entry) => [entry.text, entry.covered])).toEqual([
-      ["La base s'ouvre", true],
-      ["Les migrations s'appliquent", false],
+    expect(report.coverage.map((entry) => [entry.text, entry.verdict])).toEqual([
+      ["La base s'ouvre", "automated"],
+      ["Les migrations s'appliquent", "judgement"],
     ]);
+    // What the agent already established on a point it still hands over travels
+    // with it: the developer judges what is left, not the whole of it again.
+    expect(report.coverage[1]?.note).toContain("onze migrations passent");
     expect(report.summary).toContain("les migrations tournent");
     expect(report.recommendation).toContain("Fusionner");
     expect(report.reviewedAt).toBeNull();
@@ -205,18 +213,74 @@ describe("ending a step, its test sheet and its alerts", () => {
     ]);
   });
 
+  it("keeps off the sheet what the agent settled itself, and refuses the claim without what it ran", async () => {
+    const alive = gate();
+    let refusal: ToolOutcome | undefined;
+    const { featureId, stream, ticket } = await start(async (agent) => {
+      await agent.awaitMessage();
+      const [opens, migrations] = criterionIds(
+        (await readGraph(agent.request.featureId)).tickets[0] as Ticket,
+      );
+      const report = {
+        featureId: agent.request.featureId,
+        ticketId: agent.request.ticketId,
+        summary: "La base s'ouvre, et les migrations tournent sur une base de la version d'avant.",
+        recommendation: "Fusionner.",
+      };
+      // A criterion nobody automated but that a command answers is the agent's
+      // to run. Claiming it without saying what was run leaves the developer
+      // with a claim they can neither read nor redo, so it is refused.
+      refusal = await agent.attempt("report_step", {
+        ...report,
+        coverage: [
+          { criterionId: opens, verdict: "automated" },
+          { criterionId: migrations, verdict: "checked" },
+        ],
+      });
+      await agent.call("report_step", {
+        ...report,
+        coverage: [
+          { criterionId: opens, verdict: "automated" },
+          {
+            criterionId: migrations,
+            verdict: "checked",
+            note: "Lancé sur une base écrite par 0.4 : les onze migrations passent, la table garde ses 312 lignes.",
+          },
+        ],
+      });
+      await alive.passed;
+    });
+    const receiver = await catchAlerts();
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    // Nothing left for a person to judge, so nothing stops: the ticket merges
+    // without waking anyone, which is the whole point of the third verdict.
+    const merged = await waitForState(stream, featureId, ticket.id, "merged");
+
+    expect(refusal?.refused).toBe(true);
+    expect(refusal?.text).toContain("Les migrations s'appliquent");
+    const report = reportOf(merged);
+    expect(report.sheet).toEqual([]);
+    expect(report.coverage.map((entry) => [entry.verdict, entry.note])).toEqual([
+      ["automated", null],
+      ["checked", expect.stringContaining("onze migrations")],
+    ]);
+    expect(pendingActions([await readGraph(featureId)], [])).toEqual([]);
+    expect(receiver.received()).toEqual([]);
+  });
+
   it("reports an empty sheet without waking anyone, and it goes on to merge", async () => {
     const alive = gate();
     const { featureId, stream, ticket } = await start(async (agent) => {
       await agent.awaitMessage();
-      const covered = criterionIds(
+      const settled = criterionIds(
         (await readGraph(agent.request.featureId)).tickets[0] as Ticket,
-      ).map((criterionId) => ({ criterionId, covered: true }));
+      ).map((criterionId) => ({ criterionId, verdict: "automated" }));
       await agent.call("report_step", {
         featureId: agent.request.featureId,
         ticketId: agent.request.ticketId,
         summary: "Tout est couvert par les tests au seam.",
-        coverage: covered,
+        coverage: settled,
         recommendation: "Fusionner.",
       });
       await alive.passed;
@@ -244,14 +308,14 @@ describe("ending a step, its test sheet and its alerts", () => {
       openings.push(agent.request.resumeSessionId);
       messages.push(await agent.awaitMessage());
       if (messages.length === 1) return;
-      const covered = criterionIds(
+      const settled = criterionIds(
         (await readGraph(agent.request.featureId)).tickets[0] as Ticket,
-      ).map((criterionId) => ({ criterionId, covered: true }));
+      ).map((criterionId) => ({ criterionId, verdict: "automated" }));
       await agent.call("report_step", {
         featureId: agent.request.featureId,
         ticketId: agent.request.ticketId,
         summary: "Fini, et rapporté cette fois.",
-        coverage: covered,
+        coverage: settled,
         recommendation: "Fusionner.",
       });
       await reported.passed;
@@ -309,8 +373,8 @@ describe("ending a step, its test sheet and its alerts", () => {
         ticketId: agent.request.ticketId,
         summary: "Fait.",
         coverage: [
-          { criterionId: opens, covered: false },
-          { criterionId: migrations, covered: false },
+          { criterionId: opens, verdict: "judgement" },
+          { criterionId: migrations, verdict: "judgement" },
         ],
         recommendation: "À vérifier à la main.",
       });
@@ -356,7 +420,7 @@ describe("ending a step, its test sheet and its alerts", () => {
         featureId: agent.request.featureId,
         ticketId: agent.request.ticketId,
         summary: "Fait.",
-        coverage: [{ criterionId: opens, covered: true }],
+        coverage: [{ criterionId: opens, verdict: "automated" }],
         recommendation: "Fusionner.",
       });
       refusal = outcome.refused ? outcome.text : "";

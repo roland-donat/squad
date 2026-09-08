@@ -197,7 +197,7 @@ describe("a feature that carries several repositories", () => {
       summary: `Ce que demandait « ${own?.title ?? ""} » est construit.`,
       coverage: (own?.acceptanceCriteria ?? []).map((criterion) => ({
         criterionId: criterion.id,
-        covered: true,
+        verdict: "automated",
       })),
       recommendation: "Fusionner.",
     });

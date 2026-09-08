@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   apiRoutes,
+  defaultConcurrencyCaps,
   type Feature,
   type FeatureGraph,
   type MainSession,
@@ -37,7 +38,13 @@ export function useSquadState(): SquadState {
     graphs: [],
     threads: [],
     mainSessions: [],
-    settings: { webhookUrl: null, desktopNotifications: true },
+    // What is shown until the first snapshot arrives, which is the very first
+    // message of the connection: nothing is read from here afterwards.
+    settings: {
+      webhookUrl: null,
+      desktopNotifications: true,
+      machineConcurrencyCap: defaultConcurrencyCaps.machine,
+    },
     connected: false,
   });
 
@@ -101,6 +108,13 @@ function apply(state: SquadState, event: SquadEvent): SquadState {
       };
     case "project-registered":
       return { ...state, projects: [...state.projects, event.project] };
+    case "project-changed":
+      return {
+        ...state,
+        projects: state.projects.map((project) =>
+          project.id === event.project.id ? event.project : project,
+        ),
+      };
     case "feature-opened":
       return { ...state, features: [...state.features, event.feature] };
     case "feature-changed":

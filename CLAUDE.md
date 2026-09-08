@@ -67,10 +67,13 @@ la version précédente.
 Réglages par variable d'environnement : `SQUAD_PORT` (7300 par défaut) et
 `SQUAD_DATA_DIR` (par défaut `~/.local/share/squad`, jamais dans un dépôt piloté).
 
-Le reste des réglages vit dans la base et s'édite par l'API, `GET` et `PUT` sur
-`/api/settings` : l'URL du webhook d'alerte, et le canal de notification de
-bureau. Rien n'est lu dans l'environnement, de sorte que ce qui est en vigueur se
-relit par la même surface que le reste.
+Le reste des réglages vit dans la base et s'édite par l'API. `GET` et `PUT` sur
+`/api/settings` pour ce qui vaut à l'échelle de la machine : l'URL du webhook
+d'alerte, le canal de notification de bureau, et le plafond de sous-sessions
+simultanées. `PUT` sur `/api/projects/<id>` pour ce qui est propre à un projet :
+le plafond de sous-sessions simultanées d'une de ses features. Le plus restrictif
+des deux plafonds s'applique. Rien n'est lu dans l'environnement, de sorte que ce
+qui est en vigueur se relit par la même surface que le reste.
 
 ## Conventions
 
@@ -170,21 +173,22 @@ commit restent en anglais.
 ## Structure
 
 ```
-src/shared/            # contrat API partagé serveur et interface, sans dépendance node
-src/server/            # serveur : base, store, git, événements, routes HTTP, outils MCP
-src/server/db/         # schéma drizzle et ouverture de la base
-src/server/agents/     # lanceur d'agent : l'interface étroite et son repli
-src/server/alerts.ts   # bureau et webhook, quand la progression s'arrête
-src/ui/                # interface React servie par le serveur
-src/ui/graph/          # disposition en couches et rendu du graphe
-src/ui/ticket/         # le panneau d'un nœud du graphe, fiche de tests comprise
-drizzle/               # migrations générées, versionnées
-tests/seam/            # tests au seam : HTTP, flux d'événements et outils MCP
-tests/support/         # instance de test, dépôts git temporaires, double du lanceur
-tests/browser/         # test navigateur unique, parcours nominal
-docs/adr/              # décisions d'architecture
-docs/agents/           # configuration lue par les skills d'ingénierie
-CONTEXT.md             # glossaire du domaine
+src/shared/             # contrat API partagé serveur et interface, sans dépendance node
+src/server/             # serveur : base, store, git, événements, routes HTTP, outils MCP
+src/server/db/          # schéma drizzle et ouverture de la base
+src/server/agents/      # lanceur d'agent : l'interface étroite et son repli
+src/server/alerts.ts    # bureau et webhook, quand la progression s'arrête
+src/server/scheduler.ts # ce qui part maintenant : fonction pure du graphe et des plafonds
+src/ui/                 # interface React servie par le serveur
+src/ui/graph/           # disposition en couches et rendu du graphe
+src/ui/ticket/          # le panneau d'un nœud du graphe, fiche de tests comprise
+drizzle/                # migrations générées, versionnées
+tests/seam/             # tests au seam : HTTP, flux d'événements et outils MCP
+tests/support/          # instance de test, dépôts git temporaires, double du lanceur
+tests/browser/          # test navigateur unique, parcours nominal
+docs/adr/               # décisions d'architecture
+docs/agents/            # configuration lue par les skills d'ingénierie
+CONTEXT.md              # glossaire du domaine
 ```
 
 ### Où vivent les worktrees

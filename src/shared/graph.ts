@@ -30,8 +30,12 @@ export type TicketLifecycle = (typeof ticketLifecycles)[number];
  * branch and its worktree are still there, and its session id is written down.
  * Read wherever that question is asked, rather than each caller spelling the
  * two states out again and one of them being forgotten the day a third arrives.
+ *
+ * Answered on a state or on a lifecycle, which name these two the same way: a
+ * ticket waiting for a place reads as `queued`, and what squad has to know
+ * before opening its session is the run it recorded underneath.
  */
-export function isResumable(state: TicketState): boolean {
+export function isResumable(state: TicketState | TicketLifecycle): boolean {
   return state === "failed" || state === "interrupted";
 }
 
@@ -121,6 +125,14 @@ export function findCycle(nodeIds: readonly string[], edges: readonly GraphEdge[
   return null;
 }
 
+/** What a ticket's row says about it, which is all its state is read from. */
+export interface TicketRecord {
+  kind: TicketKind;
+  lifecycle: TicketLifecycle;
+  /** Set while a launch squad accepted waits for a place under the caps. */
+  queuedAt: string | null;
+}
+
 /**
  * A ticket is blocked as long as one of its blockers is not merged. Once they
  * all are, a `build` or `fix` ticket is ready to launch, and a `decision` one
@@ -128,28 +140,30 @@ export function findCycle(nodeIds: readonly string[], edges: readonly GraphEdge[
  * makes "a decision ticket opens no sub-session" a property of the graph rather
  * than a check the launcher has to remember.
  *
- * Nothing is stored under these names: they follow from the edges and the kind,
- * so an edge added later needs no write to make them true again.
+ * Nothing is stored under these names: they follow from the edges, the kind and
+ * the launch record, so an edge added later needs no write to make them true
+ * again.
  */
 export function resolveTicketState(
-  kind: TicketKind,
-  lifecycle: TicketLifecycle,
+  record: TicketRecord,
   blockerIds: readonly string[],
   cleared: ReadonlySet<string>,
 ): TicketState {
+  const { kind, lifecycle, queuedAt } = record;
   if (holdsNothingBack(lifecycle)) return "merged";
   // What squad recorded of a run outranks what the edges say. A ticket only
   // ever ran because its blockers were merged, so the two never disagree; and
   // reading the edges first would make a running ticket flicker back to `ready`
   // the day a blocker is added in front of it.
-  if (
-    lifecycle === "running" ||
-    lifecycle === "awaiting-validation" ||
-    lifecycle === "failed" ||
-    lifecycle === "interrupted"
-  ) {
-    return lifecycle;
+  if (lifecycle === "running" || lifecycle === "awaiting-validation") return lifecycle;
+  // The edges only outrank a ticket that never ran at all: a blocker posted in
+  // front of a waiting launch takes that launch out of the frontier, which is
+  // exactly what a `fix` ticket is for. The request itself is not thrown away,
+  // so the ticket goes back to waiting for a place once its blocker merges.
+  if (lifecycle === "unstarted" && !blockerIds.every((blockerId) => cleared.has(blockerId))) {
+    return "blocked";
   }
-  if (!blockerIds.every((blockerId) => cleared.has(blockerId))) return "blocked";
+  if (queuedAt !== null) return "queued";
+  if (lifecycle === "failed" || lifecycle === "interrupted") return lifecycle;
   return kind === "decision" ? "awaiting-decision" : "ready";
 }

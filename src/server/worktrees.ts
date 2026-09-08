@@ -20,6 +20,15 @@ import type { Store } from "./store";
  * tomorrow must still find the worktree it opened today.
  */
 export class Worktrees {
+  /**
+   * Checkouts are made one at a time, whatever asks for them. Two tickets of
+   * the same feature launched together would otherwise both find the feature
+   * checkout missing and both create it, and the second `git worktree add`
+   * fails on a branch already checked out. Creating one is short, and what
+   * runs in parallel afterwards is the work, not the checking out.
+   */
+  private queue: Promise<unknown> = Promise.resolve();
+
   constructor(
     private readonly store: Store,
     private readonly bus: EventBus,
@@ -31,7 +40,18 @@ export class Worktrees {
    * its directory was cleaned off the disk. The feature's own checkout is made
    * along the way, since the ticket branch starts from the feature branch.
    */
-  async forTicket(ticket: Ticket): Promise<Worktree> {
+  forTicket(ticket: Ticket): Promise<Worktree> {
+    const next = this.queue.then(
+      () => this.checkOutForTicket(ticket),
+      () => this.checkOutForTicket(ticket),
+    );
+    // What the next caller waits on never rejects: a checkout that failed is
+    // its own caller's business, and must not fail the one queued behind it.
+    this.queue = next.catch(() => {});
+    return next;
+  }
+
+  private async checkOutForTicket(ticket: Ticket): Promise<Worktree> {
     const feature = this.store.requireFeature(ticket.featureId);
     const project = this.store.requireProject(feature.projectId);
     const startedFrom = await this.forFeature(feature, project);

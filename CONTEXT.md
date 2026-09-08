@@ -120,8 +120,15 @@ c'est construit. Une question structurante reste bloquante même en go-as-recomm
 _Éviter_ : question importante, question bloquante, question critique
 
 **Plafond de concurrence** (`concurrencyCap`) :
-Le nombre maximal de sous-sessions simultanées. Déclaré à l'échelle de la machine et
-par feature, le plus restrictif l'emportant.
+Le nombre maximal de sous-sessions simultanées. Déclaré à l'échelle de la machine dans
+les réglages, et par feature sur le projet qui la porte, le plus restrictif l'emportant.
+Un lancement demandé alors que les plafonds sont pleins n'est pas refusé : il est
+accepté et attend (état `queued`), puis part dès qu'une place se libère. Le refuser
+rendrait le développeur responsable de revenir cliquer.
+
+**Ordonnanceur** (`nextLaunches`) :
+Ce qui décide des lancements à effectuer : une fonction de l'état des graphes et des
+plafonds, sans effet de bord ni appel de modèle. Squad ordonnance, jamais un agent.
 
 **Plafond de profondeur** (`generationDepthCap`) :
 Le nombre maximal de générations successives de tickets engendrés automatiquement par

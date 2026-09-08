@@ -18,6 +18,7 @@ const kindLabels: Record<TicketKind, string> = {
 const stateLabels: Record<TicketState, string> = {
   blocked: "bloqué",
   ready: "prêt",
+  queued: "en attente",
   running: "en cours",
   "awaiting-validation": "à vérifier",
   failed: "arrêté",

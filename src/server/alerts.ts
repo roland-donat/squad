@@ -32,6 +32,9 @@ export const alertFor = {
   subSessionNotTakenBack: (ticketTitle: string): Alert => ({
     text: `squad : la sous-session de « ${ticketTitle} » n'a pas pu être reprise.`,
   }),
+  subSessionNotOpened: (ticketTitle: string): Alert => ({
+    text: `squad : la sous-session de « ${ticketTitle} » n'a pas pu être ouverte.`,
+  }),
 };
 
 export class Alerts {

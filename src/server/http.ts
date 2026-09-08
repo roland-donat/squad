@@ -8,6 +8,7 @@ import {
   reviewTestSheetBody,
   sendMainSessionMessageBody,
   startMainSessionBody,
+  updateProjectBody,
   updateSettingsBody,
   type ApiErrorBody,
   type SquadEvent,
@@ -54,6 +55,16 @@ export function buildApiRouter({
     response.status(201).json({ project });
   });
 
+  router.put(`${apiRoutes.projects}/:projectId`, (request, response) => {
+    const body = parse(updateProjectBody, request.body);
+    const project = store.updateProject(request.params.projectId, body);
+    bus.publish({ type: "project-changed", project });
+    // A cap raised is a place freed: whatever was waiting on it starts now,
+    // rather than at the next thing that happens to move.
+    subSessions.schedule();
+    response.json({ project });
+  });
+
   router.get(apiRoutes.features, (request, response) => {
     const projectId = request.query["projectId"];
     if (projectId !== undefined && typeof projectId !== "string") {
@@ -92,12 +103,13 @@ export function buildApiRouter({
     },
   );
 
-  router.post(`${apiRoutes.tickets}/:ticketId/session`, async (request, response) => {
+  router.post(`${apiRoutes.tickets}/:ticketId/session`, (request, response) => {
     const body = parse(launchTicketBody, request.body);
-    const session = await subSessions.launch(request.params.ticketId, body.angle);
-    // Accepted, not done: the sub-session runs for as long as its agent does,
-    // and what it produces arrives on the event stream.
-    response.status(202).json({ sessionId: session.id });
+    const ticket = subSessions.launch(request.params.ticketId, body.angle);
+    // Accepted, not done: the launch waits for a place under the concurrency
+    // caps, its sub-session runs for as long as its agent does, and everything
+    // that happens next arrives on the event stream.
+    response.status(202).json({ ticket });
   });
 
   router.post(`${apiRoutes.tickets}/:ticketId/test-sheet`, (request, response) => {
@@ -115,6 +127,9 @@ export function buildApiRouter({
     const body = parse(updateSettingsBody, request.body);
     const settings = store.updateSettings(body);
     bus.publish({ type: "settings-changed", settings });
+    // The machine-wide cap lives here, so raising it frees a place just as an
+    // ending sub-session does.
+    subSessions.schedule();
     response.json({ settings });
   });
 

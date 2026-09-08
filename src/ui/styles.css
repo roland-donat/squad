@@ -43,8 +43,13 @@ body {
   line-height: 1.5;
 }
 
+/*
+ * As wide as the screen allows, up to a limit. The graph is what gains from
+ * room, and nothing here is a column of prose read end to end; past this width
+ * the little text there is becomes a line nobody can follow back.
+ */
 .app {
-  max-width: 1100px;
+  max-width: 1800px;
   margin: 0 auto;
   padding: 2.5rem 1.5rem 4rem;
 }
@@ -85,15 +90,51 @@ body {
   background: var(--accent-soft);
 }
 
-.app__body {
+/*
+ * The work, in one row: what waits on me, the graph it waits in, and the thread
+ * it is settled in. The indicator is narrow and first because it is read at a
+ * glance; the graph takes what is left because it is what one looks at.
+ */
+.app__work {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 16rem) minmax(0, 3fr) minmax(0, 2fr);
   gap: 1.5rem;
+  align-items: start;
 }
 
-@media (max-width: 820px) {
-  .app__body {
+/*
+ * What squad is set up with, under the work: it is opened once. Fitted rather
+ * than counted, so a panel keeps a width it can hold its rows in whatever the
+ * screen leaves for it.
+ */
+.app__setup {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 1400px) {
+  /* The thread goes under the graph before either of them becomes unreadable. */
+  .app__work {
+    grid-template-columns: minmax(0, 16rem) minmax(0, 1fr);
+  }
+
+  .app__work .panel--session,
+  .app__work .panel--ticket {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 1020px) {
+  .app__work {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app__work .panel--session,
+  .app__work .panel--ticket {
+    grid-column: auto;
   }
 }
 
@@ -232,19 +273,6 @@ button[disabled] {
  * coordinate from the edges. Kind and state are written on each node as well as
  * coloured, so the graph keeps its meaning in greyscale.
  */
-.app__feature {
-  display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  gap: 1.5rem;
-  margin-top: 1.5rem;
-  align-items: start;
-}
-
-@media (max-width: 1020px) {
-  .app__feature {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
 
 .graph__legend {
   margin: 0 0 1.25rem;
@@ -534,6 +562,19 @@ button[disabled] {
   overflow-x: auto;
 }
 
+/* The shortcuts of the main session, and a refusal under the one it came from. */
+.composer__shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: start;
+}
+
+.composer__shortcut {
+  display: grid;
+  gap: 0.25rem;
+}
+
 .composer {
   margin-bottom: 0;
 }
@@ -621,16 +662,17 @@ button[disabled] {
 
 /*
  * The indicator: everything waiting on the developer, above the fold and on
- * every screen. It is deliberately the first thing under the header, since its
- * whole point is to answer "what do I do now" without looking for it.
+ * every screen. It opens the row the work is laid out on, before the graph it
+ * waits in, since its whole point is to answer "what do I do now" without
+ * looking for it.
  */
 .panel--waiting {
-  margin-bottom: 1.5rem;
   border-left: 5px solid var(--decision);
 }
 
+/* In a narrow column: one waiting thing per line, read top to bottom. */
 .panel--waiting .list {
-  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  grid-template-columns: minmax(0, 1fr);
 }
 
 /*
@@ -842,12 +884,8 @@ button[disabled] {
  * The recorded conversations a feature can start from. One row each, carrying
  * what it is recognised by and the one gesture it offers: attaching it.
  */
-.panel--recorded {
-  margin: 1.5rem 0;
-}
-
 .panel--recorded .list {
-  grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr));
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .recorded {

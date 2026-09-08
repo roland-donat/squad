@@ -35,3 +35,5 @@ dist/
 # Sorties Playwright
 test-results/
 playwright-report/
+# Captures et instantanés du navigateur piloté par MCP
+.playwright-mcp/

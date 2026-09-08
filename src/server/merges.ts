@@ -278,7 +278,7 @@ export class Merges {
       detail,
     });
     alerts.raise(
-      conflicted ? alertFor.mergeConflicted(ticket.title) : alertFor.mergeFailed(ticket.title),
+      conflicted ? alertFor.mergeConflicted(ticket) : alertFor.mergeFailed(ticket),
     );
     // A branch that does not go home is work nobody may pile onto: the
     // unattended run ends here, as it does on a sub-session that stopped.
@@ -379,7 +379,7 @@ export class Merges {
     // cascade that reached its depth stops it before it launches.
     autonomy.ticketCreated(fix);
     this.publishGraph(feature.id);
-    alerts.raise(alertFor.integrationCheckFailed(feature.title));
+    alerts.raise(alertFor.integrationCheckFailed(feature));
     this.note(ticket, {
       kind: "notice",
       text: "a fix ticket was posted in front of what has not started",
@@ -446,7 +446,7 @@ export class Merges {
         text: `the feature is drained but could not be sent off on ${project.name}`,
         detail: why,
       });
-      alerts.raise(alertFor.featureNotDelivered(feature.title, why));
+      alerts.raise(alertFor.featureNotDelivered(feature, why));
     }
   }
 
@@ -475,7 +475,7 @@ export class Merges {
         text: "the pull request waits for the developer",
         detail: "something of this feature was checked by hand, so squad does not merge it on its own",
       });
-      alerts.raise(alertFor.pullRequestWaiting(feature.title, url));
+      alerts.raise(alertFor.pullRequestWaiting(feature, url));
       return;
     }
     try {
@@ -496,7 +496,7 @@ export class Merges {
         text: "the forge would not take the pull request on its own",
         detail: why,
       });
-      alerts.raise(alertFor.pullRequestWaiting(feature.title, url));
+      alerts.raise(alertFor.pullRequestWaiting(feature, url));
     }
   }
 

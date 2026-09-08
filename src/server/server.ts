@@ -71,8 +71,12 @@ export async function startSquadServer(
   const mcpUrl = () => new URL(apiRoutes.mcp, baseUrl).toString();
   const launcher = options.launcher ?? createClaudeCodeLauncher();
   // Reads the settings at every alert rather than holding them: the webhook can
-  // be changed while squad runs, and the next alert must go to the new one.
-  const alerts = new Alerts(store);
+  // be changed while squad runs, and the next alert must go to the new one. The
+  // address is read late like the one above, and is none while squad is not yet
+  // listening: what the previous run left is taken back before that.
+  const alerts = new Alerts(store, (path) =>
+    baseUrl === "" ? null : new URL(path, baseUrl).toString(),
+  );
   const worktrees = new Worktrees(store, bus, dataDir);
   // Read late, like the address above: the sessions let go of what they were
   // waiting on when they end, and the questions are held by a module that has

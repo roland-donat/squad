@@ -248,8 +248,8 @@ export class SubSessions {
     }
     alerts.raise(
       takingBack
-        ? alertFor.subSessionNotTakenBack(ticket.title)
-        : alertFor.subSessionNotOpened(ticket.title),
+        ? alertFor.subSessionNotTakenBack(ticket)
+        : alertFor.subSessionNotOpened(ticket),
     );
   }
 
@@ -476,7 +476,7 @@ export class SubSessions {
         text: "the sub-session failed",
         detail: detail ?? null,
       });
-      this.stop(ticket, alertFor.subSessionStopped(ticket.title));
+      this.stop(ticket, alertFor.subSessionStopped(ticket));
       return;
     }
 
@@ -500,7 +500,7 @@ export class SubSessions {
         text: "the sub-session ended a second time without reporting its step",
         detail: detail ?? "squad asked once already; it stops here rather than asking forever",
       });
-      this.stop(ticket, alertFor.subSessionSilent(ticket.title));
+      this.stop(ticket, alertFor.subSessionSilent(ticket));
       return;
     }
 
@@ -530,7 +530,7 @@ export class SubSessions {
         text: "squad could not ask the sub-session for its step report",
         detail: failure instanceof Error ? failure.message : String(failure),
       });
-      this.stop(ticket, alertFor.subSessionStopped(ticket.title));
+      this.stop(ticket, alertFor.subSessionStopped(ticket));
     }
   }
 

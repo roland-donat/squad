@@ -175,7 +175,7 @@ export class Autonomy {
     const { store, bus, alerts } = this.dependencies;
     const feature = store.haltAutonomy(featureId, halt.reason, halt.detail);
     bus.publish({ type: "feature-changed", feature });
-    alerts.raise(alertFor.autonomyHalted(feature.title, halt.reason, halt.detail));
+    alerts.raise(alertFor.autonomyHalted(feature, halt.reason, halt.detail));
   }
 
   /** Whether squad is driving this feature right now: armed, and not held. */

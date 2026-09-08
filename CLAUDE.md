@@ -192,7 +192,7 @@ src/shared/                # contrat API partagé serveur et interface, sans dé
 src/server/                # serveur : base, store, git, événements, routes HTTP, outils MCP
 src/server/db/             # schéma drizzle et ouverture de la base
 src/server/agents/         # lanceur d'agent : l'interface étroite et son repli
-src/server/alerts.ts       # bureau et webhook, quand la progression s'arrête
+src/server/alerts.ts       # bureau et webhook, avec l'adresse de ce qu'ils rapportent
 src/server/questions.ts    # ce qu'un agent demande, et l'attente que ça ouvre
 src/server/recorded-sessions.ts # les conversations claude-code, lues et jamais interprétées
 src/server/resumptions.ts  # une conversation enregistrée devient une feature
@@ -249,6 +249,12 @@ premier projet, à l'ouverture) se fait nommer, et ce qui est nommé sans existe
 (une feature supprimée, un lien venu d'une autre base) cesse d'être revendiqué.
 La correction attend le premier instantané du flux d'événements, sans quoi elle
 effacerait un lien avant que squad ait dit ce qu'il détient.
+
+Le serveur écrit ces adresses autant que l'interface les lit, d'où leur place
+dans `src/shared/ui-routes.ts` : une alerte porte l'adresse de la feature ou du
+ticket dont elle parle, et les deux côtés ne peuvent pas diverger sur la forme
+d'un chemin. `src/ui/route.ts` ne garde que ce qui tient au navigateur,
+l'historique et l'abonnement à la barre d'adresse.
 
 ### Le stockage de claude-code, lu et jamais écrit
 

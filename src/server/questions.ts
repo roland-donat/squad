@@ -74,7 +74,7 @@ export class Questions {
     if (verdict.kind === "answer") return this.settle(question.id, verdict.answer, "squad");
     // An alert only where nothing else says it: a mode that has just stopped
     // has already raised one naming the question it stopped on.
-    if (verdict.kind !== "halt") alerts.raise(alertFor.questionWaiting(question.prompt));
+    if (verdict.kind !== "halt") alerts.raise(alertFor.questionWaiting(question));
     return new Promise<Question>((resolve) => this.waiting.set(question.id, resolve));
   }
 

@@ -34,7 +34,7 @@ export class Validations {
    */
   afterReport(ticket: Ticket): void {
     if (sheetIsWaiting(ticket.stepReport)) {
-      this.dependencies.alerts.raise(alertFor.testSheetWaiting(ticket.title));
+      this.dependencies.alerts.raise(alertFor.testSheetWaiting(ticket));
       return;
     }
     if (sheetWasValidated(ticket.stepReport)) this.dependencies.merges.merge(ticket);

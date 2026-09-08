@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { AutonomyHaltReason } from "../shared/api";
+import { piloting, routePath } from "../shared/ui-routes";
 import type { Store } from "./store";
 
 /**
@@ -18,7 +19,42 @@ import type { Store } from "./store";
 export interface Alert {
   /** One line, in French, that says what stopped and on which ticket. */
   text: string;
+  /**
+   * What the alert is about, which is where the message points. Declared rather
+   * than deduced from the text: an alert is read on a phone, and its one useful
+   * gesture is opening what it reports.
+   */
+  at: AlertTarget;
 }
+
+/** What an alert is about, said in the terms an address is built from. */
+export interface AlertTarget {
+  featureId: string;
+  /** Null when the alert is about the feature itself rather than one ticket. */
+  ticketId: string | null;
+}
+
+/** The feature an alert names, and the little of it an alert needs. */
+interface AlertedFeature {
+  id: string;
+  title: string;
+}
+
+/** The ticket an alert names, and the little of it an alert needs. */
+interface AlertedTicket {
+  id: string;
+  featureId: string;
+  title: string;
+}
+
+const aboutFeature = (feature: AlertedFeature): AlertTarget => ({
+  featureId: feature.id,
+  ticketId: null,
+});
+const aboutTicket = (ticket: AlertedTicket): AlertTarget => ({
+  featureId: ticket.featureId,
+  ticketId: ticket.id,
+});
 
 /** Why the mode stopped, said in the one line a phone shows of it. */
 const haltReasons: Record<AutonomyHaltReason, string> = {
@@ -29,46 +65,74 @@ const haltReasons: Record<AutonomyHaltReason, string> = {
 };
 
 export const alertFor = {
-  questionWaiting: (prompt: string): Alert => ({
-    text: `squad : un agent attend votre réponse : « ${prompt} »`,
+  questionWaiting: (question: {
+    prompt: string;
+    featureId: string;
+    ticketId: string | null;
+  }): Alert => ({
+    text: `squad : un agent attend votre réponse : « ${question.prompt} »`,
+    at: { featureId: question.featureId, ticketId: question.ticketId },
   }),
-  autonomyHalted: (featureTitle: string, reason: AutonomyHaltReason, detail: string): Alert => ({
-    text: `squad : le go-as-recommandé de « ${featureTitle} » s'interrompt, ${haltReasons[reason]} : « ${detail} ».`,
+  autonomyHalted: (
+    feature: AlertedFeature,
+    reason: AutonomyHaltReason,
+    detail: string,
+  ): Alert => ({
+    text: `squad : le go-as-recommandé de « ${feature.title} » s'interrompt, ${haltReasons[reason]} : « ${detail} ».`,
+    at: aboutFeature(feature),
   }),
-  testSheetWaiting: (ticketTitle: string): Alert => ({
-    text: `squad : la fiche de tests de « ${ticketTitle} » attend une vérification.`,
+  testSheetWaiting: (ticket: AlertedTicket): Alert => ({
+    text: `squad : la fiche de tests de « ${ticket.title} » attend une vérification.`,
+    at: aboutTicket(ticket),
   }),
-  subSessionStopped: (ticketTitle: string): Alert => ({
-    text: `squad : la sous-session de « ${ticketTitle} » s'est arrêtée sans finir.`,
+  subSessionStopped: (ticket: AlertedTicket): Alert => ({
+    text: `squad : la sous-session de « ${ticket.title} » s'est arrêtée sans finir.`,
+    at: aboutTicket(ticket),
   }),
-  subSessionSilent: (ticketTitle: string): Alert => ({
-    text: `squad : la sous-session de « ${ticketTitle} » s'est terminée sans rapporter sa fin d'étape.`,
+  subSessionSilent: (ticket: AlertedTicket): Alert => ({
+    text: `squad : la sous-session de « ${ticket.title} » s'est terminée sans rapporter sa fin d'étape.`,
+    at: aboutTicket(ticket),
   }),
-  subSessionNotTakenBack: (ticketTitle: string): Alert => ({
-    text: `squad : la sous-session de « ${ticketTitle} » n'a pas pu être reprise.`,
+  subSessionNotTakenBack: (ticket: AlertedTicket): Alert => ({
+    text: `squad : la sous-session de « ${ticket.title} » n'a pas pu être reprise.`,
+    at: aboutTicket(ticket),
   }),
-  subSessionNotOpened: (ticketTitle: string): Alert => ({
-    text: `squad : la sous-session de « ${ticketTitle} » n'a pas pu être ouverte.`,
+  subSessionNotOpened: (ticket: AlertedTicket): Alert => ({
+    text: `squad : la sous-session de « ${ticket.title} » n'a pas pu être ouverte.`,
+    at: aboutTicket(ticket),
   }),
-  mergeConflicted: (ticketTitle: string): Alert => ({
-    text: `squad : la fusion de « ${ticketTitle} » est en conflit, et la session de résolution n'en est pas venue à bout.`,
+  mergeConflicted: (ticket: AlertedTicket): Alert => ({
+    text: `squad : la fusion de « ${ticket.title} » est en conflit, et la session de résolution n'en est pas venue à bout.`,
+    at: aboutTicket(ticket),
   }),
-  mergeFailed: (ticketTitle: string): Alert => ({
-    text: `squad : la branche de « ${ticketTitle} » n'a pas pu être fusionnée.`,
+  mergeFailed: (ticket: AlertedTicket): Alert => ({
+    text: `squad : la branche de « ${ticket.title} » n'a pas pu être fusionnée.`,
+    at: aboutTicket(ticket),
   }),
-  integrationCheckFailed: (featureTitle: string): Alert => ({
-    text: `squad : la vérification d'intégration de « ${featureTitle} » est rouge ; un ticket de correction bloque la suite.`,
+  integrationCheckFailed: (feature: AlertedFeature): Alert => ({
+    text: `squad : la vérification d'intégration de « ${feature.title} » est rouge ; un ticket de correction bloque la suite.`,
+    at: aboutFeature(feature),
   }),
-  pullRequestWaiting: (featureTitle: string, url: string): Alert => ({
-    text: `squad : « ${featureTitle} » est drainée et sa pull request attend votre relecture : ${url}`,
+  pullRequestWaiting: (feature: AlertedFeature, url: string): Alert => ({
+    text: `squad : « ${feature.title} » est drainée et sa pull request attend votre relecture : ${url}`,
+    at: aboutFeature(feature),
   }),
-  featureNotDelivered: (featureTitle: string, why: string): Alert => ({
-    text: `squad : « ${featureTitle} » est drainée mais n'a pas pu partir en pull request : ${why}`,
+  featureNotDelivered: (feature: AlertedFeature, why: string): Alert => ({
+    text: `squad : « ${feature.title} » est drainée mais n'a pas pu partir en pull request : ${why}`,
+    at: aboutFeature(feature),
   }),
 };
 
 export class Alerts {
-  constructor(private readonly store: Store) {}
+  constructor(
+    private readonly store: Store,
+    /**
+     * Squad's own address for a path of the interface, or null while it has
+     * none: it only learns the port it listens on once it is listening, and a
+     * run takes back what the previous one left before that.
+     */
+    private readonly uiUrl: (path: string) => string | null,
+  ) {}
 
   /**
    * Raises an alert on every channel the settings leave open. Returns nothing to
@@ -77,8 +141,31 @@ export class Alerts {
    */
   raise(alert: Alert): void {
     const { webhookUrl, desktopNotifications } = this.store.settings();
-    if (desktopNotifications) notifyDesktop(alert.text);
-    if (webhookUrl !== null) void postToWebhook(webhookUrl, alert.text);
+    const link = this.linkTo(alert.at);
+    // On its own line: both channels show it as it is, and a message that
+    // already ends in an address, the pull request one, stays readable.
+    const text = link === null ? alert.text : `${alert.text}\n${link}`;
+    if (desktopNotifications) notifyDesktop(text);
+    if (webhookUrl !== null) void postToWebhook(webhookUrl, text);
+  }
+
+  /**
+   * The address of what an alert is about. Null when the feature is gone, which
+   * is a link squad does without rather than an alert it drops: what stopped is
+   * worth saying even when there is nothing left to open.
+   */
+  private linkTo(at: AlertTarget): string | null {
+    const feature = this.store.feature(at.featureId);
+    if (feature === null) return null;
+    return this.uiUrl(
+      routePath(
+        piloting({
+          projectId: feature.projectId,
+          featureId: feature.id,
+          ticketId: at.ticketId,
+        }),
+      ),
+    );
   }
 }
 

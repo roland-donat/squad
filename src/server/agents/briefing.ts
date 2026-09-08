@@ -1,4 +1,5 @@
-import type { Feature, LaunchAngle, Ticket } from "../../shared/api";
+import type { Feature, LaunchAngle, StepReport, Ticket } from "../../shared/api";
+import { failedPoints } from "../../shared/validation";
 import { squadToolName, squadTools } from "../mcp";
 
 /**
@@ -118,5 +119,67 @@ export function resumeInstruction(angle: LaunchAngle, why: string): string {
     shared,
     "",
     "Carry on with the implementation from where it stopped. Check the state of the worktree before assuming anything about what is already done.",
+  ].join("\n");
+}
+
+/**
+ * What squad hands back to a sub-session whose test sheet came back with points
+ * unchecked. It carries the comments as the developer wrote them, since those
+ * comments are the whole of what says what is wrong, and it asks for a report
+ * again rather than for a promise: a step ends one way in squad, and that way is
+ * the report tool.
+ *
+ * The points are named by their wording rather than by their id: this reaches a
+ * session that has the ticket in its head, and an id would send it looking the
+ * wording up.
+ */
+export function correctionInstruction(ticket: Ticket, report: StepReport): string {
+  const rejected = failedPoints(report).map((point) =>
+    point.comment === null
+      ? `- ${point.text}`
+      : `- ${point.text}\n  The developer said: ${point.comment}`,
+  );
+  return [
+    "The developer went through the test sheet of this step and left points unchecked. Correct them here, on this branch, in this worktree.",
+    "",
+    rejected.length === 0 ? "No point was named." : "What did not pass:",
+    ...rejected,
+    ...(report.feedback === null ? [] : ["", `Their general return: ${report.feedback}`]),
+    "",
+    `When it is corrected and committed, call \`${squadToolName(squadTools.reportStep)}\` again, with \`featureId: "${ticket.featureId}"\` and \`ticketId: "${ticket.id}"\`: a fresh summary, one coverage entry per acceptance criterion, the points you suggest checking by hand, and what you recommend doing next. Nothing merges until a sheet comes back with everything checked.`,
+  ].join("\n");
+}
+
+/**
+ * What a conflict resolution session is told about squad. It is not the ticket's
+ * sub-session: it is opened for one job, in the ticket's own worktree, and it
+ * ends when that job is done. It gets none of squad's tools in its briefing on
+ * purpose, since it has nothing to report to the graph: whether it worked is
+ * read from git by retrying the merge, never from what it says.
+ */
+export function conflictResolutionBriefing(
+  feature: Feature,
+  ticket: Ticket,
+  featureBranch: string,
+): string {
+  return [
+    `You are a merge conflict resolution session opened by squad on the ticket "${ticket.title}", on the feature "${feature.title}".`,
+    "",
+    `Squad tried to merge this ticket's branch into the feature branch \`${featureBranch}\` and git reported a conflict. You are in the ticket's own worktree, on the ticket's own branch, which is where the conflict is to be settled: the feature branch is left untouched, and squad retries the merge itself once you are done.`,
+    "",
+    "Resolve the conflict and nothing else. Keep both sides' intent, do not rewrite what neither side changed, and do not start new work: another session built this branch and its ticket is already validated.",
+    "",
+    "Squad reads no prose and you have nothing to report to it: it retries the merge when this session ends, and git is what says whether the conflict is gone.",
+  ].join("\n");
+}
+
+/** The one job the resolution session is opened for, as its first message. */
+export function conflictResolutionInstruction(featureBranch: string): string {
+  return [
+    `Merge the branch \`${featureBranch}\` into the branch this worktree is on, resolve every conflict it raises, and commit the merge.`,
+    "",
+    "Work in this worktree only. Do not switch branches, do not touch any other checkout, and do not push anything.",
+    "",
+    "If the conflict cannot be settled without deciding something the ticket does not answer, leave the merge unfinished rather than guessing: squad will put the ticket in front of the developer.",
   ].join("\n");
 }

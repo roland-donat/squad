@@ -41,6 +41,12 @@ export const projects = sqliteTable("projects", {
   featureConcurrencyCap: integer("feature_concurrency_cap")
     .notNull()
     .default(defaultConcurrencyCaps.feature),
+  /**
+   * The command line squad runs on the feature worktree after every ticket
+   * merge. Null when the project declares none, and then no check runs: an
+   * absent command is not a green one.
+   */
+  verifyCommand: text("verify_command"),
   createdAt: text("created_at").notNull(),
 });
 
@@ -57,6 +63,13 @@ export const features = sqliteTable("features", {
    */
   branch: text("branch"),
   worktreePath: text("worktree_path"),
+  /**
+   * The pull request opened once every ticket of the graph had merged. Null
+   * while the feature is being built, and what tells a feature already
+   * delivered from one to deliver: a drain is recomputed at every merge, and
+   * without this the same pull request would be opened twice.
+   */
+  pullRequestUrl: text("pull_request_url"),
   createdAt: text("created_at").notNull(),
 });
 
@@ -75,7 +88,7 @@ export const tickets = sqliteTable(
     kind: text("kind", { enum: ticketKinds }).notNull(),
     title: text("title").notNull(),
     description: text("description").notNull(),
-    /** `unstarted`, `merged` or `settled`, and one more value per execution state to come. */
+    /** What squad recorded of this ticket's execution, and nothing the edges can say. */
     lifecycle: text("lifecycle", { enum: ticketLifecycles }).notNull().default("unstarted"),
     /** Reserved for a projection towards an issue tracker, never written (ADR 0001). */
     externalId: text("external_id"),

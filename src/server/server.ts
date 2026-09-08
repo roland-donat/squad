@@ -9,11 +9,13 @@ import { Alerts } from "./alerts";
 import { openDatabase } from "./db/open";
 import { EventBus } from "./events";
 import { buildApiRouter } from "./http";
+import { Merges } from "./merges";
 import { resolveDataDir } from "./paths";
 import { MainSessions } from "./sessions";
 import { Store } from "./store";
 import { SubSessions } from "./sub-sessions";
 import { mountUi, type UiMode } from "./ui";
+import { Validations } from "./validations";
 import { Worktrees } from "./worktrees";
 
 export interface SquadServerOptions {
@@ -62,22 +64,18 @@ export async function startSquadServer(
   // Reads the settings at every alert rather than holding them: the webhook can
   // be changed while squad runs, and the next alert must go to the new one.
   const alerts = new Alerts(store);
+  const worktrees = new Worktrees(store, bus, dataDir);
   const mainSessions = new MainSessions({ store, bus, launcher, mcpUrl });
-  const subSessions = new SubSessions({
-    store,
-    bus,
-    launcher,
-    worktrees: new Worktrees(store, bus, dataDir),
-    alerts,
-    mcpUrl,
-  });
+  const subSessions = new SubSessions({ store, bus, launcher, worktrees, alerts, mcpUrl });
+  const merges = new Merges({ store, bus, alerts, worktrees, launcher, subSessions, mcpUrl });
+  const validations = new Validations({ alerts, merges, subSessions });
   // Before anything is served: a ticket the previous run left saying `running`
   // has no process behind it any more, and no client should ever be handed a
   // state squad already knows to be false.
   const stranded = subSessions.markInterrupted();
 
   const app = express();
-  app.use(buildApiRouter({ store, bus, mainSessions, subSessions, alerts }));
+  app.use(buildApiRouter({ store, bus, mainSessions, subSessions, validations, merges }));
   const ui = await mountUi(app, options.ui ?? "auto");
 
   const server = createServer(app);
@@ -85,15 +83,20 @@ export async function startSquadServer(
   const address = server.address() as AddressInfo;
   baseUrl = `http://${host}:${address.port}`;
   // Once squad has an address to point them at: the sub-sessions taken back
-  // here reach squad's tools over this very port.
+  // here reach squad's tools over this very port, and so does the resolution
+  // session a merge taken back may have to open.
   subSessions.takeBack(stranded);
+  merges.resumeInterrupted();
 
   return {
     url: baseUrl,
     port: address.port,
     dataDir,
     async close() {
+      // The merges last: one of them may be waiting on a sub-session it closed,
+      // and the database has to outlive the last line either of them writes.
       await Promise.all([mainSessions.stopAll(), subSessions.stopAll()]);
+      await merges.stopAll();
       // Event streams are long lived by design: without this, closing the
       // server would wait for every open browser tab to go away.
       server.closeAllConnections();

@@ -71,9 +71,16 @@ Le reste des réglages vit dans la base et s'édite par l'API. `GET` et `PUT` su
 `/api/settings` pour ce qui vaut à l'échelle de la machine : l'URL du webhook
 d'alerte, le canal de notification de bureau, et le plafond de sous-sessions
 simultanées. `PUT` sur `/api/projects/<id>` pour ce qui est propre à un projet :
-le plafond de sous-sessions simultanées d'une de ses features. Le plus restrictif
-des deux plafonds s'applique. Rien n'est lu dans l'environnement, de sorte que ce
-qui est en vigueur se relit par la même surface que le reste.
+le plafond de sous-sessions simultanées d'une de ses features, et la commande de
+vérification lancée sur la branche de feature après chaque fusion. Le plus
+restrictif des deux plafonds s'applique. Rien n'est lu dans l'environnement, de
+sorte que ce qui est en vigueur se relit par la même surface que le reste.
+
+**La commande de vérification n'est facultative que dans le schéma.** Sans elle,
+rien ne tourne après une fusion et rien n'est donc jamais rouge : c'est le seul
+filet qui attrape ce que deux tranches vertes séparément cassent ensemble, et sur
+un dépôt sans intégration continue c'est aussi le seul qui précède la fusion
+automatique de la pull request.
 
 ## Conventions
 
@@ -173,22 +180,29 @@ commit restent en anglais.
 ## Structure
 
 ```
-src/shared/             # contrat API partagé serveur et interface, sans dépendance node
-src/server/             # serveur : base, store, git, événements, routes HTTP, outils MCP
-src/server/db/          # schéma drizzle et ouverture de la base
-src/server/agents/      # lanceur d'agent : l'interface étroite et son repli
-src/server/alerts.ts    # bureau et webhook, quand la progression s'arrête
-src/server/scheduler.ts # ce qui part maintenant : fonction pure du graphe et des plafonds
-src/ui/                 # interface React servie par le serveur
-src/ui/graph/           # disposition en couches et rendu du graphe
-src/ui/ticket/          # le panneau d'un nœud du graphe, fiche de tests comprise
-drizzle/                # migrations générées, versionnées
-tests/seam/             # tests au seam : HTTP, flux d'événements et outils MCP
-tests/support/          # instance de test, dépôts git temporaires, double du lanceur
-tests/browser/          # test navigateur unique, parcours nominal
-docs/adr/               # décisions d'architecture
-docs/agents/            # configuration lue par les skills d'ingénierie
-CONTEXT.md              # glossaire du domaine
+src/shared/                # contrat API partagé serveur et interface, sans dépendance node
+src/server/                # serveur : base, store, git, événements, routes HTTP, outils MCP
+src/server/db/             # schéma drizzle et ouverture de la base
+src/server/agents/         # lanceur d'agent : l'interface étroite et son repli
+src/server/alerts.ts       # bureau et webhook, quand la progression s'arrête
+src/server/scheduler.ts    # ce qui part maintenant : fonction pure du graphe et des plafonds
+src/server/validations.ts  # ce qui suit une fiche : fusionner, corriger, ou attendre
+src/server/merges.ts       # la chaîne de fusion, sérialisée par projet, jusqu'à la livraison
+src/server/integration.ts  # la commande de vérification du projet, sur la branche de feature
+src/server/forge.ts        # la ligne de commande `gh` : pousser, ouvrir, faire fusionner
+src/server/command.ts      # lancer un outil en ligne de commande et rapporter ce qu'il a dit
+src/server/pull-request.ts # la description d'une pull request, écrite depuis le graphe
+src/server/fix-ticket.ts   # le ticket qu'écrit une vérification d'intégration rouge
+src/ui/                    # interface React servie par le serveur
+src/ui/graph/              # disposition en couches et rendu du graphe
+src/ui/ticket/             # le panneau d'un nœud du graphe, fiche de tests comprise
+drizzle/                   # migrations générées, versionnées
+tests/seam/                # tests au seam : HTTP, flux d'événements et outils MCP
+tests/support/             # instance de test, dépôts git temporaires, double du lanceur
+tests/browser/             # test navigateur unique, parcours nominal
+docs/adr/                  # décisions d'architecture
+docs/agents/               # configuration lue par les skills d'ingénierie
+CONTEXT.md                 # glossaire du domaine
 ```
 
 ### Où vivent les worktrees
@@ -210,12 +224,24 @@ donc ce canal par un `PUT /api/settings`, comme le ferait un utilisateur : c'est
 un réglage, pas une trappe de test. Un scénario qui veut observer une alerte
 branche un vrai webhook (`tests/support/webhook.ts`) et lit ce qui y arrive.
 
+### La forge pendant les tests
+
+Squad atteint GitHub par la ligne de commande `gh`, jamais par son API HTTP :
+`gh` détient déjà les identifiants du développeur, et squad n'a pas à devenir un
+endroit où un jeton est stocké. Les tests placent donc un vrai exécutable `gh` en
+tête de `PATH` (`tests/support/gh.ts`) : squad lance un processus, lui passe des
+arguments et lit ce qu'il écrit, exactement comme avec le vrai. Ce qui est retiré
+est le réseau et un compte, pas le contrat. Même esprit que le webhook d'alerte,
+et ce n'est pas un double d'un module de squad.
+
 ### Le double du lanceur d'agent
 
-Le seul double de la suite. Au lieu de démarrer un processus claude-code, il rejoue un
-scénario scripté d'appels d'outils et de messages, puis se termine. Il appelle les outils
-par HTTP comme le ferait un agent : le transport, la base et le dépôt git restent réels,
-seul le non-déterminisme du modèle est retiré. Voir `tests/support/scripted-launcher.ts`.
+Le seul double d'un module de squad, et il le reste : le webhook d'alerte et la ligne de
+commande `gh` sont de vrais programmes qui tiennent la place de services extérieurs, pas
+des doubles. Au lieu de démarrer un processus claude-code, celui-ci rejoue un scénario
+scripté d'appels d'outils et de messages, puis se termine. Il appelle les outils par HTTP
+comme le ferait un agent : le transport, la base et le dépôt git restent réels, seul le
+non-déterminisme du modèle est retiré. Voir `tests/support/scripted-launcher.ts`.
 
 ### Où écrire un test
 

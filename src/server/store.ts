@@ -32,6 +32,7 @@ import {
   type GraphEdge,
   type TicketLifecycle,
 } from "../shared/graph";
+import { sheetWasValidated } from "../shared/validation";
 import type { SquadDatabase } from "./db/open";
 import {
   acceptanceCriteria,
@@ -213,6 +214,7 @@ export class Store {
       path: root,
       defaultBranch,
       featureConcurrencyCap: input.featureConcurrencyCap ?? defaultConcurrencyCaps.feature,
+      verifyCommand: input.verifyCommand ?? null,
       createdAt: new Date().toISOString(),
     };
 
@@ -237,12 +239,17 @@ export class Store {
   /** Changes what was named on a project, and leaves the rest as it stands. */
   updateProject(projectId: string, patch: UpdateProjectBody): Project {
     const project = this.requireProject(projectId);
-    if (patch.featureConcurrencyCap !== undefined) {
-      this.db
-        .update(projects)
-        .set({ featureConcurrencyCap: patch.featureConcurrencyCap })
-        .where(eq(projects.id, project.id))
-        .run();
+    // Built from what was named, so a field left out keeps its value and a
+    // field named as null clears it: the verification command has to be
+    // removable, and `undefined` is the only thing that means "not said".
+    const changes = {
+      ...(patch.featureConcurrencyCap === undefined
+        ? {}
+        : { featureConcurrencyCap: patch.featureConcurrencyCap }),
+      ...(patch.verifyCommand === undefined ? {} : { verifyCommand: patch.verifyCommand }),
+    };
+    if (Object.keys(changes).length > 0) {
+      this.db.update(projects).set(changes).where(eq(projects.id, project.id)).run();
     }
     return this.requireProject(project.id);
   }
@@ -259,6 +266,7 @@ export class Store {
       // time one of its tickets is launched.
       branch: null,
       worktreePath: null,
+      pullRequestUrl: null,
       createdAt: new Date().toISOString(),
     };
     this.db.insert(features).values(row).run();
@@ -569,6 +577,109 @@ export class Store {
   failStep(ticketId: string): Ticket {
     this.db.update(tickets).set({ lifecycle: "failed" }).where(eq(tickets.id, ticketId)).run();
     return this.requireTicket(ticketId);
+  }
+
+  /**
+   * Records that a validated step is being merged. Refused on a step nobody
+   * validated, and refused here rather than by whoever asks: "a ticket that was
+   * not validated never merges" is the guarantee the whole chain rests on, and a
+   * guarantee checked by every caller is a guarantee one caller will forget.
+   */
+  startMerge(ticketId: string): Ticket {
+    const ticket = this.requireTicket(ticketId);
+    if (!sheetWasValidated(ticket.stepReport)) {
+      throw new SquadError(
+        "ticket_not_mergeable",
+        409,
+        `ticket "${ticket.title}" has no validated step: its branch is not merged until its test sheet comes back with every point checked`,
+      );
+    }
+    this.db.update(tickets).set({ lifecycle: "merging" }).where(eq(tickets.id, ticket.id)).run();
+    return this.requireTicket(ticket.id);
+  }
+
+  /**
+   * Records a merged ticket. Where its work used to live is forgotten only when
+   * that place is really gone: a row naming a checkout nobody can open sends its
+   * reader to a path that is not there, and a checkout squad could not remove
+   * has to stay nameable, since removing it by hand is the only way out. The
+   * session id stays either way: it is the record of who did the work.
+   */
+  markMerged(ticketId: string, cleanedUp: boolean): Ticket {
+    this.db
+      .update(tickets)
+      .set({
+        lifecycle: "merged",
+        ...(cleanedUp ? { branch: null, worktreePath: null } : {}),
+      })
+      .where(eq(tickets.id, ticketId))
+      .run();
+    return this.requireTicket(ticketId);
+  }
+
+  /**
+   * Records a merge that conflicted and that a resolution session could not
+   * settle. Nothing is cleaned up, exactly as after a failure: the work is on
+   * the branch, the worktree is where the conflict is, and taking the
+   * sub-session back is the way out.
+   */
+  markConflict(ticketId: string): Ticket {
+    this.db.update(tickets).set({ lifecycle: "conflict" }).where(eq(tickets.id, ticketId)).run();
+    return this.requireTicket(ticketId);
+  }
+
+  /**
+   * Puts a ticket back under its sub-session, which is what a rejected test
+   * sheet asks for. Used only when that session is still alive: a correction
+   * that has to reopen one queues a launch like any other, and the step starts
+   * when it opens.
+   */
+  reopenStep(ticketId: string): Ticket {
+    this.db.update(tickets).set({ lifecycle: "running" }).where(eq(tickets.id, ticketId)).run();
+    return this.requireTicket(ticketId);
+  }
+
+  /**
+   * Every merge the store still believes is in flight. A merge is a chain of
+   * git commands and a check, none of which survives the process that ran them,
+   * so such a row at startup is a merge to run again rather than a state to
+   * show.
+   */
+  ticketsMerging(): Ticket[] {
+    return this.db
+      .select({ id: tickets.id })
+      .from(tickets)
+      .where(eq(tickets.lifecycle, "merging"))
+      .orderBy(sql`rowid`)
+      .all()
+      .map((row) => this.requireTicket(row.id));
+  }
+
+  /** Where a feature's pull request lives, written when squad opens it. */
+  recordPullRequest(featureId: string, url: string): Feature {
+    this.db
+      .update(features)
+      .set({ pullRequestUrl: url })
+      .where(eq(features.id, featureId))
+      .run();
+    return this.requireFeature(featureId);
+  }
+
+  /**
+   * Whether anything of this feature was ever put in front of a human. Read
+   * over every report rather than the latest one of each ticket: a ticket
+   * corrected after a red sheet reports again, and the second report may well
+   * be empty while the work still went through someone's hands.
+   */
+  featureAskedForManualTesting(featureId: string): boolean {
+    const [row] = this.db
+      .select({ points: sql<number>`count(*)` })
+      .from(testSheetPoints)
+      .innerJoin(stepReports, eq(testSheetPoints.reportId, stepReports.id))
+      .innerJoin(tickets, eq(stepReports.ticketId, tickets.id))
+      .where(eq(tickets.featureId, featureId))
+      .all();
+    return (row?.points ?? 0) > 0;
   }
 
   /** Every step the store still believes is running, moved to `interrupted`. */
@@ -913,6 +1024,7 @@ function toFeature(row: {
   title: string;
   branch: string | null;
   worktreePath: string | null;
+  pullRequestUrl: string | null;
   createdAt: string;
 }): Feature {
   return {
@@ -920,6 +1032,7 @@ function toFeature(row: {
     projectId: row.projectId,
     title: row.title,
     worktree: toWorktree(row.branch, row.worktreePath),
+    pullRequestUrl: row.pullRequestUrl,
     createdAt: row.createdAt,
   };
 }

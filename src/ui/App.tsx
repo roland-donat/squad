@@ -95,6 +95,18 @@ export function App() {
             <>
               <p className="panel__context">
                 de <strong>{openedFeature.title}</strong>
+                {openedFeature.pullRequestUrl !== null && (
+                  // Once the graph has drained: the address squad opened, and
+                  // the one place the rest of the story is told.
+                  <a
+                    className="link"
+                    href={openedFeature.pullRequestUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    pull request
+                  </a>
+                )}
               </p>
               <FeatureGraphView
                 graph={graph}
@@ -141,6 +153,7 @@ const reasonLabels: Record<PendingReason, string> = {
   decision: "décision à trancher",
   failure: "sous-session arrêtée",
   interruption: "sous-session interrompue",
+  conflict: "conflit de fusion à démêler",
 };
 
 /**

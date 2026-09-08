@@ -329,8 +329,12 @@ describe("running several tickets at once, under the declared caps", () => {
     expect(waiting.worktree).toBeNull();
 
     // A place frees the moment a step ends, and the one that waited takes it.
+    // These tickets carry no acceptance criterion, so their sheet comes back
+    // empty and the step goes all the way through on its own: `merged` is where
+    // it comes to rest, and waiting for anything it only passes through would
+    // be waiting for a state that may already be behind us.
     gate(first!.id).open();
-    await waitForState(scenario.stream, scenario.featureId, first!.id, "awaiting-validation");
+    await waitForState(scenario.stream, scenario.featureId, first!.id, "merged");
     const started = await waitForState(
       scenario.stream,
       scenario.featureId,
@@ -522,7 +526,7 @@ describe("running several tickets at once, under the declared caps", () => {
     // The place comes back, and it stays free: what holds this launch is the
     // decision, not the machine.
     gate(first!.id).open();
-    await waitForState(scenario.stream, scenario.featureId, first!.id, "awaiting-validation");
+    await waitForState(scenario.stream, scenario.featureId, first!.id, "merged");
     expect((await readTicket(scenario.featureId, second!.id)).state).toBe("blocked");
 
     // Settling releases what it blocked, and the launch asked for long before

@@ -41,7 +41,24 @@ export class Worktrees {
    * along the way, since the ticket branch starts from the feature branch.
    */
   forTicket(ticket: Ticket): Promise<Worktree> {
-    const next = this.queue.then(() => this.checkOutForTicket(ticket));
+    return this.enqueue(() => this.checkOutForTicket(ticket));
+  }
+
+  /**
+   * The feature's checkout, created if this is the first time anything of the
+   * feature is checked out and reopened if its directory was cleaned off the
+   * disk. Asked for on its own when a ticket branch comes back into it: the
+   * merge happens there, and a feature whose worktree was cleaned up would
+   * otherwise have nowhere to merge into.
+   */
+  forFeature(feature: Feature): Promise<Worktree> {
+    return this.enqueue(() =>
+      this.checkOutForFeature(feature, this.store.requireProject(feature.projectId)),
+    );
+  }
+
+  private enqueue(checkOut: () => Promise<Worktree>): Promise<Worktree> {
+    const next = this.queue.then(checkOut);
     // What the queue holds never rejects, which is what lets the line above
     // chain on it plainly: a checkout that failed is its own caller's business,
     // and must not fail the one queued behind it.
@@ -52,7 +69,7 @@ export class Worktrees {
   private async checkOutForTicket(ticket: Ticket): Promise<Worktree> {
     const feature = this.store.requireFeature(ticket.featureId);
     const project = this.store.requireProject(feature.projectId);
-    const startedFrom = await this.forFeature(feature, project);
+    const startedFrom = await this.checkOutForFeature(feature, project);
     return this.checkOut(
       ticket.worktree,
       {
@@ -66,7 +83,7 @@ export class Worktrees {
   }
 
   /** The feature's checkout, on its own branch, started from the default one. */
-  private async forFeature(feature: Feature, project: Project): Promise<Worktree> {
+  private async checkOutForFeature(feature: Feature, project: Project): Promise<Worktree> {
     return this.checkOut(
       feature.worktree,
       // Beside the ticket checkouts rather than above them: a worktree nested

@@ -373,21 +373,35 @@ button[disabled] {
 }
 
 /*
- * Stopped, and asking for a decision: what failed and what was cut off both
- * wait for the developer to choose an angle, so they read the same way.
+ * Stopped, and asking for a decision: what failed, what was cut off and what is
+ * stuck on a conflict all wait for the developer to choose an angle, so they
+ * read the same way.
  */
 .node[data-state="failed"],
-.node[data-state="interrupted"] {
+.node[data-state="interrupted"],
+.node[data-state="conflict"] {
   border-top-color: var(--danger);
   border-right-color: var(--danger);
   border-bottom-color: var(--danger);
 }
 
 .node[data-state="failed"] .chip--state,
-.node[data-state="interrupted"] .chip--state {
+.node[data-state="interrupted"] .chip--state,
+.node[data-state="conflict"] .chip--state {
   border-color: var(--danger);
   color: var(--danger);
   font-weight: 600;
+}
+
+/*
+ * Squad's own work on a validated step: nobody is waiting for anything, and
+ * nothing is asked of the reader. It fades towards the merged look it is on its
+ * way to, so a graph draining reads as a graph settling down.
+ */
+.node[data-state="merging"] {
+  opacity: 0.85;
+  border-style: dashed;
+  border-left-style: solid;
 }
 
 .node__title {

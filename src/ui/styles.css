@@ -102,10 +102,14 @@ body {
   align-items: start;
 }
 
-/* What squad is set up with, under the work: it is opened once. */
+/*
+ * What squad is set up with, under the work: it is opened once. Fitted rather
+ * than counted, so a panel keeps a width it can hold its rows in whatever the
+ * screen leaves for it.
+ */
 .app__setup {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
   gap: 1.5rem;
   margin-top: 1.5rem;
   align-items: start;
@@ -124,8 +128,7 @@ body {
 }
 
 @media (max-width: 1020px) {
-  .app__work,
-  .app__setup {
+  .app__work {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -270,7 +273,6 @@ button[disabled] {
  * coordinate from the edges. Kind and state are written on each node as well as
  * coloured, so the graph keeps its meaning in greyscale.
  */
-
 
 .graph__legend {
   margin: 0 0 1.25rem;
@@ -560,14 +562,17 @@ button[disabled] {
   overflow-x: auto;
 }
 
-/*
- * The two commands this thread exists for, above the box: they are typed often
- * and they are typed exactly.
- */
+/* The shortcuts of the main session, and a refusal under the one it came from. */
 .composer__shortcuts {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  align-items: start;
+}
+
+.composer__shortcut {
+  display: grid;
+  gap: 0.25rem;
 }
 
 .composer {
@@ -657,8 +662,9 @@ button[disabled] {
 
 /*
  * The indicator: everything waiting on the developer, above the fold and on
- * every screen. It is deliberately the first thing under the header, since its
- * whole point is to answer "what do I do now" without looking for it.
+ * every screen. It opens the row the work is laid out on, before the graph it
+ * waits in, since its whole point is to answer "what do I do now" without
+ * looking for it.
  */
 .panel--waiting {
   border-left: 5px solid var(--decision);

@@ -53,8 +53,11 @@ export function MainSessionView({
  * taking the developer's own words out of their hands.
  */
 const shortcuts = [
-  { command: "/to-spec", says: "Écrire le spec de ce fil" },
-  { command: "/to-tickets", says: "Découper en tickets" },
+  // What each one is for, since the label is the command itself. `/to-spec`
+  // synthesises what has already been said, which is why it is worth a click on
+  // a thread resumed from a conversation squad did not write.
+  { command: "/to-spec", hint: "Écrire le spec de ce qui a déjà été dit" },
+  { command: "/to-tickets", hint: "Découper le spec en tickets" },
 ] as const;
 
 /**
@@ -64,12 +67,12 @@ const shortcuts = [
  */
 function Composer({ feature, running }: { feature: Feature; running: boolean }) {
   const [text, setText] = useState("");
-  const hand = async (said: string) => {
+  const send = async (said: string) => {
     if (running) await sendMainSessionMessage(feature.id, { text: said });
     else await startMainSession(feature.id, { prompt: said });
   };
   const written = useSubmission(async () => {
-    await hand(text);
+    await send(text);
     setText("");
   });
 
@@ -77,7 +80,12 @@ function Composer({ feature, running }: { feature: Feature; running: boolean }) 
     <form className="form composer" onSubmit={written.submit}>
       <div className="composer__shortcuts">
         {shortcuts.map((shortcut) => (
-          <Shortcut key={shortcut.command} command={shortcut.command} says={shortcut.says} hand={hand} />
+          <Shortcut
+            key={shortcut.command}
+            command={shortcut.command}
+            hint={shortcut.hint}
+            send={send}
+          />
         ))}
       </div>
       <label className="field">
@@ -106,26 +114,29 @@ function Composer({ feature, running }: { feature: Feature; running: boolean }) 
  */
 function Shortcut({
   command,
-  says,
-  hand,
+  hint,
+  send,
 }: {
   command: string;
-  says: string;
-  hand: (said: string) => Promise<void>;
+  hint: string;
+  send: (said: string) => Promise<void>;
 }) {
-  const sending = useSubmission(() => hand(command));
+  const sending = useSubmission(() => send(command));
   return (
-    <>
+    // Each shortcut in a box of its own: a refusal reads under the button it
+    // came from, where a bare fragment would drop it between the two buttons,
+    // the row being a flex line.
+    <span className="composer__shortcut">
       <button
         type="button"
         className="button--secondary"
         disabled={sending.busy}
-        title={says}
+        title={hint}
         onClick={() => void sending.run()}
       >
         {command}
       </button>
       <Failure message={sending.error} />
-    </>
+    </span>
   );
 }

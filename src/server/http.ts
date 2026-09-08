@@ -93,9 +93,19 @@ export function buildApiRouter({
 
   router.put(`${apiRoutes.features}/:featureId`, (request, response) => {
     const body = parse(updateFeatureBody, request.body);
-    // Through the mode rather than through the store: arming a feature is also
-    // what starts it moving, and what clears whatever stopped it last time.
-    const feature = autonomy.arm(request.params.featureId, body.goAsRecommended);
+    const featureId = request.params.featureId;
+    if (body.projectIds !== undefined) store.setCarriedRepositories(featureId, body.projectIds);
+    if (body.goAsRecommended !== undefined) {
+      // Through the mode rather than through the store: arming a feature is
+      // also what starts it moving, what clears whatever stopped it last time,
+      // and what announces it. Left out, the mode is left exactly as it stands.
+      response.json({ feature: autonomy.arm(featureId, body.goAsRecommended) });
+      return;
+    }
+    // Announced here instead, since nothing else did: what a feature carries is
+    // part of the state a client holding only the event stream is promised.
+    const feature = store.requireFeature(featureId);
+    bus.publish({ type: "feature-changed", feature });
     response.json({ feature });
   });
 

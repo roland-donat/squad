@@ -75,7 +75,7 @@ d'engendrement. `PUT` sur `/api/projects/<id>` pour ce qui est propre à un proj
 le chemin du dépôt, la branche par défaut, le plafond de sous-sessions simultanées
 d'une de ses features, et la commande de vérification lancée sur la branche de
 feature après chaque fusion. `PUT` sur `/api/features/<id>` pour ce qui est propre
-à une feature : le go-as-recommandé. Le plus restrictif des deux plafonds de
+à une feature : le go-as-recommandé et les dépôts qu'elle porte. Le plus restrictif des deux plafonds de
 concurrence s'applique. Rien n'est lu dans l'environnement, de sorte que ce qui est
 en vigueur se relit par la même surface que le reste.
 
@@ -220,13 +220,16 @@ CONTEXT.md                 # glossaire du domaine
 ### Où vivent les worktrees
 
 Squad ne crée jamais de checkout dans le dépôt piloté ni à côté de lui : tout va
-sous son propre répertoire de données, `<données>/worktrees/<feature>/feature`
-pour la branche de feature et `<données>/worktrees/<feature>/tickets/<ticket>`
-pour chaque branche de ticket. Le dépôt garde donc exactement la forme que son
-propriétaire lui a laissée, et le checkout principal ne quitte jamais la branche
-par défaut. La branche et le chemin sont **écrits sur la ligne** de la feature et
-du ticket, pas recalculés depuis leur titre : un ticket renommé demain doit
-retrouver le worktree qu'il a ouvert aujourd'hui.
+sous son propre répertoire de données,
+`<données>/worktrees/<feature>/repositories/<projet>/feature` pour la branche de
+feature d'un dépôt porté, et `<données>/worktrees/<feature>/tickets/<ticket>`
+pour chaque branche de ticket. Une feature qui porte trois dépôts a donc trois
+branches de feature, une par dépôt, sorties chacune au premier ticket qui la
+touche. Le dépôt garde exactement la forme que son propriétaire lui a laissée, et
+le checkout principal ne quitte jamais la branche par défaut. La branche et le
+chemin sont **écrits sur la ligne** du dépôt porté et du ticket, pas recalculés
+depuis leur titre : un ticket renommé demain doit retrouver le worktree qu'il a
+ouvert aujourd'hui.
 
 ### Les alertes pendant les tests
 

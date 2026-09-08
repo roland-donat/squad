@@ -16,6 +16,7 @@ import {
 } from "../support/git";
 import { createScriptedLauncher, type ScriptedAgent } from "../support/scripted-launcher";
 import {
+  onlyRepository,
   openTestFeature,
   startTestSquad,
   waitForEvent,
@@ -184,13 +185,13 @@ describe("launching a ticket, failing, and resuming", () => {
     const worktrees = await listWorktrees(repository);
     expect(worktrees).toHaveLength(3);
     expect(worktrees[0]).toBe(repository);
-    expect(worktrees).toContain(feature.worktree?.path);
+    expect(worktrees).toContain(onlyRepository(feature).worktree?.path);
     expect(worktrees).toContain(running.worktree?.path);
-    expect(await currentBranch(feature.worktree?.path ?? "")).toBe(feature.worktree?.branch);
+    expect(await currentBranch(onlyRepository(feature).worktree?.path ?? "")).toBe(onlyRepository(feature).worktree?.branch);
     expect(await currentBranch(running.worktree?.path ?? "")).toBe(running.worktree?.branch);
     // The ticket branch starts from the feature branch, and the main checkout
     // never moved: what points at it still serves what it is thought to serve.
-    expect(await isAncestor(repository, feature.worktree?.branch ?? "", running.worktree?.branch ?? "")).toBe(true);
+    expect(await isAncestor(repository, onlyRepository(feature).worktree?.branch ?? "", running.worktree?.branch ?? "")).toBe(true);
     expect(await currentBranch(repository)).toBe("main");
 
     // Blank, in the worktree, and told what the ticket asks for: the sub-session
@@ -451,7 +452,7 @@ describe("launching a ticket, failing, and resuming", () => {
     // feature gains a branch on its first launch, and it has to hear about it.
     const changed = await waitForEvent(stream, "feature-changed");
     expect(changed.feature.id).toBe(featureId);
-    expect(changed.feature.worktree?.branch).toContain("squad/feature/");
+    expect(onlyRepository(changed.feature).worktree?.branch).toContain("squad/feature/");
   });
 
   it("refuses to launch a ticket that does not exist", async () => {

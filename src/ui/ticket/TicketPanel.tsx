@@ -49,11 +49,14 @@ export function TicketPanel({
   ticket,
   thread,
   questions,
+  repository,
   onClose,
 }: {
   ticket: Ticket;
   thread: ThreadEntry[];
   questions: Question[];
+  /** The repository this ticket is built in, or null on a feature carrying one. */
+  repository: string | null;
   onClose: () => void;
 }) {
   return (
@@ -61,6 +64,7 @@ export function TicketPanel({
       <p className="panel__context">
         <strong>{ticket.title}</strong>
         <span className="badge">{kindLabels[ticket.kind]}</span>
+        {repository !== null && <span className="badge">{repository}</span>}
         <button type="button" className="link" onClick={onClose}>
           fermer
         </button>

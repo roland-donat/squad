@@ -1,4 +1,4 @@
-import type { Feature, LaunchAngle, StepReport, Ticket } from "../../shared/api";
+import type { Feature, LaunchAngle, Project, StepReport, Ticket } from "../../shared/api";
 import { failedPoints } from "../../shared/validation";
 import { squadToolName, squadTools } from "../mcp";
 
@@ -13,7 +13,13 @@ import { squadToolName, squadTools } from "../mcp";
  * cutting up publish to "the configured tracker": unless the session is told the
  * tracker is squad, `/to-tickets` files GitHub issues and the graph stays empty.
  */
-export function mainSessionBriefing(feature: Feature): string {
+export function mainSessionBriefing(feature: Feature, repositories: readonly Project[]): string {
+  const carried = repositories.map(
+    (project) => `  - ${project.name}: ${project.path} (\`projectId: "${project.id}"\`)`,
+  );
+  // Read from what declares it rather than from the order of the list: the home
+  // project is a field of the feature, and an order is only an order.
+  const home = repositories.find((project) => project.id === feature.projectId);
   return [
     `You are the main session of the squad feature "${feature.title}", whose feature id is ${feature.id}.`,
     "",
@@ -23,6 +29,11 @@ export function mainSessionBriefing(feature: Feature): string {
     `- \`${squadToolName(squadTools.readGraph)}\` returns the whole graph with each ticket's computed state. Read it before adding to a graph you did not just write.`,
     `- \`${squadToolName(squadTools.settleDecision)}\` closes a decision ticket on the conclusion the developer reached, which releases the tickets it was blocking. It takes the same \`featureId\`, and settles nothing outside this feature.`,
     `- \`${squadToolName(squadTools.askQuestion)}\` asks the developer something, with the options you see and the one you recommend, and waits for their answer. Use it for what blocks you here and now; a question the rest of the breakdown depends on is a \`decision\` ticket instead, since that one belongs in the graph.`,
+    `- \`${squadToolName(squadTools.carryRepository)}\` adds a repository this feature may build tickets in. It takes a path, which squad resolves against the repositories it already drives.`,
+    "",
+    "This feature carries these repositories, and a ticket is built in one of them:",
+    ...carried,
+    `Pass \`projectId\` on a ticket built anywhere other than ${home?.name ?? "the home repository"}, which is where you are running and what a ticket falls back to. A ticket naming a repository this feature does not carry is refused: carry it first, and only what squad already drives can be carried. If the work reaches a repository squad does not drive, say so rather than working around it.`,
     "",
     "A ticket carries a kind: `build` for a vertical slice to construct, `decision` for a question only the developer can answer, `fix` for a correction born of a red check. A `decision` ticket is never implemented and never opens a session of its own: it waits in the graph until the developer settles it in this thread. The moment they do, call the settle tool with their conclusion in their own terms, in enough detail for a fresh session to act on it without reading this thread. Squad parses no prose: a decision you do not write through that tool never reaches the graph.",
     "",
@@ -38,13 +49,13 @@ export function mainSessionBriefing(feature: Feature): string {
  * graph. Everything it needs therefore has to be either in this briefing or in
  * the assignment below, and nothing it needs may be assumed to be in its head.
  */
-export function subSessionBriefing(feature: Feature, ticket: Ticket): string {
+export function subSessionBriefing(feature: Feature, ticket: Ticket, project: Project): string {
   return [
     `You are the sub-session of the squad ticket "${ticket.title}", whose ticket id is ${ticket.id}, on the feature "${feature.title}", whose feature id is ${feature.id}.`,
     "",
-    "Squad is the pilot station this session runs under. It gave you a git worktree of your own, checked out on a branch of your own, which is the current working directory: build the ticket here and commit here. Do not switch branches, do not merge, and do not touch any other checkout of this repository: squad merges your branch itself once the ticket is validated.",
+    `This ticket is built in the repository ${project.name}. Squad gave you a git worktree of it, checked out on a branch of your own, which is the current working directory: build the ticket here and commit here. Do not switch branches, do not merge, and do not touch any other checkout of this repository: squad merges your branch itself once the ticket is validated.`,
     "",
-    "Other tickets of this feature may be running at the same time, in worktrees of their own. Your branch is the only place your work belongs.",
+    "This feature may carry other repositories, and other tickets of it may be running there at the same time, in worktrees of their own. Yours is the only place your work belongs: what another repository needs is another ticket, and squad merges each into its own repository.",
     "",
     `- \`${squadToolName(squadTools.reportStep)}\` ends your step, and it is the only way to end one. It takes \`featureId: "${feature.id}"\`, \`ticketId: "${ticket.id}"\`, a summary of what you built, one coverage entry per acceptance criterion saying whether an automatic test really covers it, the points you suggest checking by hand on top of them, and what you recommend doing next.`,
     `- \`${squadToolName(squadTools.askQuestion)}\` asks the developer something you may not decide alone, with the options you see and the one you recommend, and does not return until they answer. Say whether the answer changes what is built or only how: squad answers an implementation question with your own recommendation when the developer has left it running unattended, and never answers one that changes what is built.`,

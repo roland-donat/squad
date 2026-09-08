@@ -62,20 +62,6 @@ export const features = sqliteTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
-    /**
-     * The feature branch and where it is checked out, written together the
-     * first time a ticket of the feature is launched. Null before that: opening
-     * a feature to paste a spec into it checks out nothing.
-     */
-    branch: text("branch"),
-    worktreePath: text("worktree_path"),
-    /**
-     * The pull request opened once every ticket of the graph had merged. Null
-     * while the feature is being built, and what tells a feature already
-     * delivered from one to deliver: a drain is recomputed at every merge, and
-     * without this the same pull request would be opened twice.
-     */
-    pullRequestUrl: text("pull_request_url"),
     /** Whether squad drives this feature on its own. */
     goAsRecommended: integer("go_as_recommended", { mode: "boolean" })
       .notNull()
@@ -99,6 +85,43 @@ export const features = sqliteTable(
 );
 
 /**
+ * The repositories a feature carries, and what squad opened in each. A row per
+ * repository rather than three columns on the feature: a feature spans as many
+ * repositories as its work does, and the branch, the checkout and the pull
+ * request are properties of one repository, not of the piece of work.
+ */
+export const featureRepositories = sqliteTable(
+  "feature_repositories",
+  {
+    featureId: text("feature_id")
+      .notNull()
+      .references(() => features.id, { onDelete: "cascade" }),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    /**
+     * The feature branch in this repository and where it is checked out,
+     * written together the first time a ticket of this repository is launched.
+     * Null before that: carrying a repository checks nothing out.
+     */
+    branch: text("branch"),
+    worktreePath: text("worktree_path"),
+    /**
+     * The pull request opened on this repository once every ticket of the graph
+     * had merged. What tells a repository already delivered from one to
+     * deliver: a drain is recomputed at every merge, and without this the same
+     * pull request would be opened twice.
+     */
+    pullRequestUrl: text("pull_request_url"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.featureId, table.projectId] }),
+    index("feature_repositories_feature_idx").on(table.featureId),
+  ],
+);
+
+/**
  * The nodes of the graph. `lifecycle` holds what squad has recorded of a
  * ticket's execution, and nothing else: `blocked` and `ready` are read off the
  * edges at every query, so no write is ever needed to keep them true.
@@ -110,6 +133,15 @@ export const tickets = sqliteTable(
     featureId: text("feature_id")
       .notNull()
       .references(() => features.id, { onDelete: "cascade" }),
+    /**
+     * The repository this ticket is built in, one of those its feature carries.
+     * Written on the row: it decides where its sub-session works and where its
+     * branch goes home, and reading it off the feature would only work while a
+     * feature carried one.
+     */
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
     kind: text("kind", { enum: ticketKinds }).notNull(),
     title: text("title").notNull(),
     description: text("description").notNull(),

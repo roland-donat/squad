@@ -36,6 +36,8 @@ export const errorCodes = [
   "ticket_not_mergeable",
   "branch_not_found",
   "project_has_work_in_flight",
+  "project_not_carried",
+  "repository_still_used",
   "question_not_found",
   "question_not_pending",
   "recommendation_not_an_option",
@@ -120,18 +122,43 @@ export interface AutonomyHalt {
 }
 
 /**
- * A piece of work carried on a project, from spec to merge.
+ * One repository a feature carries, with what squad opened in it. A feature
+ * spans several of them when the work does: an interface changed in one
+ * repository and its callers in another are one piece of work, and holding
+ * them in one graph is what lets "this ticket waits for that one" mean
+ * something across repositories.
  *
- * The worktree is null until the first ticket of the feature is launched:
- * opening a feature to paste a spec into it should not check out a whole
- * repository.
+ * The worktree is null until the first ticket of this repository is launched:
+ * carrying a repository must not cost a checkout of it before anything is
+ * built there.
+ */
+export interface FeatureRepository {
+  projectId: string;
+  /** The feature branch in that repository, and where it is checked out. */
+  worktree: Worktree | null;
+  /**
+   * The pull request squad opened on this repository once every ticket of the
+   * graph had merged, or null while the feature is still being built. Written
+   * down rather than asked of the forge at each read: it is what says this
+   * repository was delivered, and it must stay true when nothing can reach the
+   * network.
+   */
+  pullRequestUrl: string | null;
+}
+
+/**
+ * A piece of work, from spec to merge. It has a home project, which is where
+ * its main session runs and where its tickets are built unless they say
+ * otherwise, and it carries every repository its tickets may touch, that home
+ * project included.
  */
 export interface Feature {
   id: string;
+  /** The home project: where the main session runs, and a ticket's default. */
   projectId: string;
   title: string;
-  /** The feature branch and its checkout, started from the default branch. */
-  worktree: Worktree | null;
+  /** Every repository this feature carries, its home project first. */
+  repositories: FeatureRepository[];
   /**
    * Whether squad drives this feature on its own: it launches what the frontier
    * allows without being asked, and answers an agent's implementation questions
@@ -147,13 +174,6 @@ export interface Feature {
    * arm the mode again: nothing else restarts a night of autonomy.
    */
   autonomyHalt: AutonomyHalt | null;
-  /**
-   * The pull request squad opened once every ticket of the graph had merged, or
-   * null while the feature is still being built. Written down rather than asked
-   * of the forge at each read: it is what says the feature was delivered, and
-   * it must stay true when nothing can reach the network.
-   */
-  pullRequestUrl: string | null;
   createdAt: string;
 }
 
@@ -264,6 +284,13 @@ export interface StepReport {
 export interface Ticket {
   id: string;
   featureId: string;
+  /**
+   * The repository this ticket is built in, one of those its feature carries.
+   * Written on the row rather than read from the feature at each use: a feature
+   * carries several, and which one a ticket belongs to is the whole of what
+   * tells its sub-session where to work and its branch where to go home.
+   */
+  projectId: string;
   kind: TicketKind;
   title: string;
   description: string;
@@ -483,8 +510,11 @@ export const updateProjectBody = z.object({
 export type UpdateProjectBody = z.infer<typeof updateProjectBody>;
 
 export const openFeatureBody = z.object({
+  /** The home project: where the main session runs, and a ticket's default. */
   projectId: z.string().trim().min(1),
   title: z.string().trim().min(1),
+  /** Other registered projects this feature may build tickets in. */
+  otherProjectIds: z.array(z.string().trim().min(1)).default([]),
 });
 export type OpenFeatureBody = z.infer<typeof openFeatureBody>;
 
@@ -552,7 +582,12 @@ export type AnswerQuestionBody = z.infer<typeof answerQuestionBody>;
  * reason is dealt with.
  */
 export const updateFeatureBody = z.object({
-  goAsRecommended: z.boolean(),
+  goAsRecommended: z.boolean().optional(),
+  /**
+   * Every repository the feature carries, its home project included: what is
+   * left out is dropped, and a repository holding a checkout is not dropped.
+   */
+  projectIds: z.array(z.string().trim().min(1)).optional(),
 });
 export type UpdateFeatureBody = z.infer<typeof updateFeatureBody>;
 

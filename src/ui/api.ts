@@ -38,6 +38,10 @@ const wording: Record<ErrorCode, string> = {
   detached_head:
     "Ce dépôt n'est sur aucune branche : squad a besoin d'une branche par défaut d'où partir.",
   branch_not_found: "Ce dépôt n'a pas de branche de ce nom.",
+  repository_still_used:
+    "Ce dépôt porte encore du travail de cette feature : il ne se retire qu'une fois qu'aucun de ses tickets ne s'y construit et que rien n'en est sorti.",
+  project_not_carried:
+    "Cette feature ne porte pas ce dépôt : l'ajouter à ses dépôts avant d'y écrire un ticket.",
   project_has_work_in_flight:
     "Ce projet a du travail sorti en worktree : son chemin ne change qu'une fois que plus rien n'en est sorti.",
   question_not_found: "Cette question est introuvable.",

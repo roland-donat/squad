@@ -43,10 +43,17 @@ function stateLabel(ticket: Ticket): string {
 
 export function FeatureGraphView({
   graph,
+  repositoryNames,
   selectedId,
   onSelect,
 }: {
   graph: FeatureGraph;
+  /**
+   * The repositories the feature carries, by id. A node says which one it is
+   * built in only when there are several: on a feature carrying one, the answer
+   * is the same everywhere and the chip would be noise on every node.
+   */
+  repositoryNames: Map<string, string>;
   selectedId: string | null;
   onSelect: (ticketId: string) => void;
 }) {
@@ -109,13 +116,23 @@ export function FeatureGraphView({
               data-selected={ticket.id === selectedId ? "true" : undefined}
               aria-current={ticket.id === selectedId}
               style={{ left: x, top: y, width: nodeWidth, minHeight: nodeHeight }}
-              aria-label={`${ticket.title}, ${kindLabels[ticket.kind]}, ${stateLabel(ticket)}`}
+              aria-label={[
+                ticket.title,
+                kindLabels[ticket.kind],
+                stateLabel(ticket),
+                ...(repositoryNames.size > 1 ? [repositoryNames.get(ticket.projectId) ?? ""] : []),
+              ].join(", ")}
               onClick={() => onSelect(ticket.id)}
             >
               <span className="node__title">{ticket.title}</span>
               <span className="node__chips">
                 <span className="chip chip--kind">{kindLabels[ticket.kind]}</span>
                 <span className="chip chip--state">{stateLabel(ticket)}</span>
+                {repositoryNames.size > 1 && (
+                  <span className="chip chip--repository">
+                    {repositoryNames.get(ticket.projectId) ?? "dépôt inconnu"}
+                  </span>
+                )}
               </span>
             </button>
           ))}

@@ -67,14 +67,22 @@ la version précédente.
 Réglages par variable d'environnement : `SQUAD_PORT` (7300 par défaut) et
 `SQUAD_DATA_DIR` (par défaut `~/.local/share/squad`, jamais dans un dépôt piloté).
 
-Le reste des réglages vit dans la base et s'édite par l'API. `GET` et `PUT` sur
-`/api/settings` pour ce qui vaut à l'échelle de la machine : l'URL du webhook
-d'alerte, le canal de notification de bureau, et le plafond de sous-sessions
-simultanées. `PUT` sur `/api/projects/<id>` pour ce qui est propre à un projet :
-le plafond de sous-sessions simultanées d'une de ses features, et la commande de
-vérification lancée sur la branche de feature après chaque fusion. Le plus
-restrictif des deux plafonds s'applique. Rien n'est lu dans l'environnement, de
-sorte que ce qui est en vigueur se relit par la même surface que le reste.
+Le reste des réglages vit dans la base, s'édite par l'API et se lit sur l'écran
+de réglages de l'interface. `GET` et `PUT` sur `/api/settings` pour ce qui vaut à
+l'échelle de la machine : l'URL du webhook d'alerte, le canal de notification de
+bureau, le plafond de sous-sessions simultanées et le plafond de profondeur
+d'engendrement. `PUT` sur `/api/projects/<id>` pour ce qui est propre à un projet :
+le chemin du dépôt, la branche par défaut, le plafond de sous-sessions simultanées
+d'une de ses features, et la commande de vérification lancée sur la branche de
+feature après chaque fusion. `PUT` sur `/api/features/<id>` pour ce qui est propre
+à une feature : le go-as-recommandé. Le plus restrictif des deux plafonds de
+concurrence s'applique. Rien n'est lu dans l'environnement, de sorte que ce qui est
+en vigueur se relit par la même surface que le reste.
+
+Le chemin d'un projet ne change pas tant qu'une de ses features a un worktree
+sorti : les branches de squad partent du dépôt que le projet nomme et y
+refusionnent, et déplacer le projet sous elles enverrait une fusion dans un autre
+dépôt.
 
 **La commande de vérification n'est facultative que dans le schéma.** Sans elle,
 rien ne tourne après une fusion et rien n'est donc jamais rouge : c'est le seul
@@ -185,6 +193,8 @@ src/server/                # serveur : base, store, git, événements, routes HT
 src/server/db/             # schéma drizzle et ouverture de la base
 src/server/agents/         # lanceur d'agent : l'interface étroite et son repli
 src/server/alerts.ts       # bureau et webhook, quand la progression s'arrête
+src/server/questions.ts    # ce qu'un agent demande, et l'attente que ça ouvre
+src/server/autonomy.ts     # go-as-recommandé : ce qui part seul, et ce qui l'arrête
 src/server/scheduler.ts    # ce qui part maintenant : fonction pure du graphe et des plafonds
 src/server/validations.ts  # ce qui suit une fiche : fusionner, corriger, ou attendre
 src/server/merges.ts       # la chaîne de fusion, sérialisée par projet, jusqu'à la livraison
@@ -195,6 +205,8 @@ src/server/pull-request.ts # la description d'une pull request, écrite depuis l
 src/server/fix-ticket.ts   # le ticket qu'écrit une vérification d'intégration rouge
 src/ui/                    # interface React servie par le serveur
 src/ui/graph/              # disposition en couches et rendu du graphe
+src/ui/question/           # une question d'agent, ses options et sa réponse
+src/ui/settings/           # l'écran de réglages, machine et projets
 src/ui/ticket/             # le panneau d'un nœud du graphe, fiche de tests comprise
 drizzle/                   # migrations générées, versionnées
 tests/seam/                # tests au seam : HTTP, flux d'événements et outils MCP

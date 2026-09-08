@@ -2,8 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { RequestHandler } from "express";
 import { z } from "zod";
-import type { Ticket } from "../shared/api";
+import type { Question, Ticket } from "../shared/api";
 import { ticketKinds } from "../shared/api";
+import type { AskInput } from "./questions";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
 import type { Store } from "./store";
@@ -26,6 +27,7 @@ export const squadMcpServerName = "squad";
 export const squadTools = {
   createTicket: "create_ticket",
   reportStep: "report_step",
+  askQuestion: "ask_question",
   settleDecision: "settle_decision",
   readGraph: "read_graph",
 } as const;
@@ -58,6 +60,41 @@ const createTicketShape = {
     .array(z.string().min(1))
     .default([])
     .describe("Tickets of the same feature this one must be merged before."),
+  bornOf: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "The ticket you are building, when your work uncovered this one. It is what squad counts the depth of a cascade with: leave it out only for a ticket nobody's work uncovered.",
+    ),
+};
+
+const askQuestionShape = {
+  featureId: z.string().min(1).describe("The feature you are working on."),
+  ticketId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("The ticket you are building. Leave it out from the main session."),
+  question: z
+    .string()
+    .trim()
+    .min(1)
+    .describe("What you are asking, in one or two sentences, readable by someone who did not watch."),
+  options: z
+    .array(z.string().trim().min(1))
+    .min(2)
+    .describe("The answers you are offering, at least two, each one a line the developer can pick."),
+  recommendation: z
+    .string()
+    .trim()
+    .min(1)
+    .describe("The option you recommend, written exactly as one of the options above."),
+  scopeChanging: z
+    .boolean()
+    .describe(
+      "True when the answer changes what is built: the perimeter, the contract, what the ticket delivers. False when it changes only how it is built. Declare it honestly: it is what decides whether squad may answer for the developer while they are away.",
+    ),
 };
 
 const reportStepShape = {
@@ -118,6 +155,18 @@ export interface McpDependencies {
   store: Store;
   bus: EventBus;
   /**
+   * Where a question goes and where its answer comes back from. Declared by
+   * what is needed of it: the call below waits on this promise, and nothing
+   * else in squad waits on anything.
+   */
+  questions: { ask(input: AskInput): Promise<Question> };
+  /**
+   * What go-as-recommended does with a ticket an agent asked for. Declared the
+   * same way: a cascade deep enough to stop the mode is the mode's business,
+   * not the tool's.
+   */
+  autonomy: { ticketCreated(ticket: Ticket): void };
+  /**
    * What a reported step leads to: an alert on a sheet somebody has to read, a
    * merge on a sheet with nothing on it. Declared by what is needed of it
    * rather than by who provides it.
@@ -157,6 +206,8 @@ export function buildMcpHandler(dependencies: McpDependencies): RequestHandler {
 function buildMcpServer({
   store,
   bus,
+  questions,
+  autonomy,
   validations,
   subSessions,
   merges,
@@ -174,8 +225,45 @@ function buildMcpServer({
     async (input) =>
       answer(() => {
         const ticket = store.createTicket(input);
+        // Before the graph is announced, and not after: announcing it is what
+        // makes the mode look at the frontier again, and a cascade that has
+        // gone as deep as the developer allows must stop the mode before it
+        // launches the very ticket that reached the depth. Nothing is undone by
+        // it: the ticket is written either way.
+        autonomy.ticketCreated(ticket);
         bus.publish({ type: "graph-changed", graph: store.featureGraph(input.featureId) });
         return ticket;
+      }),
+  );
+
+  server.registerTool(
+    squadTools.askQuestion,
+    {
+      title: "Ask the developer",
+      description:
+        "Asks the developer something you may not decide alone, with the options you see and the one you recommend. The call does not return until it is answered, and the answer comes back as its result: ask, then act on what comes back. Say honestly whether the answer changes what is built or only how, since that is what decides whether squad may answer with your recommendation while the developer is away. Ask about what is yours to build: a question about the perimeter of another ticket belongs to a decision ticket, not here.",
+      inputSchema: askQuestionShape,
+    },
+    async (input, extra) =>
+      answer(async () => {
+        const question = await keepAlive(extra, () =>
+          questions.ask({
+            featureId: input.featureId,
+            ticketId: input.ticketId ?? null,
+            prompt: input.question,
+            options: input.options,
+            recommendation: input.recommendation,
+            scopeChanging: input.scopeChanging,
+          }),
+        );
+        if (question.state !== "answered") {
+          throw new SquadError(
+            "question_not_pending",
+            409,
+            "squad stopped while this question was waiting: it was not answered, and nothing was decided on it",
+          );
+        }
+        return question;
       }),
   );
 
@@ -241,13 +329,64 @@ function buildMcpServer({
  * agent is meant to read the reason and correct its next call, which is the
  * whole point of putting the contract in the tools.
  */
-function answer(produce: () => unknown): { content: Array<{ type: "text"; text: string }>; isError?: true } {
+async function answer(
+  produce: () => unknown,
+): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: true }> {
   try {
-    return { content: [{ type: "text", text: JSON.stringify(produce(), null, 2) }] };
+    return { content: [{ type: "text", text: JSON.stringify(await produce(), null, 2) }] };
   } catch (failure) {
     if (failure instanceof SquadError) {
       return { content: [{ type: "text", text: failure.message }], isError: true };
     }
     throw failure;
+  }
+}
+
+/**
+ * What a call that may wait for hours needs from its caller: a token to report
+ * progress under, and a way to send it. Declared structurally, so this file
+ * says what it uses of the transport rather than borrowing its whole shape.
+ */
+interface CallContext {
+  _meta?: { progressToken?: string | number } | undefined;
+  sendNotification: (notification: {
+    method: "notifications/progress";
+    params: { progressToken: string | number; progress: number };
+  }) => Promise<void>;
+}
+
+/**
+ * How long squad waits between two signs of life on a call that is blocked. The
+ * protocol says a client should push its timeout back on each of them, and a
+ * question waits for a person: without this, the only calls that could be
+ * answered are the ones answered within a client's own patience.
+ *
+ * A client that asked for no progress token gets none, and then the wait is
+ * bounded by whatever that client decided. Nothing here can fix that from this
+ * side, and a call cut short comes back as a question nobody answered rather
+ * than as an answer squad invented.
+ */
+const heartbeatMs = 25_000;
+
+async function keepAlive<T>(context: CallContext, work: () => Promise<T>): Promise<T> {
+  const progressToken = context._meta?.progressToken;
+  if (progressToken === undefined) return work();
+  let progress = 0;
+  const beat = setInterval(() => {
+    progress += 1;
+    void context
+      .sendNotification({ method: "notifications/progress", params: { progressToken, progress } })
+      // Best effort, like every other signal squad sends about itself: a
+      // notification that cannot be delivered must not fail the call it is
+      // keeping alive.
+      .catch(() => {});
+  }, heartbeatMs);
+  // The process must be able to end while a question waits: what holds squad up
+  // is the call, not this timer.
+  beat.unref();
+  try {
+    return await work();
+  } finally {
+    clearInterval(beat);
   }
 }

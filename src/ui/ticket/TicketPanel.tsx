@@ -1,7 +1,15 @@
 import { useState } from "react";
-import type { LaunchAngle, ThreadEntry, Ticket, TicketKind, TicketState } from "../../shared/api";
+import type {
+  LaunchAngle,
+  Question,
+  ThreadEntry,
+  Ticket,
+  TicketKind,
+  TicketState,
+} from "../../shared/api";
 import { isResumable } from "../../shared/graph";
 import { ApiError, launchTicket } from "../api";
+import { Questions } from "../question/Questions";
 import { Thread } from "../session/Thread";
 import { TestSheet } from "./TestSheet";
 
@@ -40,10 +48,12 @@ const stateExplanations: Record<TicketState, string> = {
 export function TicketPanel({
   ticket,
   thread,
+  questions,
   onClose,
 }: {
   ticket: Ticket;
   thread: ThreadEntry[];
+  questions: Question[];
   onClose: () => void;
 }) {
   return (
@@ -56,6 +66,10 @@ export function TicketPanel({
         </button>
       </p>
       <p className="ticket__state">{stateExplanations[ticket.state]}</p>
+
+      {/* Before anything else: an unanswered question is a sub-session standing
+          still, where everything below is work already done. */}
+      <Questions questions={questions} />
 
       {ticket.description !== "" && <p className="ticket__description">{ticket.description}</p>}
 
@@ -79,6 +93,13 @@ export function TicketPanel({
 
       {ticket.stepReport !== null && (
         <TestSheet ticketId={ticket.id} report={ticket.stepReport} />
+      )}
+
+      {ticket.generation > 0 && (
+        <p className="ticket__state">
+          Ticket engendré : il est né du travail d'un autre, à {ticket.generation} génération
+          {ticket.generation > 1 ? "s" : ""} de ce que la session principale a écrit.
+        </p>
       )}
 
       {ticket.worktree !== null && (

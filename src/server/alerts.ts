@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import type { AutonomyHaltReason } from "../shared/api";
 import type { Store } from "./store";
 
 /**
@@ -19,7 +20,21 @@ export interface Alert {
   text: string;
 }
 
+/** Why the mode stopped, said in the one line a phone shows of it. */
+const haltReasons: Record<AutonomyHaltReason, string> = {
+  "scope-question": "une question change le périmètre",
+  decision: "un ticket de décision attend d'être tranché",
+  failure: "un ticket s'est arrêté",
+  "depth-cap": "le plafond de profondeur d'engendrement est atteint",
+};
+
 export const alertFor = {
+  questionWaiting: (prompt: string): Alert => ({
+    text: `squad : un agent attend votre réponse : « ${prompt} »`,
+  }),
+  autonomyHalted: (featureTitle: string, reason: AutonomyHaltReason, detail: string): Alert => ({
+    text: `squad : le go-as-recommandé de « ${featureTitle} » s'interrompt, ${haltReasons[reason]} : « ${detail} ».`,
+  }),
   testSheetWaiting: (ticketTitle: string): Alert => ({
     text: `squad : la fiche de tests de « ${ticketTitle} » attend une vérification.`,
   }),

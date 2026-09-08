@@ -34,6 +34,11 @@ export const errorCodes = [
   "test_sheet_not_found",
   "test_sheet_already_reviewed",
   "ticket_not_mergeable",
+  "branch_not_found",
+  "project_has_work_in_flight",
+  "question_not_found",
+  "question_not_pending",
+  "recommendation_not_an_option",
   "not_found",
   "data_directory_inside_project",
   "internal_error",
@@ -93,6 +98,28 @@ export interface Worktree {
 }
 
 /**
+ * Why squad stopped driving a feature on its own. The four are the whole list,
+ * and each names something no agent may decide in the developer's place: a
+ * question that changes what is built, a decision ticket, work that stopped,
+ * and a cascade of agent-written tickets that reached its declared depth.
+ */
+export const autonomyHaltReasons = [
+  "scope-question",
+  "decision",
+  "failure",
+  "depth-cap",
+] as const;
+export type AutonomyHaltReason = (typeof autonomyHaltReasons)[number];
+
+/** What stopped the mode, when, and on what. The interface words the reason. */
+export interface AutonomyHalt {
+  reason: AutonomyHaltReason;
+  /** What it stopped on: a ticket's title, a question's statement. */
+  detail: string;
+  at: string;
+}
+
+/**
  * A piece of work carried on a project, from spec to merge.
  *
  * The worktree is null until the first ticket of the feature is launched:
@@ -105,6 +132,21 @@ export interface Feature {
   title: string;
   /** The feature branch and its checkout, started from the default branch. */
   worktree: Worktree | null;
+  /**
+   * Whether squad drives this feature on its own: it launches what the frontier
+   * allows without being asked, and answers an agent's implementation questions
+   * with that agent's own recommendation. Declared per feature rather than per
+   * project or machine, because it says how much of one piece of work the
+   * developer is willing to be away from, and that is not a property of the
+   * repository.
+   */
+  goAsRecommended: boolean;
+  /**
+   * Why squad stopped driving, or null while it drives. It is written when
+   * squad meets something only the developer can settle, and cleared when they
+   * arm the mode again: nothing else restarts a night of autonomy.
+   */
+  autonomyHalt: AutonomyHalt | null;
   /**
    * The pull request squad opened once every ticket of the graph had merged, or
    * null while the feature is still being built. Written down rather than asked
@@ -259,6 +301,15 @@ export interface Ticket {
    */
   queuedAt: string | null;
   /**
+   * How many tickets deep in a cascade of agent-written work this one sits. A
+   * ticket the main session wrote is 0; one an agent asked for while building
+   * another is that other's depth plus one. Written on the row rather than
+   * walked back through the graph at each read: the ticket it was born of may
+   * be gone, and what bounds a cascade must not depend on its ancestors still
+   * being there.
+   */
+  generation: number;
+  /**
    * The last step this ticket's sub-session reported, with its test sheet. Null
    * until a step is reported; the latest one afterwards, since a ticket
    * corrected after a red sheet reports its step again.
@@ -321,6 +372,53 @@ export interface MainSession {
 }
 
 /**
+ * Where a question stands. `abandoned` is what a question asked by a session
+ * that is no longer there becomes: squad settles them at startup rather than
+ * leaving a question in front of the developer whose answer would reach nobody.
+ */
+export const questionStates = ["pending", "answered", "abandoned"] as const;
+export type QuestionState = (typeof questionStates)[number];
+
+/** Who answered: the developer, or squad on their behalf in go-as-recommended. */
+export const answerSources = ["developer", "squad"] as const;
+export type AnswerSource = (typeof answerSources)[number];
+
+/**
+ * A question an agent asked, and what it was answered. The tool call that asks
+ * it blocks until the answer is written here, which is what makes the interface
+ * the place questions are settled rather than a terminal nobody is watching.
+ *
+ * The options and the recommendation travel with the question because
+ * go-as-recommended answers it by picking the recommendation: an answer squad
+ * gives on its own has to be one the agent itself put on the table.
+ */
+export interface Question {
+  id: string;
+  featureId: string;
+  /** The ticket whose sub-session asked, or null when the main session did. */
+  ticketId: string | null;
+  sessionId: string;
+  /** The question itself, as the agent worded it. */
+  prompt: string;
+  /** What the agent offers to choose from, in the order it wrote them. */
+  options: string[];
+  /** The option the agent recommends; always one of the options above. */
+  recommendation: string;
+  /**
+   * Whether the answer changes what is built rather than only how. A
+   * scope-changing question waits for the developer whatever the mode, since
+   * the perimeter is the one thing squad never settles on its own.
+   */
+  scopeChanging: boolean;
+  state: QuestionState;
+  /** What was answered; free wording, so the developer is not held to the options. */
+  answer: string | null;
+  answeredBy: AnswerSource | null;
+  answeredAt: string | null;
+  createdAt: string;
+}
+
+/**
  * A cap of zero would be a way of stopping everything that nobody asked for,
  * and one nothing else in squad would explain: a feature would sit still with
  * every ticket ready and no reason on screen.
@@ -352,6 +450,17 @@ const verifyCommandSchema = z
  */
 export const defaultConcurrencyCaps = { machine: 4, feature: 3 } as const;
 
+/**
+ * How deep tickets born of tickets may go before squad stops and asks. Zero is
+ * allowed and means "nothing an agent asked for runs unattended": the tickets
+ * are still written, the mode simply stops on the first of them.
+ *
+ * Three by default: a ticket that uncovers work, whose work uncovers more, is
+ * an ordinary Tuesday; a fourth level is a cascade nobody asked for.
+ */
+const generationDepthCapSchema = z.number().int().min(0);
+export const defaultGenerationDepthCap = 3;
+
 export const registerProjectBody = z.object({
   path: z.string().trim().min(1),
   name: z.string().trim().min(1).optional(),
@@ -364,6 +473,10 @@ export type RegisterProjectBody = z.infer<typeof registerProjectBody>;
 
 /** What can be changed on a registered project. What is left out is left alone. */
 export const updateProjectBody = z.object({
+  /** Resolved to a repository root again, exactly as a registration is. */
+  path: z.string().trim().min(1).optional(),
+  /** Checked against the repository: a branch that is not there is refused. */
+  defaultBranch: z.string().trim().min(1).optional(),
   featureConcurrencyCap: concurrencyCapSchema.optional(),
   verifyCommand: verifyCommandSchema.optional(),
 });
@@ -424,6 +537,26 @@ export const reviewTestSheetBody = z.object({
 export type ReviewTestSheetBody = z.infer<typeof reviewTestSheetBody>;
 
 /**
+ * What the developer says of a question. Free wording rather than the index of
+ * an option: the options are what the agent thought of, and an answer it did
+ * not think of is exactly the one worth being able to give.
+ */
+export const answerQuestionBody = z.object({
+  answer: z.string().trim().min(1),
+});
+export type AnswerQuestionBody = z.infer<typeof answerQuestionBody>;
+
+/**
+ * What can be changed on an open feature. Arming the mode again is also what
+ * clears a halt: squad stopped for a reason, and only the developer says the
+ * reason is dealt with.
+ */
+export const updateFeatureBody = z.object({
+  goAsRecommended: z.boolean(),
+});
+export type UpdateFeatureBody = z.infer<typeof updateFeatureBody>;
+
+/**
  * What squad is configured with, machine-wide. Everything here is what the
  * developer sets once and squad reads at every alert; nothing is derived from
  * the environment, so what is in force is always readable through the API.
@@ -439,6 +572,12 @@ export interface Settings {
    * cap is the one that decides.
    */
   machineConcurrencyCap: number;
+  /**
+   * How deep a cascade of agent-written tickets may go before squad stops
+   * driving on its own. It bounds the depth, never the number of tickets: an
+   * agent may write ten tickets while building one, and that is one generation.
+   */
+  generationDepthCap: number;
 }
 
 export const updateSettingsBody = z.object({
@@ -446,6 +585,7 @@ export const updateSettingsBody = z.object({
   webhookUrl: z.url().nullable().optional(),
   desktopNotifications: z.boolean().optional(),
   machineConcurrencyCap: concurrencyCapSchema.optional(),
+  generationDepthCap: generationDepthCapSchema.optional(),
 });
 export type UpdateSettingsBody = z.infer<typeof updateSettingsBody>;
 
@@ -461,6 +601,8 @@ export interface StoredState {
   graphs: FeatureGraph[];
   /** Every thread, oldest line first, all features together. */
   threads: ThreadEntry[];
+  /** Every question ever asked, oldest first, answered ones included. */
+  questions: Question[];
   settings: Settings;
 }
 
@@ -493,6 +635,10 @@ export type SquadEvent =
   | { type: "feature-changed"; feature: Feature }
   | { type: "graph-changed"; graph: FeatureGraph }
   | { type: "thread-appended"; entry: ThreadEntry }
+  // One event for a question asked, answered or abandoned: what a client does
+  // with it is the same in all three cases, which is to hold the question it
+  // carries in place of the one it had.
+  | { type: "question-changed"; question: Question }
   | { type: "settings-changed"; settings: Settings }
   | { type: "main-session-started"; featureId: string; sessionId: string }
   | {
@@ -509,6 +655,7 @@ export const apiRoutes = {
   tickets: "/api/tickets",
   events: "/api/events",
   settings: "/api/settings",
+  questions: "/api/questions",
   /**
    * Squad's MCP endpoint, the only contract between the agents and squad
    * (ADR 0002). It lives under /api like the rest of the server surface, so the
@@ -520,6 +667,16 @@ export const apiRoutes = {
 /** Where a registered project's own settings are changed. */
 export function projectRoute(projectId: string): string {
   return `${apiRoutes.projects}/${projectId}`;
+}
+
+/** Where a feature's own settings are changed, go-as-recommended among them. */
+export function featureRoute(featureId: string): string {
+  return `${apiRoutes.features}/${featureId}`;
+}
+
+/** Where the developer answers a question, which unblocks the agent that asked. */
+export function questionAnswerRoute(questionId: string): string {
+  return `${apiRoutes.questions}/${questionId}/answer`;
 }
 
 export function featureGraphRoute(featureId: string): string {

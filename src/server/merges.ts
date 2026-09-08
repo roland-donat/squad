@@ -43,6 +43,12 @@ export interface MergeDependencies {
    * touched, and a merge frees whatever was waiting behind the ticket.
    */
   subSessions: { close(ticketId: string): Promise<void>; schedule(): void };
+  /**
+   * What go-as-recommended does with a ticket squad wrote itself. Declared by
+   * what is needed of it: a fix ticket born of a fix ticket is a cascade like
+   * any other, and the depth cap has to see it.
+   */
+  autonomy: { ticketCreated(ticket: Ticket): void; ticketStopped(ticket: Ticket): void };
   /** Resolved late: squad only knows its own address once it is listening. */
   mcpUrl: () => string;
 }
@@ -248,7 +254,7 @@ export class Merges {
 
   /** Where a merge stops, on the state that says why, with a word to whoever asked. */
   private stopMerging(ticket: Ticket, detail: string, conflicted: boolean): void {
-    const { store, alerts } = this.dependencies;
+    const { store, alerts, autonomy } = this.dependencies;
     const stopped = conflicted ? store.markConflict(ticket.id) : store.failStep(ticket.id);
     this.publishGraph(stopped.featureId);
     this.note(ticket, {
@@ -261,6 +267,9 @@ export class Merges {
     alerts.raise(
       conflicted ? alertFor.mergeConflicted(ticket.title) : alertFor.mergeFailed(ticket.title),
     );
+    // A branch that does not go home is work nobody may pile onto: the
+    // unattended run ends here, as it does on a sub-session that stopped.
+    autonomy.ticketStopped(stopped);
   }
 
   /**
@@ -344,10 +353,14 @@ export class Merges {
     command: string,
     check: IntegrationCheck,
   ): void {
-    const { store, alerts } = this.dependencies;
+    const { store, alerts, autonomy } = this.dependencies;
     const fix = store.createTicket(
       fixTicketFor(store.featureGraph(feature.id), ticket, command, check),
     );
+    // Before the graph is announced, for the same reason the tools do it in
+    // that order: what the mode does next is decided by what it is told, and a
+    // cascade that reached its depth stops it before it launches.
+    autonomy.ticketCreated(fix);
     this.publishGraph(feature.id);
     alerts.raise(alertFor.integrationCheckFailed(feature.title));
     this.note(ticket, {

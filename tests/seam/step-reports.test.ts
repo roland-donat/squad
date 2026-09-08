@@ -3,6 +3,7 @@ import type { FeatureGraph, StepReport, ThreadEntry, Ticket } from "../../src/sh
 import {
   apiRoutes,
   defaultConcurrencyCaps,
+  defaultGenerationDepthCap,
   featureGraphRoute,
   mainSessionRoute,
   ticketSessionRoute,
@@ -194,8 +195,8 @@ describe("ending a step, its test sheet and its alerts", () => {
     expect(alert.text).toMatch(/fiche de tests/i);
 
     // And the ticket is listed as waiting on them, which is what the indicator reads.
-    expect(pendingActions([await readGraph(featureId)])).toEqual([
-      { featureId, ticketId: ticket.id, ticketTitle: "Le store", reason: "validation" },
+    expect(pendingActions([await readGraph(featureId)], [])).toEqual([
+      { featureId, ticketId: ticket.id, title: "Le store", reason: "validation" },
     ]);
   });
 
@@ -226,7 +227,7 @@ describe("ending a step, its test sheet and its alerts", () => {
     expect(reportOf(merged).sheet).toEqual([]);
     // And nobody was woken: no alert, and nothing in the list of what waits on
     // the developer.
-    expect(pendingActions([await readGraph(featureId)])).toEqual([]);
+    expect(pendingActions([await readGraph(featureId)], [])).toEqual([]);
     expect(receiver.received()).toEqual([]);
   });
 
@@ -286,7 +287,7 @@ describe("ending a step, its test sheet and its alerts", () => {
     expect(stopped.sessionId).not.toBeNull();
     const alert = await receiver.next();
     expect(alert.text).toContain("Le store");
-    expect(pendingActions([await readGraph(featureId)]).map((action) => action.reason)).toEqual([
+    expect(pendingActions([await readGraph(featureId)], []).map((action) => action.reason)).toEqual([
       "failure",
     ]);
   });
@@ -333,7 +334,7 @@ describe("ending a step, its test sheet and its alerts", () => {
 
     // Gone through once: nothing waits on the developer any more, and a second
     // answer on the same sheet is refused rather than silently overwriting it.
-    expect(pendingActions([await readGraph(featureId)])).toEqual([]);
+    expect(pendingActions([await readGraph(featureId)], [])).toEqual([]);
     const again = await squad.request("POST", ticketTestSheetRoute(ticket.id), {
       points: sheet.map((point) => ({ id: point.id, passed: true })),
     });
@@ -383,6 +384,7 @@ describe("ending a step, its test sheet and its alerts", () => {
         webhookUrl: receiver.url,
         desktopNotifications: false,
         machineConcurrencyCap: defaultConcurrencyCaps.machine,
+        generationDepthCap: defaultGenerationDepthCap,
       },
     });
 

@@ -31,6 +31,15 @@ export async function createTemporaryDirectory(): Promise<string> {
   return path;
 }
 
+/**
+ * Adds a branch to a repository without leaving it checked out on it: a project
+ * whose default branch is changed needs a second branch to change it to, and
+ * moving the checkout would change what the repository is on.
+ */
+export async function createBranch(repository: string, branch: string): Promise<void> {
+  await run("git", ["branch", branch], { cwd: repository });
+}
+
 export async function removeTemporaryPaths(): Promise<void> {
   await Promise.all([...created].map((path) => rm(path, { recursive: true, force: true })));
   created.clear();

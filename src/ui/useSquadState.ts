@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import {
   apiRoutes,
   defaultConcurrencyCaps,
+  defaultGenerationDepthCap,
   type Feature,
   type FeatureGraph,
   type MainSession,
   type Project,
+  type Question,
   type Settings,
   type SquadEvent,
   type ThreadEntry,
@@ -16,12 +18,11 @@ export interface SquadState {
   features: Feature[];
   graphs: FeatureGraph[];
   threads: ThreadEntry[];
+  /** Every question ever asked, the ones still waiting among them. */
+  questions: Question[];
   /** The main sessions running right now, one per feature at most. */
   mainSessions: MainSession[];
-  /**
-   * What squad is configured with. Held because the snapshot carries the whole
-   * stored state and this is part of it, not because a screen edits it yet.
-   */
+  /** What squad is configured with, as the settings screen edits it. */
   settings: Settings;
   connected: boolean;
 }
@@ -37,6 +38,7 @@ export function useSquadState(): SquadState {
     features: [],
     graphs: [],
     threads: [],
+    questions: [],
     mainSessions: [],
     // What is shown until the first snapshot arrives, which is the very first
     // message of the connection: nothing is read from here afterwards.
@@ -44,6 +46,7 @@ export function useSquadState(): SquadState {
       webhookUrl: null,
       desktopNotifications: true,
       machineConcurrencyCap: defaultConcurrencyCaps.machine,
+      generationDepthCap: defaultGenerationDepthCap,
     },
     connected: false,
   });
@@ -89,6 +92,18 @@ export function ticketThreadOf(state: SquadState, ticketId: string): ThreadEntry
   return state.threads.filter((entry) => entry.ticketId === ticketId);
 }
 
+/** The questions of a ticket, oldest first, answered ones included. */
+export function ticketQuestionsOf(state: SquadState, ticketId: string): Question[] {
+  return state.questions.filter((question) => question.ticketId === ticketId);
+}
+
+/** The questions of a feature's main session, which hang on no ticket. */
+export function featureQuestionsOf(state: SquadState, featureId: string): Question[] {
+  return state.questions.filter(
+    (question) => question.featureId === featureId && question.ticketId === null,
+  );
+}
+
 /** Whether a feature's main session is running, and can therefore be written to. */
 export function isMainSessionRunning(state: SquadState, featureId: string): boolean {
   return state.mainSessions.some((session) => session.featureId === featureId);
@@ -103,6 +118,7 @@ function apply(state: SquadState, event: SquadEvent): SquadState {
         features: event.features,
         graphs: event.graphs,
         threads: event.threads,
+        questions: event.questions,
         mainSessions: event.mainSessions,
         settings: event.settings,
       };
@@ -136,6 +152,17 @@ function apply(state: SquadState, event: SquadEvent): SquadState {
       };
     case "thread-appended":
       return { ...state, threads: [...state.threads, event.entry] };
+    case "question-changed":
+      // Held in place rather than appended: asked, answered and abandoned are
+      // the same question, and the interface shows where it stands now.
+      return {
+        ...state,
+        questions: state.questions.some((question) => question.id === event.question.id)
+          ? state.questions.map((question) =>
+              question.id === event.question.id ? event.question : question,
+            )
+          : [...state.questions, event.question],
+      };
     case "settings-changed":
       return { ...state, settings: event.settings };
     case "main-session-started":

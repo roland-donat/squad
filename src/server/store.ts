@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
-import { asc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
-import { defaultConcurrencyCaps } from "../shared/api";
+import { and, asc, eq, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
+import { defaultConcurrencyCaps, defaultGenerationDepthCap } from "../shared/api";
 import type {
   AcceptanceCriterion,
+  AnswerSource,
+  AutonomyHalt,
+  AutonomyHaltReason,
   BlockingEdge,
   CriterionCoverage,
   Feature,
@@ -11,6 +14,7 @@ import type {
   LaunchAngle,
   OpenFeatureBody,
   Project,
+  Question,
   RegisterProjectBody,
   Settings,
   StepReport,
@@ -40,6 +44,8 @@ import {
   criterionCoverage,
   features,
   projects,
+  questionOptions,
+  questions,
   settings,
   stepReports,
   testSheetPoints,
@@ -47,7 +53,7 @@ import {
   tickets,
 } from "./db/schema";
 import { SquadError } from "./errors";
-import { resolveDefaultBranch, resolveRepositoryRoot } from "./git";
+import { branchExists, resolveDefaultBranch, resolveRepositoryRoot } from "./git";
 import { isInside } from "./paths";
 import type { ScheduledFeature } from "./scheduler";
 
@@ -62,6 +68,25 @@ export interface CreateTicketInput {
   blockedBy: string[];
   /** Tickets this one must be merged before, used when a fix lands in front of pending work. */
   blocks: string[];
+  /**
+   * The ticket whose work uncovered this one, when an agent asked for it while
+   * building something else. It decides the new ticket's depth, which is what
+   * bounds a cascade; absent, the ticket is a first generation, as everything
+   * the main session writes is.
+   */
+  bornOf?: string | null;
+}
+
+/** What an agent hands over when it asks the developer a question. */
+export interface AskQuestionInput {
+  featureId: string;
+  /** The ticket whose sub-session is asking, or null for the main session. */
+  ticketId: string | null;
+  sessionId: string;
+  prompt: string;
+  options: string[];
+  recommendation: string;
+  scopeChanging: boolean;
 }
 
 /** What settling a decision records on the ticket that was waiting. */
@@ -132,6 +157,7 @@ export class Store {
       features: openFeatures,
       graphs: openFeatures.map((feature) => this.featureGraph(feature.id)),
       threads: this.listThreadEntries(),
+      questions: this.listQuestions(),
       settings: this.settings(),
     };
   }
@@ -194,19 +220,11 @@ export class Store {
   }
 
   async registerProject(input: RegisterProjectBody): Promise<Project> {
-    const root = await resolveRepositoryRoot(input.path);
+    const root = await this.resolveProjectRoot(input.path);
     // Read now and stored, not read at each use: a repository someone left on
     // another branch would otherwise silently become the base of the next
     // feature branch.
     const defaultBranch = input.defaultBranch ?? (await resolveDefaultBranch(root));
-
-    if (isInside(this.dataDir, root)) {
-      throw new SquadError(
-        "data_directory_inside_project",
-        400,
-        `squad stores its database in ${this.dataDir}, which is inside ${root}`,
-      );
-    }
 
     const project: Project = {
       id: randomUUID(),
@@ -236,22 +254,83 @@ export class Store {
     return project;
   }
 
-  /** Changes what was named on a project, and leaves the rest as it stands. */
-  updateProject(projectId: string, patch: UpdateProjectBody): Project {
+  /**
+   * Changes what was named on a project, and leaves the rest as it stands. The
+   * path and the default branch are checked exactly as a registration checks
+   * them: a settings screen is not a back door onto a directory that is not a
+   * repository, or onto a branch that is not there.
+   */
+  async updateProject(projectId: string, patch: UpdateProjectBody): Promise<Project> {
     const project = this.requireProject(projectId);
+    const root = patch.path === undefined ? project.path : await this.resolveProjectRoot(patch.path);
+    if (root !== project.path) this.requireNothingInFlight(project);
+    if (patch.defaultBranch !== undefined && !(await branchExists(root, patch.defaultBranch))) {
+      throw new SquadError(
+        "branch_not_found",
+        400,
+        `${root} has no branch named ${patch.defaultBranch}`,
+      );
+    }
     // Built from what was named, so a field left out keeps its value and a
     // field named as null clears it: the verification command has to be
     // removable, and `undefined` is the only thing that means "not said".
     const changes = {
+      ...(root === project.path ? {} : { path: root }),
+      ...(patch.defaultBranch === undefined ? {} : { defaultBranch: patch.defaultBranch }),
       ...(patch.featureConcurrencyCap === undefined
         ? {}
         : { featureConcurrencyCap: patch.featureConcurrencyCap }),
       ...(patch.verifyCommand === undefined ? {} : { verifyCommand: patch.verifyCommand }),
     };
     if (Object.keys(changes).length > 0) {
-      this.db.update(projects).set(changes).where(eq(projects.id, project.id)).run();
+      try {
+        this.db.update(projects).set(changes).where(eq(projects.id, project.id)).run();
+      } catch (cause) {
+        if (isUniqueViolation(cause)) {
+          throw new SquadError(
+            "project_already_registered",
+            409,
+            `${root} is already registered as a project`,
+          );
+        }
+        throw cause;
+      }
     }
     return this.requireProject(project.id);
+  }
+
+  /** A path resolved to a repository root, and refused if squad lives inside it. */
+  private async resolveProjectRoot(path: string): Promise<string> {
+    const root = await resolveRepositoryRoot(path);
+    if (isInside(this.dataDir, root)) {
+      throw new SquadError(
+        "data_directory_inside_project",
+        400,
+        `squad stores its database in ${this.dataDir}, which is inside ${root}`,
+      );
+    }
+    return root;
+  }
+
+  /**
+   * Refuses to move a project out from under work that is already checked out.
+   * Squad's worktrees are checked out of the repository the project names, and
+   * their branches merge back into it: pointing the project elsewhere while one
+   * exists would send a merge into another repository.
+   */
+  private requireNothingInFlight(project: Project): void {
+    const inFlight = this.db
+      .select({ title: features.title })
+      .from(features)
+      .where(and(eq(features.projectId, project.id), isNotNull(features.worktreePath)))
+      .all();
+    if (inFlight.length > 0) {
+      throw new SquadError(
+        "project_has_work_in_flight",
+        409,
+        `${project.name} has checked-out work (${inFlight.map((row) => `"${row.title}"`).join(", ")}): its repository path is changed once nothing of it is checked out`,
+      );
+    }
   }
 
   openFeature(input: OpenFeatureBody): Feature {
@@ -267,6 +346,10 @@ export class Store {
       branch: null,
       worktreePath: null,
       pullRequestUrl: null,
+      goAsRecommended: false,
+      autonomyHaltReason: null,
+      autonomyHaltDetail: null,
+      autonomyHaltedAt: null,
       createdAt: new Date().toISOString(),
     };
     this.db.insert(features).values(row).run();
@@ -305,6 +388,15 @@ export class Store {
       .all();
 
     const known = new Map(existing.map((ticket) => [ticket.id, ticket]));
+    // One deeper than the ticket whose work uncovered this one, and a first
+    // generation otherwise. Read from the parent's own depth rather than
+    // counted along the edges: what a ticket blocks says nothing about who
+    // asked for it.
+    const bornOf =
+      input.bornOf === undefined || input.bornOf === null
+        ? null
+        : this.requireTicketOfFeature(input.bornOf, feature.id);
+    const generation = bornOf === null ? 0 : bornOf.generation + 1;
     const id = randomUUID();
     const proposed: GraphEdge[] = [
       ...input.blockedBy.map((blockerId) => ({ blockerId, blockedId: id })),
@@ -342,6 +434,7 @@ export class Store {
           branch: null,
           worktreePath: null,
           sessionId: null,
+          generation,
           createdAt,
         })
         .run();
@@ -416,6 +509,7 @@ export class Store {
         worktree: toWorktree(row.branch, row.worktreePath),
         sessionId: row.sessionId,
         queuedAt: row.queuedAt,
+        generation: row.generation,
         stepReport: reports.get(row.id) ?? null,
         createdAt: row.createdAt,
       })),
@@ -883,6 +977,181 @@ export class Store {
     return this.requireTicket(ticket.id);
   }
 
+  /**
+   * Writes a question an agent is asking, which is what the tool call that asks
+   * it blocks on. The recommendation has to be one of the options: squad
+   * answers an implementation question with it when the mode is armed, and an
+   * answer nobody offered is one the agent never agreed to.
+   */
+  askQuestion(input: AskQuestionInput): Question {
+    const feature = this.requireFeature(input.featureId);
+    // Checked here rather than trusted: a session only asks about its own
+    // feature, and a ticket of another one reads as absent from where it stands.
+    if (input.ticketId !== null) this.requireTicketIn(feature.id, input.ticketId);
+    if (!input.options.includes(input.recommendation)) {
+      throw new SquadError(
+        "recommendation_not_an_option",
+        400,
+        `the recommendation must be one of the options offered: "${input.recommendation}" is not among ${input.options.map((option) => `"${option}"`).join(", ")}`,
+      );
+    }
+
+    const id = randomUUID();
+    this.db.transaction((tx) => {
+      tx.insert(questions)
+        .values({
+          id,
+          featureId: feature.id,
+          ticketId: input.ticketId,
+          sessionId: input.sessionId,
+          prompt: input.prompt,
+          recommendation: input.recommendation,
+          scopeChanging: input.scopeChanging,
+          state: "pending",
+          answer: null,
+          answeredBy: null,
+          answeredAt: null,
+          createdAt: new Date().toISOString(),
+        })
+        .run();
+      tx.insert(questionOptions)
+        .values(input.options.map((text, position) => ({ questionId: id, position, text })))
+        .run();
+    });
+    return this.requireQuestion(id);
+  }
+
+  /**
+   * Records what a question was answered, and by whom. A question is answered
+   * once: the tool call waiting on it returns, and there is nobody left to hand
+   * a second answer to.
+   */
+  answerQuestion(questionId: string, answer: string, answeredBy: AnswerSource): Question {
+    const question = this.requireQuestion(questionId);
+    if (question.state !== "pending") {
+      throw new SquadError(
+        "question_not_pending",
+        409,
+        `this question is ${question.state}: only a pending question is answered`,
+      );
+    }
+    this.db
+      .update(questions)
+      .set({ state: "answered", answer, answeredBy, answeredAt: new Date().toISOString() })
+      .where(eq(questions.id, question.id))
+      .run();
+    return this.requireQuestion(question.id);
+  }
+
+  /**
+   * Every question the store still believes is waiting, marked abandoned. The
+   * session that asked cannot outlive the server that opened it, so such a row
+   * is a question whose answer would reach nobody. Called once, before squad
+   * listens, like the running steps it interrupts.
+   */
+  abandonPendingQuestions(): Question[] {
+    return this.abandonQuestions(eq(questions.state, "pending"));
+  }
+
+  /**
+   * The questions one session was waiting on, marked abandoned. A session that
+   * is over cannot read an answer, so leaving its question in front of the
+   * developer would ask them for something nobody would ever hear.
+   */
+  abandonQuestionsOfSession(sessionId: string): Question[] {
+    return this.abandonQuestions(
+      and(eq(questions.state, "pending"), eq(questions.sessionId, sessionId)),
+    );
+  }
+
+  private abandonQuestions(waiting: SQL | undefined): Question[] {
+    const pending = this.db
+      .select({ id: questions.id })
+      .from(questions)
+      .where(waiting)
+      .orderBy(sql`rowid`)
+      .all();
+    if (pending.length === 0) return [];
+    this.db
+      .update(questions)
+      .set({ state: "abandoned", answeredAt: new Date().toISOString() })
+      .where(waiting)
+      .run();
+    return pending.map((row) => this.requireQuestion(row.id));
+  }
+
+  requireQuestion(questionId: string): Question {
+    const row = this.db.select().from(questions).where(eq(questions.id, questionId)).get();
+    if (!row) {
+      throw new SquadError("question_not_found", 404, `no question with id ${questionId}`);
+    }
+    return { ...row, options: this.readQuestionOptions([row.id]).get(row.id) ?? [] };
+  }
+
+  /** Every question ever asked, oldest first, answered and abandoned included. */
+  listQuestions(featureId?: string): Question[] {
+    const query = this.db.select().from(questions).$dynamic();
+    if (featureId !== undefined) query.where(eq(questions.featureId, featureId));
+    const rows = query.orderBy(sql`rowid`).all();
+    const options = this.readQuestionOptions(rows.map((row) => row.id));
+    return rows.map((row) => ({ ...row, options: options.get(row.id) ?? [] }));
+  }
+
+  private readQuestionOptions(questionIds: string[]): Map<string, string[]> {
+    const byQuestion = new Map<string, string[]>();
+    if (questionIds.length === 0) return byQuestion;
+    for (const row of this.db
+      .select()
+      .from(questionOptions)
+      .where(inArray(questionOptions.questionId, questionIds))
+      .orderBy(asc(questionOptions.position))
+      .all()) {
+      const list = byQuestion.get(row.questionId) ?? [];
+      list.push(row.text);
+      byQuestion.set(row.questionId, list);
+    }
+    return byQuestion;
+  }
+
+  /**
+   * Arms or disarms go-as-recommended on a feature. Arming clears whatever halt
+   * was written: squad stopped for a reason it cannot judge to be dealt with,
+   * and the developer saying "go" again is the whole of what says it is.
+   */
+  setGoAsRecommended(featureId: string, goAsRecommended: boolean): Feature {
+    const feature = this.requireFeature(featureId);
+    this.db
+      .update(features)
+      .set({
+        goAsRecommended,
+        autonomyHaltReason: null,
+        autonomyHaltDetail: null,
+        autonomyHaltedAt: null,
+      })
+      .where(eq(features.id, feature.id))
+      .run();
+    return this.requireFeature(feature.id);
+  }
+
+  /**
+   * Records why squad stopped driving a feature. The mode stays armed: what is
+   * written here is that it is held, and by what, so the interface can say so
+   * and the developer can lift it once they have looked.
+   */
+  haltAutonomy(featureId: string, reason: AutonomyHaltReason, detail: string): Feature {
+    const feature = this.requireFeature(featureId);
+    this.db
+      .update(features)
+      .set({
+        autonomyHaltReason: reason,
+        autonomyHaltDetail: detail,
+        autonomyHaltedAt: new Date().toISOString(),
+      })
+      .where(eq(features.id, feature.id))
+      .run();
+    return this.requireFeature(feature.id);
+  }
+
   /** What squad is configured with, with its defaults when nothing was set. */
   settings(): Settings {
     const row = this.db.select().from(settings).where(eq(settings.id, singleSettingsRow)).get();
@@ -890,6 +1159,7 @@ export class Store {
       webhookUrl: row?.webhookUrl ?? null,
       desktopNotifications: row?.desktopNotifications ?? true,
       machineConcurrencyCap: row?.machineConcurrencyCap ?? defaultConcurrencyCaps.machine,
+      generationDepthCap: row?.generationDepthCap ?? defaultGenerationDepthCap,
     };
   }
 
@@ -904,7 +1174,17 @@ export class Store {
     return next;
   }
 
-  private requireTicketOfFeature(ticketId: string, featureId: string): void {
+  /**
+   * A ticket's row, refused when it belongs to another feature. Close to
+   * `requireTicketIn` and deliberately not the same: this one answers "is this
+   * ticket of this graph" for something an agent named beside another ticket,
+   * so its refusal names the crossing rather than hiding it as an absence, and
+   * it hands back the row rather than the computed node.
+   */
+  private requireTicketOfFeature(
+    ticketId: string,
+    featureId: string,
+  ): typeof tickets.$inferSelect {
     const ticket = this.db.select().from(tickets).where(eq(tickets.id, ticketId)).get();
     if (!ticket) {
       throw new SquadError("ticket_not_found", 404, `no ticket with id ${ticketId}`);
@@ -916,6 +1196,7 @@ export class Store {
         `ticket ${ticketId} belongs to another feature: a blocking edge links two tickets of the same feature`,
       );
     }
+    return ticket;
   }
 
   private readEdges(featureId: string): BlockingEdge[] {
@@ -1025,6 +1306,10 @@ function toFeature(row: {
   branch: string | null;
   worktreePath: string | null;
   pullRequestUrl: string | null;
+  goAsRecommended: boolean;
+  autonomyHaltReason: AutonomyHaltReason | null;
+  autonomyHaltDetail: string | null;
+  autonomyHaltedAt: string | null;
   createdAt: string;
 }): Feature {
   return {
@@ -1033,7 +1318,27 @@ function toFeature(row: {
     title: row.title,
     worktree: toWorktree(row.branch, row.worktreePath),
     pullRequestUrl: row.pullRequestUrl,
+    goAsRecommended: row.goAsRecommended,
+    autonomyHalt: toHalt(row),
     createdAt: row.createdAt,
+  };
+}
+
+/**
+ * The three halt columns read back as the one thing they are. They are written
+ * together and cleared together, so either the mode is halted and all three say
+ * why, or none of them is there.
+ */
+function toHalt(row: {
+  autonomyHaltReason: AutonomyHaltReason | null;
+  autonomyHaltDetail: string | null;
+  autonomyHaltedAt: string | null;
+}): AutonomyHalt | null {
+  if (row.autonomyHaltReason === null || row.autonomyHaltedAt === null) return null;
+  return {
+    reason: row.autonomyHaltReason,
+    detail: row.autonomyHaltDetail ?? "",
+    at: row.autonomyHaltedAt,
   };
 }
 

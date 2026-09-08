@@ -2,15 +2,17 @@ import { realpath } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
-import { apiRoutes } from "../shared/api";
+import { apiRoutes, type Ticket } from "../shared/api";
 import { createClaudeCodeLauncher } from "./agents/claude-code";
 import type { AgentLauncher } from "./agents/launcher";
 import { Alerts } from "./alerts";
+import { Autonomy } from "./autonomy";
 import { openDatabase } from "./db/open";
 import { EventBus } from "./events";
 import { buildApiRouter } from "./http";
 import { Merges } from "./merges";
 import { resolveDataDir } from "./paths";
+import { Questions } from "./questions";
 import { MainSessions } from "./sessions";
 import { Store } from "./store";
 import { SubSessions } from "./sub-sessions";
@@ -65,17 +67,47 @@ export async function startSquadServer(
   // be changed while squad runs, and the next alert must go to the new one.
   const alerts = new Alerts(store);
   const worktrees = new Worktrees(store, bus, dataDir);
-  const mainSessions = new MainSessions({ store, bus, launcher, mcpUrl });
-  const subSessions = new SubSessions({ store, bus, launcher, worktrees, alerts, mcpUrl });
-  const merges = new Merges({ store, bus, alerts, worktrees, launcher, subSessions, mcpUrl });
+  // Read late, like the address above: the sessions let go of what they were
+  // waiting on when they end, and the questions are held by a module that has
+  // to know the sessions to write on the right thread.
+  const asked = { abandonFor: (sessionId: string) => questions.abandonFor(sessionId) };
+  const stopped = { ticketStopped: (ticket: Ticket) => autonomy.ticketStopped(ticket) };
+  const mainSessions = new MainSessions({ store, bus, launcher, questions: asked, mcpUrl });
+  const subSessions = new SubSessions({
+    store,
+    bus,
+    launcher,
+    worktrees,
+    alerts,
+    questions: asked,
+    autonomy: stopped,
+    mcpUrl,
+  });
+  const autonomy = new Autonomy({ store, bus, alerts, subSessions });
+  const merges = new Merges({ store, bus, alerts, worktrees, launcher, subSessions, autonomy, mcpUrl });
   const validations = new Validations({ alerts, merges, subSessions });
+  const questions = new Questions({ store, bus, alerts, autonomy, mainSessions });
   // Before anything is served: a ticket the previous run left saying `running`
   // has no process behind it any more, and no client should ever be handed a
-  // state squad already knows to be false.
+  // state squad already knows to be false. The questions of that run go the
+  // same way: the session that asked them is gone, so an answer would reach
+  // nobody.
   const stranded = subSessions.markInterrupted();
+  questions.abandonInterrupted();
 
   const app = express();
-  app.use(buildApiRouter({ store, bus, mainSessions, subSessions, validations, merges }));
+  app.use(
+    buildApiRouter({
+      store,
+      bus,
+      mainSessions,
+      subSessions,
+      validations,
+      merges,
+      questions,
+      autonomy,
+    }),
+  );
   const ui = await mountUi(app, options.ui ?? "auto");
 
   const server = createServer(app);
@@ -87,12 +119,20 @@ export async function startSquadServer(
   // session a merge taken back may have to open.
   subSessions.takeBack(stranded);
   merges.resumeInterrupted();
+  // Watched last: what the previous run left behind is squad's own to take
+  // back, and a mode reading that churn would stop on a restart.
+  const unwatch = autonomy.watch();
 
   return {
     url: baseUrl,
     port: address.port,
     dataDir,
     async close() {
+      // Nothing more is driven, and nothing waits on an answer that will not
+      // come: a session about to be stopped may be blocked on a question, and
+      // the call that blocks it has to end before the process does.
+      unwatch();
+      questions.releaseAll();
       // The merges last: one of them may be waiting on a sub-session it closed,
       // and the database has to outlive the last line either of them writes.
       await Promise.all([mainSessions.stopAll(), subSessions.stopAll()]);

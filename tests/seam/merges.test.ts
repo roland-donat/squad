@@ -278,7 +278,7 @@ describe("validating, merging, checking and delivering", () => {
     expect(merged.worktree).toBeNull();
     // Nobody was woken: an empty sheet is a step nobody had to look at.
     expect(receiver.received()).toEqual([]);
-    expect(pendingActions([await scene.graph()])).toEqual([]);
+    expect(pendingActions([await scene.graph()], [])).toEqual([]);
   });
 
   it("renvoie un point non coché dans la sous-session, qui corrige et resignale", async () => {
@@ -499,10 +499,10 @@ describe("validating, merging, checking and delivering", () => {
     const alert = await receiver.next();
     expect(alert.text).toContain("L'API");
     expect(alert.text).toMatch(/conflit/i);
-    expect(pendingActions([await scene.graph()])).toContainEqual({
+    expect(pendingActions([await scene.graph()], [])).toContainEqual({
       featureId: scene.featureId,
       ticketId: conflicted.id,
-      ticketTitle: "L'API",
+      title: "L'API",
       reason: "conflict",
     });
   });

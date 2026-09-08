@@ -95,7 +95,12 @@ export async function createWorktree(request: WorktreeRequest): Promise<void> {
   );
 }
 
-async function branchExists(repositoryRoot: string, branch: string): Promise<boolean> {
+/**
+ * Whether a branch is there. Asked before a project is told to start its feature
+ * branches from one: a default branch that does not exist fails nowhere until
+ * the first feature is launched, and then fails as a git error nobody can read.
+ */
+export async function branchExists(repositoryRoot: string, branch: string): Promise<boolean> {
   try {
     await runCommand(repositoryRoot, "git", [
       "show-ref",

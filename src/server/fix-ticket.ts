@@ -34,6 +34,10 @@ export function fixTicketFor(
     acceptanceCriteria: [`La commande \`${command}\` repasse au vert sur la branche de feature.`],
     blockedBy: [],
     blocks: notStarted(graph),
+    // One generation deeper than what broke the branch: a check that comes back
+    // red on the correction of a correction is a cascade, and the depth cap is
+    // what stops it from running all night on its own.
+    bornOf: merged.id,
   };
 }
 

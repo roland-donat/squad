@@ -129,11 +129,28 @@ _Éviter_ : PR, merge request, demande de tirage
 
 ## L'autonomie
 
+**Question** (`Question`) :
+Ce qu'un agent demande au développeur : un énoncé, au moins deux options, celle qu'il
+recommande, et un drapeau disant si la réponse change le périmètre. L'appel d'outil qui la
+pose ne rend la main qu'une fois la question répondue, ce qui fait de l'interface le lieu où
+elle se tranche, sans terminal ni second mécanisme. La réponse est libre : les options sont
+ce que l'agent a envisagé, et la réponse qu'il n'a pas envisagée est justement celle qui vaut
+d'être possible. Qui a répondu est consigné (`answeredBy`), le développeur ou squad.
+_Éviter_ : demande, prompt, sollicitation, interaction
+
 **Go-as-recommandé** (`goAsRecommended`) :
-Le mode où squad draine la frontière sans solliciter l'utilisateur et répond aux questions
-de l'agent par sa propre recommandation. Il s'interrompt sur une question structurante, un
-ticket de décision, un échec, ou un plafond atteint.
+Le mode, déclaré par feature, où squad lance seul ce que la frontière permet et répond aux
+questions d'implémentation par la recommandation de l'agent qui les pose. Il s'interrompt
+sur une question structurante, sur un plafond de profondeur atteint, et, dès lors qu'il n'a
+plus rien à lancer ni rien en vol, sur ce qui le bloque : un ticket de décision, un ticket
+arrêté ou en conflit. S'interrompre n'annule rien : ce qui tourne continue, et seul le
+développeur relance le mode.
 _Éviter_ : mode automatique, pilote automatique, sans surveillance
+
+**Interruption du mode** (`AutonomyHalt`) :
+Ce qui a arrêté le go-as-recommandé, écrit sur la feature : la raison et ce sur quoi il a
+buté. Le mode reste armé, et le réarmer est ce qui dit que la raison est traitée.
+_Éviter_ : pause, suspension, erreur
 
 **Question structurante** (`scopeChanging`) :
 Une question dont la réponse change ce qui est construit, par opposition à comment
@@ -155,7 +172,10 @@ Une reprise passe avant un premier lancement, le travail étant déjà sur sa br
 
 **Plafond de profondeur** (`generationDepthCap`) :
 Le nombre maximal de générations successives de tickets engendrés automatiquement par
-les agents. Il borne la cascade, pas le nombre total de tickets.
+les agents. Il borne la cascade, pas le nombre total de tickets. Chaque ticket porte sa
+profondeur (`generation`) : zéro pour ce qu'écrit la session principale, une de plus que
+le ticket dont le travail l'a fait apparaître. L'atteindre suspend le drain et alerte ;
+le ticket est écrit quand même et rien de ce qui tourne n'est annulé.
 
 ## Relations
 
@@ -172,6 +192,10 @@ les agents. Il borne la cascade, pas le nombre total de tickets.
   viennent d'un ticket ou d'une **feature drainée**.
 - Une **feature drainée** part en **pull request** ; un conflit ouvre une **session de
   résolution** avant de retenter, et un conflit qui persiste arrête le ticket.
+- Une **question** est posée par une session, sur son ticket pour une sous-session, sur la
+  feature pour la session principale. En **go-as-recommandé**, une question d'implémentation
+  reçoit la recommandation de l'agent ; une **question structurante** interrompt le mode et
+  attend le développeur.
 
 ## Ambiguïtés levées
 

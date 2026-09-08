@@ -10,6 +10,12 @@ export interface MainSessionDependencies {
   store: Store;
   bus: EventBus;
   launcher: AgentLauncher;
+  /**
+   * What a session was waiting on, declared by what is needed of it: a session
+   * that has ended cannot read an answer, so its question is let go of rather
+   * than left in front of the developer.
+   */
+  questions: { abandonFor(sessionId: string): void };
   /** Resolved late: squad only knows its own address once it is listening. */
   mcpUrl: () => string;
 }
@@ -40,6 +46,15 @@ export class MainSessions {
       featureId,
       sessionId: session.id,
     }));
+  }
+
+  /**
+   * The session holding a feature's main thread, or null when none is open. It
+   * is what a question asked outside any ticket is written on: squad names the
+   * session itself rather than taking one from whoever calls.
+   */
+  sessionIdOf(featureId: string): string | null {
+    return this.running.get(featureId)?.id ?? null;
   }
 
   async start(featureId: string, prompt?: string): Promise<AgentSession> {
@@ -107,6 +122,9 @@ export class MainSessions {
       this.append(featureId, session.id, line),
     );
     this.running.delete(featureId);
+    // A question this session was blocked on has nobody left to hear its
+    // answer: it is let go of rather than left waiting on the developer.
+    this.dependencies.questions.abandonFor(session.id);
     // Why the thread went quiet, on the thread itself. Without it the interface
     // only shows a session that is no longer running, and a launcher that could
     // not start at all reads exactly like one that finished its work: the

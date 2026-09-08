@@ -23,6 +23,18 @@ export interface SubSessionDependencies {
   launcher: AgentLauncher;
   worktrees: Worktrees;
   alerts: Alerts;
+  /**
+   * What a session was waiting on, declared by what is needed of it: a session
+   * that has ended cannot read an answer, so its question is let go of rather
+   * than left in front of the developer.
+   */
+  questions: { abandonFor(sessionId: string): void };
+  /**
+   * What go-as-recommended does with a ticket that stopped, declared by what is
+   * needed of it: a run nobody is watching must not carry on launching onto a
+   * feature somebody has to look at.
+   */
+  autonomy: { ticketStopped(ticket: Ticket): void };
   /** Resolved late: squad only knows its own address once it is listening. */
   mcpUrl: () => string;
 }
@@ -417,6 +429,9 @@ export class SubSessions {
   private async drain(ticket: Ticket, session: AgentSession): Promise<void> {
     const ending = await drainSession(session, (line) => this.append(ticket, session.id, line));
     this.running.delete(ticket.id);
+    // Before anything else is recorded: a question this session was blocked on
+    // has nobody left to hear its answer, whatever the ending was.
+    this.dependencies.questions.abandonFor(session.id);
     await this.recordEnd(ticket, session.id, ending.outcome, ending.detail);
     // Whatever the ending was, the place this session held may be free again,
     // and the launch that has waited longest for it goes now.
@@ -521,9 +536,12 @@ export class SubSessions {
 
   /** Marks a ticket stopped, tells whoever is watching, and alerts. */
   private stop(ticket: Ticket, alert: Alert): void {
-    this.dependencies.store.failStep(ticket.id);
+    const stopped = this.dependencies.store.failStep(ticket.id);
     this.publishGraph(ticket.featureId);
     this.dependencies.alerts.raise(alert);
+    // After the alert, since this raises one of its own: the developer is told
+    // what stopped, and then that the night stopped with it.
+    this.dependencies.autonomy.ticketStopped(stopped);
   }
 
   private append(ticket: Ticket, sessionId: string, line: ThreadLine): void {

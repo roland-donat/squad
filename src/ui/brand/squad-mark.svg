@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" color="#3d6ca8" role="img" aria-labelledby="squad-title">
+  <title id="squad-title">squad</title>
+  <path d="M32 10L10 32 M32 10L54 32 M10 32L32 54 M54 32L32 54" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="32" cy="10" r="9.5" fill="currentColor"/>
+  <circle cx="10" cy="32" r="9.5" fill="currentColor"/>
+  <circle cx="32" cy="54" r="9.5" fill="currentColor"/>
+  <circle cx="54" cy="32" r="9.5" style="fill: var(--attention, #e2701c)"/>
+</svg>

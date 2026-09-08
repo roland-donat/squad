@@ -37,3 +37,6 @@ test-results/
 playwright-report/
 # Captures et instantanés du navigateur piloté par MCP
 .playwright-mcp/
+
+# Rapport JSON produit par le proxy rtk autour de vitest.
+.vitest/

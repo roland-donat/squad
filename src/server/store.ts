@@ -1413,6 +1413,7 @@ export class Store {
       desktopNotifications: row?.desktopNotifications ?? true,
       machineConcurrencyCap: row?.machineConcurrencyCap ?? defaultConcurrencyCaps.machine,
       generationDepthCap: row?.generationDepthCap ?? defaultGenerationDepthCap,
+      theme: row?.theme ?? "system",
     };
   }
 

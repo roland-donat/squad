@@ -128,12 +128,14 @@ feature ou ce ticket : elle se lit sur un téléphone, et son seul geste utile e
 ce qu'elle rapporte.
 _Éviter_ : notification (le mot désigne un seul des deux canaux)
 
-**En attente de moi** (`PendingAction`) :
-Ce qui attend une action du développeur, toutes features confondues : une fiche de tests
-non passée en revue, une décision à trancher, une sous-session arrêtée ou interrompue.
-Déduit du graphe et jamais stocké, de sorte qu'une attente qui se résout quitte la liste
-sans écriture.
-_Éviter_ : file d'attente, todo, notifications
+**Actions en attente** (`PendingAction`) :
+Ce qui attend une action **du développeur**, toutes features confondues : une fiche de
+tests non passée en revue, une décision à trancher, une sous-session arrêtée ou
+interrompue. Ce ne sont pas les tickets que squad n'a pas encore lancés : un ticket
+qu'une arête de blocage retient attend une fusion, pas une personne, et ne figure donc
+pas ici. Déduit du graphe et jamais stocké, de sorte qu'une attente qui se résout quitte
+la liste sans écriture.
+_Éviter_ : file d'attente, todo, notifications, tickets en attente
 
 **Vérification d'intégration** (`IntegrationCheck`) :
 La passe de typage et de tests lancée sur la branche de feature après chaque fusion de

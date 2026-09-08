@@ -3,10 +3,27 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="./brand/squad-mark.svg" />
     <title>squad</title>
+    <script>
+      // The theme in force, applied before anything is painted. It lives in the
+      // base like every other setting and arrives on the event stream, which is
+      // one round trip too late to paint with: this reads a copy of what was
+      // last in force, so a reload does not flash the wrong ground. It holds no
+      // truth of its own, and an unreadable store just means the browser's own
+      // setting decides, which is the default anyway.
+      try {
+        const forced = localStorage.getItem("squad.theme");
+        if (forced === "light" || forced === "dark") {
+          document.documentElement.dataset.theme = forced;
+        }
+      } catch {
+        /* private mode, or storage turned off: the system setting decides. */
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/main.tsx"></script>
+    <script type="module" src="./main.tsx"></script>
   </body>
 </html>

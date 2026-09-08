@@ -1,4 +1,6 @@
-# squad
+<img src="src/ui/brand/squad-lockup.svg" alt="squad" width="216" />
+
+**SQUAD is Shut up, Queue up, Unblock, Assemble, Deliver.**
 
 Poste de pilotage local pour agents claude-code. Squad détient le plan d'exécution
 d'une feature sous forme de graphe, lance les sessions qui construisent chaque

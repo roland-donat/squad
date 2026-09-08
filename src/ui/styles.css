@@ -1,33 +1,81 @@
 /*
- * Sober control-room look: one accent, a lot of quiet. The interface will grow a
- * graph and session threads, so the palette stays out of the way on purpose.
+ * Sober control-room look: one accent, a lot of quiet. The palette is
+ * EdgeMind's, and each brand colour carries one meaning across both themes
+ * while changing its value: EMBlue reads at 10.3:1 on white but 1.7:1 on the
+ * dark ground, EMOrange at 6.2:1 on the dark ground but 2.8:1 on white. Keeping
+ * the meaning and moving the value is the way round that stays legible; the
+ * reverse, swapping roles between themes, would make the same colour mean two
+ * things.
  */
-:root {
-  --ink: #0f1420;
-  --ink-soft: #5a6478;
-  --surface: #ffffff;
-  --surface-sunken: #f4f6fa;
-  --line: #dfe4ee;
-  --accent: #2f6dd0;
-  --accent-soft: #e8f0fd;
-  --danger: #b4283c;
-  --decision: #a06a06;
-  --radius: 10px;
-  color-scheme: light dark;
+
+/*
+ * Open Sans, the EdgeMind face, carried rather than borrowed from the machine:
+ * declaring it without shipping it falls back to system-ui without a word. Two
+ * weights are all the interface uses, and no italic. Rebuilt from the EdgeMind
+ * TTF with, per weight:
+ *   uvx --from fonttools --with brotli pyftsubset OpenSans-Regular.ttf \
+ *     --unicodes="U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,\
+ *     U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,\
+ *     U+2193,U+2212,U+2215,U+FEFF,U+FFFD" \
+ *     --layout-features='kern,liga,clig,calt' --flavor=woff2 \
+ *     --output-file=src/ui/fonts/open-sans-400.woff2
+ */
+@font-face {
+  font-family: "Open Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/open-sans-400.woff2") format("woff2");
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ink: #e8ecf4;
-    --ink-soft: #98a3b8;
-    --surface: #151a24;
-    --surface-sunken: #1d2431;
-    --line: #2c3444;
-    --accent: #6ea3f5;
-    --accent-soft: #1e2c44;
-    --danger: #f08a98;
-    --decision: #d8a33a;
-  }
+@font-face {
+  font-family: "Open Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./fonts/open-sans-600.woff2") format("woff2");
+}
+
+:root {
+  /*
+   * One line per token, the light value then the dark: the pair is the point,
+   * and `light-dark()` reads whichever the `color-scheme` in force names. The
+   * theme switch below is then the only thing that has to change, and no token
+   * can be given a value in one theme and forgotten in the other.
+   */
+  color-scheme: light dark;
+  --ink: light-dark(#0f1420, #e8ecf4);
+  --ink-soft: light-dark(#56637a, #98a3b8);
+  --surface: light-dark(#ffffff, #151a24);
+  --surface-sunken: light-dark(#eef2f8, #1d2431);
+  --line: light-dark(#c9d4e6, #2c3444);
+  /* EMBlue, and a lightened EMBlue of the same hue that holds at 6.1:1. */
+  --accent: light-dark(#1f416d, #6f9bd8);
+  --accent-soft: light-dark(#e6ecf4, #1e2c44);
+  /* EMRed. */
+  --danger: light-dark(#a10010, #f08a98);
+  /*
+   * EMOrange, and the only warm colour of the interface: it marks the one thing
+   * that obliges the developer to look up, whatever it is waiting on them for.
+   * Darkened on the light ground, where EMOrange itself reads at 2.8:1.
+   */
+  --attention: light-dark(#b0550f, #ef7b26);
+  --radius: 10px;
+}
+
+/*
+ * The two states the switch forces, `system` being the absence of the
+ * attribute: nothing chosen is nothing written, so the browser keeps deciding
+ * and keeps deciding when it changes. Everything else follows from
+ * `color-scheme`, which drives `light-dark()` above and the native controls
+ * alike.
+ */
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 * {
@@ -56,22 +104,93 @@ body {
 
 .app__header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
   margin-bottom: 2rem;
 }
 
-.app__header h1 {
-  margin: 0;
-  font-size: 1.7rem;
-  letter-spacing: -0.02em;
+/*
+ * The lockup carries the name, so the heading beside it is there for what reads
+ * the page rather than for what looks at it. One file serves the header, the
+ * favicon and the README: its blue is `currentColor`, so it takes the accent of
+ * whichever theme is in force without a second drawing to keep in step.
+ */
+.brand {
+  display: flex;
+  color: var(--accent);
+}
+
+.brand svg {
+  display: block;
+  height: 2rem;
+  width: auto;
 }
 
 .app__header p {
   margin: 0;
   color: var(--ink-soft);
   flex: 1;
+}
+
+/*
+ * Said to a screen reader and to nothing else. Not `display: none`, which would
+ * take it out of the accessibility tree along with everything else.
+ */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+ * Which ground the interface is drawn on, in the header rather than on the
+ * settings screen: one notices a theme is wrong while looking at something
+ * else, and having to navigate to fix it is the whole friction. Three native
+ * radios, so the arrow keys work without a line of ARIA.
+ */
+.theme {
+  display: inline-flex;
+  gap: 0.15rem;
+  margin: 0;
+  padding: 0.15rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.theme__option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.theme__option span {
+  display: block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.theme__option input:checked + span {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Focus is drawn on the label, the radio itself being invisible. */
+.theme__option input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .badge {
@@ -145,12 +264,13 @@ body {
   padding: 1.25rem;
 }
 
+/* Titles in the accent, as EdgeMind sets them in its documents. */
 .panel h2 {
   margin: 0 0 1rem;
   font-size: 1rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--ink-soft);
+  color: var(--accent);
 }
 
 .panel__context {
@@ -340,7 +460,7 @@ button[disabled] {
 
 .node[data-kind="decision"] {
   border-left-style: dashed;
-  border-left-color: var(--decision);
+  border-left-color: var(--attention);
 }
 
 .node[data-kind="fix"] {
@@ -464,18 +584,19 @@ button[disabled] {
 
 /*
  * A reported step waits for a person too, but for a reading rather than for a
- * choice: it borrows the decision's colour, since both are the developer's turn.
+ * choice. Same colour as a decision, and that is the point: the colour names
+ * the developer's turn, not which kind of turn it is.
  */
 .node[data-state="awaiting-validation"] {
-  border-top-color: var(--decision);
-  border-right-color: var(--decision);
-  border-bottom-color: var(--decision);
+  border-top-color: var(--attention);
+  border-right-color: var(--attention);
+  border-bottom-color: var(--attention);
   box-shadow: 0 0 0 3px var(--surface-sunken);
 }
 
 .node[data-state="awaiting-validation"] .chip--state {
-  border-color: var(--decision);
-  color: var(--decision);
+  border-color: var(--attention);
+  color: var(--attention);
   font-weight: 600;
 }
 
@@ -484,14 +605,14 @@ button[disabled] {
  * nor greyed out like something blocked: it is the one node asking to be read.
  */
 .node[data-state="awaiting-decision"] {
-  border-top-color: var(--decision);
-  border-right-color: var(--decision);
-  border-bottom-color: var(--decision);
+  border-top-color: var(--attention);
+  border-right-color: var(--attention);
+  border-bottom-color: var(--attention);
 }
 
 .node[data-state="awaiting-decision"] .chip--state {
-  border-color: var(--decision);
-  color: var(--decision);
+  border-color: var(--attention);
+  color: var(--attention);
   font-weight: 600;
 }
 
@@ -667,7 +788,7 @@ button[disabled] {
  * looking for it.
  */
 .panel--waiting {
-  border-left: 5px solid var(--decision);
+  border-left: 5px solid var(--attention);
 }
 
 /* In a narrow column: one waiting thing per line, read top to bottom. */
@@ -797,8 +918,8 @@ button[disabled] {
 /* What is at stake, said on the question itself: the perimeter never moves
    without the developer, whatever the mode. */
 .chip--scope {
-  border-color: var(--decision);
-  color: var(--decision);
+  border-color: var(--attention);
+  color: var(--attention);
 }
 
 /*

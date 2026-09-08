@@ -54,6 +54,7 @@ export function useSquadState(): SquadState {
       desktopNotifications: true,
       machineConcurrencyCap: defaultConcurrencyCaps.machine,
       generationDepthCap: defaultGenerationDepthCap,
+      theme: "system",
     },
     connected: false,
     loaded: false,

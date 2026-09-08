@@ -206,6 +206,7 @@ src/server/command.ts      # lancer un outil en ligne de commande et rapporter c
 src/server/pull-request.ts # la description d'une pull request, écrite depuis le graphe
 src/server/fix-ticket.ts   # le ticket qu'écrit une vérification d'intégration rouge
 src/ui/                    # interface React servie par le serveur
+src/ui/route.ts            # l'adresse : ce qui est regardé, tenu dans l'URL
 src/ui/graph/              # disposition en couches et rendu du graphe
 src/ui/question/           # une question d'agent, ses options et sa réponse
 src/ui/settings/           # l'écran de réglages, machine et projets
@@ -232,6 +233,22 @@ le checkout principal ne quitte jamais la branche par défaut. La branche et le
 chemin sont **écrits sur la ligne** du dépôt porté et du ticket, pas recalculés
 depuis leur titre : un ticket renommé demain doit retrouver le worktree qu'il a
 ouvert aujourd'hui.
+
+### La sélection vit dans l'adresse
+
+Le projet regardé, la feature ouverte et le ticket ouvert sont dans l'URL,
+`/projects/<projet>/features/<feature>/tickets/<ticket>`, et l'écran de réglages
+sous `/settings`. Trois propriétés en découlent, qu'aucun état de composant ne
+donne : un rechargement retrouve ce qui était regardé, deux onglets suivent deux
+projets à la fois, et ce qui attend une action peut être désigné par un lien.
+Les segments sont en anglais comme les routes de l'API, une adresse étant un
+identifiant technique.
+
+L'adresse est corrigée, jamais subie : ce qui est montré sans être nommé (le
+premier projet, à l'ouverture) se fait nommer, et ce qui est nommé sans exister
+(une feature supprimée, un lien venu d'une autre base) cesse d'être revendiqué.
+La correction attend le premier instantané du flux d'événements, sans quoi elle
+effacerait un lien avant que squad ait dit ce qu'il détient.
 
 ### Le stockage de claude-code, lu et jamais écrit
 

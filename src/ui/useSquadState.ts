@@ -25,6 +25,13 @@ export interface SquadState {
   /** What squad is configured with, as the settings screen edits it. */
   settings: Settings;
   connected: boolean;
+  /**
+   * Whether the first snapshot has arrived. Before it, squad has said nothing
+   * of what it holds, so an address naming a feature is indistinguishable from
+   * one naming a feature that no longer exists: what reads the state to correct
+   * the address waits for this.
+   */
+  loaded: boolean;
 }
 
 /**
@@ -49,6 +56,7 @@ export function useSquadState(): SquadState {
       generationDepthCap: defaultGenerationDepthCap,
     },
     connected: false,
+    loaded: false,
   });
 
   useEffect(() => {
@@ -121,6 +129,7 @@ function apply(state: SquadState, event: SquadEvent): SquadState {
         questions: event.questions,
         mainSessions: event.mainSessions,
         settings: event.settings,
+        loaded: true,
       };
     case "project-registered":
       return { ...state, projects: [...state.projects, event.project] };

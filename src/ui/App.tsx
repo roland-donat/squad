@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AutonomyHaltReason, Feature, Project } from "../shared/api";
 import { pendingActions, type PendingAction, type PendingReason } from "../shared/pending";
 import { openFeature, registerProject, setGoAsRecommended } from "./api";
 import { FeatureGraphView } from "./graph/FeatureGraphView";
+import { navigate, piloting, useRoute, type PilotingRoute } from "./route";
 import { Failure, useSubmission } from "./submission";
 import { MainSessionView } from "./session/MainSessionView";
 import { RecordedSessions } from "./session/RecordedSessions";
@@ -21,22 +22,53 @@ import {
 export function App() {
   const state = useSquadState();
   const { projects, features, connected } = state;
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [openFeatureId, setOpenFeatureId] = useState<string | null>(null);
-  const [openTicketId, setOpenTicketId] = useState<string | null>(null);
+  // The selection is the address (`route.ts`): what is watched is therefore
+  // linkable, survives a reload, and differs from one tab to the next.
+  const route = useRoute();
   // Which of the two screens is up. Squad is one page: piloting is what it is
   // for, and the settings are what it is configured with, so they take the
   // place of the panels rather than sitting among them.
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const selected = projects.find((project) => project.id === selectedId) ?? projects[0] ?? null;
+  const settingsOpen = route.screen === "settings";
+  // Where leaving the settings goes back to. Their address carries no
+  // selection, being a screen of its own, so without this the feature being
+  // watched would be dropped on the way there and back.
+  const lastPiloting = useRef<PilotingRoute>(piloting());
+  if (route.screen === "piloting") lastPiloting.current = route;
+  const selection = route.screen === "piloting" ? route : lastPiloting.current;
+
+  const selected =
+    projects.find((project) => project.id === selection.projectId) ?? projects[0] ?? null;
   const featuresOfProject = features.filter((feature) => feature.projectId === selected?.id);
   const openedFeature =
-    featuresOfProject.find((feature) => feature.id === openFeatureId) ?? featuresOfProject[0] ?? null;
+    featuresOfProject.find((feature) => feature.id === selection.featureId) ??
+    featuresOfProject[0] ??
+    null;
   const graph = openedFeature ? graphOf(state, openedFeature.id) : null;
   // Read back from the graph at every render rather than held in state: a ticket
   // that changes state while its panel is open must show the change, and the
   // panel must close itself if the ticket leaves the feature being watched.
-  const openedTicket = graph?.tickets.find((ticket) => ticket.id === openTicketId) ?? null;
+  const openedTicket = graph?.tickets.find((ticket) => ticket.id === selection.ticketId) ?? null;
+
+  // The address always says what is on screen: what was shown without being
+  // named gets named, and what is named without existing any more stops being
+  // claimed. Replaced rather than pushed, since the developer did not make this
+  // move and has no step here to walk back to. Held until the first snapshot,
+  // because everything is unknown while squad has said nothing, and correcting
+  // then would erase a link before it could be honoured.
+  const shownProjectId = selected?.id ?? null;
+  const shownFeatureId = openedFeature?.id ?? null;
+  const shownTicketId = openedTicket?.id ?? null;
+  useEffect(() => {
+    if (!state.loaded || route.screen !== "piloting") return;
+    navigate(
+      piloting({
+        projectId: shownProjectId,
+        featureId: shownFeatureId,
+        ticketId: shownTicketId,
+      }),
+      { replace: true },
+    );
+  }, [state.loaded, route.screen, shownProjectId, shownFeatureId, shownTicketId]);
   // The repositories the opened feature carries, named: the graph and the
   // ticket panel say which one a ticket is built in, and both read this.
   const repositoryNames = new Map(
@@ -49,12 +81,16 @@ export function App() {
   /** Opens what an entry of the indicator points at, wherever it lives. */
   function open(action: PendingAction) {
     const feature = features.find((each) => each.id === action.featureId);
-    if (feature) setSelectedId(feature.projectId);
-    setSettingsOpen(false);
-    setOpenFeatureId(action.featureId);
-    // Null on a question the main session asked: it hangs on no ticket, and the
-    // thread to answer it in is the feature's own.
-    setOpenTicketId(action.ticketId);
+    if (!feature) return;
+    navigate(
+      piloting({
+        projectId: feature.projectId,
+        featureId: feature.id,
+        // Null on a question the main session asked: it hangs on no ticket, and
+        // the thread to answer it in is the feature's own.
+        ticketId: action.ticketId,
+      }),
+    );
   }
 
   return (
@@ -65,7 +101,11 @@ export function App() {
         <span className={connected ? "badge badge--live" : "badge"}>
           {connected ? "connecté" : "hors ligne"}
         </span>
-        <button type="button" className="link" onClick={() => setSettingsOpen(!settingsOpen)}>
+        <button
+          type="button"
+          className="link"
+          onClick={() => navigate(settingsOpen ? lastPiloting.current : { screen: "settings" })}
+        >
           {settingsOpen ? "revenir au pilotage" : "réglages"}
         </button>
       </header>
@@ -84,11 +124,9 @@ export function App() {
         // already done at the terminal.
         <RecordedSessions
           projects={projects}
-          onAttached={(feature) => {
-            setSelectedId(feature.projectId);
-            setOpenFeatureId(feature.id);
-            setOpenTicketId(null);
-          }}
+          onAttached={(feature) =>
+            navigate(piloting({ projectId: feature.projectId, featureId: feature.id }))
+          }
         />
       )}
 
@@ -102,7 +140,7 @@ export function App() {
                 <button
                   type="button"
                   className={project.id === selected?.id ? "row row--selected" : "row"}
-                  onClick={() => setSelectedId(project.id)}
+                  onClick={() => navigate(piloting({ projectId: project.id }))}
                   aria-current={project.id === selected?.id}
                 >
                   <span className="row__title">{project.name}</span>
@@ -124,7 +162,7 @@ export function App() {
               projects={projects}
               features={featuresOfProject}
               openedId={openedFeature?.id ?? null}
-              onOpen={setOpenFeatureId}
+              onOpen={(featureId) => navigate(piloting({ projectId: selected.id, featureId }))}
             />
           ) : (
             <p className="empty">Enregistrer un projet pour y ouvrir une feature.</p>
@@ -172,7 +210,15 @@ export function App() {
                 graph={graph}
                 repositoryNames={repositoryNames}
                 selectedId={openedTicket?.id ?? null}
-                onSelect={setOpenTicketId}
+                onSelect={(ticketId) =>
+                  navigate(
+                    piloting({
+                      projectId: shownProjectId,
+                      featureId: shownFeatureId,
+                      ticketId,
+                    }),
+                  )
+                }
               />
             </>
           ) : (
@@ -192,7 +238,9 @@ export function App() {
                   ? (repositoryNames.get(openedTicket.projectId) ?? null)
                   : null
               }
-              onClose={() => setOpenTicketId(null)}
+              onClose={() =>
+                navigate(piloting({ projectId: shownProjectId, featureId: shownFeatureId }))
+              }
             />
           </section>
         ) : (

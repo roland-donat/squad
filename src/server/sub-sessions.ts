@@ -1,6 +1,8 @@
 import type { AgentSessionOutcome, LaunchAngle, Ticket, TicketState } from "../shared/api";
 import { isResumable, type TicketLifecycle } from "../shared/graph";
+import { failedPoints } from "../shared/validation";
 import {
+  correctionInstruction,
   resumeInstruction,
   stepReportDemand,
   subSessionBriefing,
@@ -35,6 +37,7 @@ export interface SubSessionDependencies {
 type Opening =
   | { kind: "assign" }
   | { kind: "resume"; sessionId: string; angle: LaunchAngle; after: TicketLifecycle }
+  | { kind: "correct"; sessionId: string }
   | { kind: "remind"; sessionId: string };
 
 /**
@@ -67,8 +70,14 @@ export class SubSessions {
   private readonly opening = new Map<string, Promise<void>>();
   // Held so shutdown can wait for them: a drain still writing when the database
   // closes loses the last thing the session had to say, which is exactly the
-  // line worth keeping when a session died rather than finished.
-  private readonly draining = new Set<Promise<void>>();
+  // line worth keeping when a session died rather than finished. Keyed by
+  // ticket, because closing one session means waiting for that one's last line
+  // and no other's.
+  private readonly drains = new Map<string, Promise<void>>();
+  // Sub-sessions squad is ending itself, because their step was validated and
+  // their branch is about to be merged. Their ending is not a failure and not a
+  // silence to chase: it is squad having no more use for them.
+  private readonly closing = new Set<string>();
   // Tickets squad has already asked once to report a step they ended without
   // reporting. Asking again forever would be a loop, so the second silent ending
   // is read as a failure. In memory on purpose: it is about this run's chain of
@@ -184,14 +193,20 @@ export class SubSessions {
     ticket: Ticket,
     request: { angle: LaunchAngle; lifecycle: TicketLifecycle },
   ): Opening {
-    return isResumable(request.lifecycle) && ticket.sessionId !== null
-      ? {
-          kind: "resume",
-          sessionId: ticket.sessionId,
-          angle: request.angle,
-          after: request.lifecycle,
-        }
-      : { kind: "assign" };
+    if (ticket.sessionId === null) return { kind: "assign" };
+    // A sheet holding points the developer left unchecked is a correction owed,
+    // whatever else happened to the ticket since. Read here rather than written
+    // on the launch: the sheet is where that fact lives, and a second place to
+    // write it down is a second place for it to be wrong.
+    if (request.angle === "implement" && failedPoints(ticket.stepReport).length > 0) {
+      return { kind: "correct", sessionId: ticket.sessionId };
+    }
+    return {
+      kind: "resume",
+      sessionId: ticket.sessionId,
+      angle: request.angle,
+      after: request.lifecycle,
+    };
   }
 
   /**
@@ -277,7 +292,79 @@ export class SubSessions {
     // after this method has already stopped everything it could see.
     await Promise.all([...this.opening.values()]);
     await Promise.all([...this.running.values()].map((session) => session.stop()));
-    await Promise.all([...this.draining]);
+    await Promise.all([...this.drains.values()]);
+  }
+
+  /**
+   * Ends the sub-session of a ticket whose step was validated, and waits for its
+   * last line to be written. Waited for rather than asked and forgotten: what
+   * comes next removes the worktree this session is working in, and a process
+   * still writing there would have the ground pulled from under it.
+   *
+   * A session that already ended by itself is the ordinary case, and there is
+   * nothing to do about it: a sub-session reports its step and stays available
+   * only until something ends it, and squad ending it is what validation means.
+   */
+  async close(ticketId: string): Promise<void> {
+    const session = this.running.get(ticketId);
+    if (session === undefined) return;
+    this.closing.add(ticketId);
+    const drained = this.drains.get(ticketId);
+    await session.stop();
+    await drained;
+    this.closing.delete(ticketId);
+  }
+
+  /**
+   * Hands a rejected test sheet back to the sub-session that reported it. The
+   * session is normally still there, since a sub-session stays available after
+   * reporting for exactly this; when it is not, the correction queues like any
+   * other launch and takes that same session back when a place frees up.
+   *
+   * Either way the ticket goes back to being a step in progress, which is what
+   * lets it report its end again: a step ends one way in squad, and a correction
+   * is a step.
+   */
+  async correct(ticket: Ticket): Promise<void> {
+    const { store } = this.dependencies;
+    const report = ticket.stepReport;
+    if (report === null) return;
+    const session = this.running.get(ticket.id);
+    if (session === undefined) {
+      // The angle the developer may ask for, and the only one squad asks for
+      // itself: what makes this opening a correction is the sheet on the
+      // ticket, which the opening reads for itself.
+      store.queueLaunch(ticket.id, "implement");
+      this.publishGraph(ticket.featureId);
+      this.schedule();
+      return;
+    }
+
+    const message = correctionInstruction(ticket, report);
+    this.publishGraph(store.reopenStep(ticket.id).featureId);
+    this.append(ticket, session.id, { kind: "pilot", text: message });
+    try {
+      await session.send(message);
+    } catch (failure) {
+      // The session is open and its place is taken: a correction that could not
+      // be handed over is this session's ending, not a correction that never
+      // happened. Stopping it lets the drain record that ending, and the
+      // developer takes the ticket back from where it stops.
+      this.append(ticket, session.id, {
+        kind: "notice",
+        text: "squad could not hand the sub-session what it is to correct",
+        detail: failure instanceof Error ? failure.message : String(failure),
+      });
+      await session.stop();
+    }
+  }
+
+  /** Holds a drain so a close and a shutdown can both wait for it. */
+  private hold(ticketId: string, drained: Promise<void>): void {
+    this.drains.set(ticketId, drained);
+    void drained.then(() => {
+      if (this.drains.get(ticketId) === drained) this.drains.delete(ticketId);
+    });
   }
 
   private async open(ticket: Ticket, opening: Opening): Promise<AgentSession> {
@@ -304,9 +391,7 @@ export class SubSessions {
 
     // Drained before the first message goes in, so nothing the session says on
     // its way up can be emitted into an audience that is not listening yet.
-    const drained = this.drain(ticket, session);
-    this.draining.add(drained);
-    void drained.then(() => this.draining.delete(drained));
+    this.hold(ticket.id, this.drain(ticket, session));
 
     const message = firstMessage(ticket, opening);
     // Written on the thread before it is handed over, so what the session was
@@ -354,6 +439,14 @@ export class SubSessions {
     detail: string | undefined,
   ): Promise<void> {
     const { store } = this.dependencies;
+    if (this.closing.has(ticket.id)) {
+      this.append(ticket, sessionId, {
+        kind: "notice",
+        text: "the sub-session was closed",
+        detail: "its step was validated: squad is merging its branch",
+      });
+      return;
+    }
     if (this.stopping) {
       this.append(ticket, sessionId, {
         kind: "notice",
@@ -451,6 +544,12 @@ function firstMessage(ticket: Ticket, opening: Opening): string {
       return ticketAssignment(ticket);
     case "resume":
       return resumeInstruction(opening.angle, whyResumed(opening.after));
+    case "correct":
+      // Reached only with a report on the ticket: what makes an opening a
+      // correction is that report holding points left unchecked.
+      return ticket.stepReport === null
+        ? stepReportDemand(ticket)
+        : correctionInstruction(ticket, ticket.stepReport);
     case "remind":
       return stepReportDemand(ticket);
   }
@@ -458,7 +557,9 @@ function firstMessage(ticket: Ticket, opening: Opening): string {
 
 /** Why squad is taking a session back, said in the message that resumes it. */
 function whyResumed(lifecycle: TicketLifecycle): string {
-  return lifecycle === "interrupted"
-    ? "the server restarted while you were working."
-    : "the previous attempt stopped without finishing.";
+  if (lifecycle === "interrupted") return "the server restarted while you were working.";
+  if (lifecycle === "conflict") {
+    return "merging your branch into the feature branch conflicted, and the resolution session did not settle it.";
+  }
+  return "the previous attempt stopped without finishing.";
 }

@@ -2,9 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { RequestHandler } from "express";
 import { z } from "zod";
+import type { Ticket } from "../shared/api";
 import { ticketKinds } from "../shared/api";
-import { sheetIsWaiting } from "../shared/pending";
-import { alertFor, type Alerts } from "./alerts";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
 import type { Store } from "./store";
@@ -118,7 +117,12 @@ const readGraphShape = {
 export interface McpDependencies {
   store: Store;
   bus: EventBus;
-  alerts: Alerts;
+  /**
+   * What a reported step leads to: an alert on a sheet somebody has to read, a
+   * merge on a sheet with nothing on it. Declared by what is needed of it
+   * rather than by who provides it.
+   */
+  validations: { afterReport(ticket: Ticket): void };
   /**
    * What opens the sub-sessions the caps allow. Declared by what is needed of
    * it rather than by who provides it: a settled decision releases the tickets
@@ -145,7 +149,7 @@ export function buildMcpHandler(dependencies: McpDependencies): RequestHandler {
   };
 }
 
-function buildMcpServer({ store, bus, alerts, subSessions }: McpDependencies): McpServer {
+function buildMcpServer({ store, bus, validations, subSessions }: McpDependencies): McpServer {
   const server = new McpServer({ name: "squad", version: "0.1.0" });
 
   server.registerTool(
@@ -177,11 +181,9 @@ function buildMcpServer({ store, bus, alerts, subSessions }: McpDependencies): M
         const ticket = store.recordStepReport(input);
         bus.publish({ type: "graph-changed", graph: store.featureGraph(ticket.featureId) });
         // An empty sheet stops nothing: it says the criteria are all covered and
-        // there is nothing for a human to look at, so nobody is woken for it.
-        // The same rule decides what the indicator lists, and it lives in one place.
-        if (sheetIsWaiting(ticket.stepReport)) {
-          alerts.raise(alertFor.testSheetWaiting(ticket.title));
-        }
+        // there is nothing for a human to look at, so nobody is woken for it and
+        // the branch goes on to merge. What decides that lives in one place.
+        validations.afterReport(ticket);
         return ticket;
       }),
   );

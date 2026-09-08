@@ -199,7 +199,7 @@ describe("ending a step, its test sheet and its alerts", () => {
     ]);
   });
 
-  it("reports an empty sheet without waking anyone", async () => {
+  it("reports an empty sheet without waking anyone, and it goes on to merge", async () => {
     const alive = gate();
     const { featureId, stream, ticket } = await start(async (agent) => {
       await agent.awaitMessage();
@@ -218,11 +218,14 @@ describe("ending a step, its test sheet and its alerts", () => {
     const receiver = await catchAlerts();
 
     await squad.request("POST", ticketSessionRoute(ticket.id), {});
-    const waiting = await waitForState(stream, featureId, ticket.id, "awaiting-validation");
+    // Nothing to check by hand is nothing to stop for: the sheet is empty, and
+    // the ticket goes through validation without anyone touching it, which is
+    // what makes a run nobody watches mean something.
+    const merged = await waitForState(stream, featureId, ticket.id, "merged");
 
-    expect(reportOf(waiting).sheet).toEqual([]);
-    // Nothing to check by hand is nothing to stop for: no alert, and nothing in
-    // the list of what waits on the developer.
+    expect(reportOf(merged).sheet).toEqual([]);
+    // And nobody was woken: no alert, and nothing in the list of what waits on
+    // the developer.
     expect(pendingActions([await readGraph(featureId)])).toEqual([]);
     expect(receiver.received()).toEqual([]);
   });
@@ -249,7 +252,9 @@ describe("ending a step, its test sheet and its alerts", () => {
     });
 
     await squad.request("POST", ticketSessionRoute(ticket.id), {});
-    const waiting = await waitForState(stream, featureId, ticket.id, "awaiting-validation");
+    // The second report covers every criterion, so its sheet is empty and the
+    // ticket comes to rest merged rather than waiting for a reader.
+    const waiting = await waitForState(stream, featureId, ticket.id, "merged");
     expect(reportOf(waiting).summary).toContain("rapporté cette fois");
 
     // The same session, asked again: nothing failed, and the ticket was never

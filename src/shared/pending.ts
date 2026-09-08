@@ -1,4 +1,5 @@
-import type { FeatureGraph, StepReport, Ticket } from "./api";
+import type { FeatureGraph, Ticket } from "./api";
+import { sheetIsWaiting } from "./validation";
 
 /**
  * What is waiting on the developer, right now, across every feature. The rule
@@ -11,7 +12,13 @@ import type { FeatureGraph, StepReport, Ticket } from "./api";
  */
 
 /** Why a ticket is waiting, which is also what the developer has to do about it. */
-export const pendingReasons = ["validation", "decision", "failure", "interruption"] as const;
+export const pendingReasons = [
+  "validation",
+  "decision",
+  "failure",
+  "interruption",
+  "conflict",
+] as const;
 export type PendingReason = (typeof pendingReasons)[number];
 
 export interface PendingAction {
@@ -19,18 +26,6 @@ export interface PendingAction {
   ticketId: string;
   ticketTitle: string;
   reason: PendingReason;
-}
-
-/**
- * Whether a test sheet is still waiting on a human: it holds at least one point
- * nobody has been through. A sheet that came back empty asked for no hand check
- * at all, and one already gone through waits on squad rather than on its reader.
- *
- * The one place that question is answered. Squad raises an alert on it and the
- * indicator lists on it, and two spellings of the same rule would drift.
- */
-export function sheetIsWaiting(report: StepReport | null): boolean {
-  return report !== null && report.sheet.some((point) => point.verdict === "pending");
 }
 
 /** Whether a ticket is waiting on the developer, and why. */
@@ -44,6 +39,8 @@ function pendingActionOf(ticket: Ticket): PendingReason | null {
       return "failure";
     case "interrupted":
       return "interruption";
+    case "conflict":
+      return "conflict";
     default:
       return null;
   }

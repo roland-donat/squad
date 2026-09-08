@@ -35,6 +35,21 @@ export const alertFor = {
   subSessionNotOpened: (ticketTitle: string): Alert => ({
     text: `squad : la sous-session de « ${ticketTitle} » n'a pas pu être ouverte.`,
   }),
+  mergeConflicted: (ticketTitle: string): Alert => ({
+    text: `squad : la fusion de « ${ticketTitle} » est en conflit, et la session de résolution n'en est pas venue à bout.`,
+  }),
+  mergeFailed: (ticketTitle: string): Alert => ({
+    text: `squad : la branche de « ${ticketTitle} » n'a pas pu être fusionnée.`,
+  }),
+  integrationCheckFailed: (featureTitle: string): Alert => ({
+    text: `squad : la vérification d'intégration de « ${featureTitle} » est rouge ; un ticket de correction bloque la suite.`,
+  }),
+  pullRequestWaiting: (featureTitle: string, url: string): Alert => ({
+    text: `squad : « ${featureTitle} » est drainée et sa pull request attend votre relecture : ${url}`,
+  }),
+  featureNotDelivered: (featureTitle: string, why: string): Alert => ({
+    text: `squad : « ${featureTitle} » est drainée mais n'a pas pu partir en pull request : ${why}`,
+  }),
 };
 
 export class Alerts {

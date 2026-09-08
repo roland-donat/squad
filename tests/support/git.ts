@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -80,5 +80,70 @@ export async function isAncestor(
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Writes a file in a checkout and commits it, as a sub-session would. */
+export async function commitFile(
+  worktree: string,
+  name: string,
+  content: string,
+  message: string,
+): Promise<void> {
+  await writeFile(join(worktree, name), content);
+  await run("git", ["add", name], { cwd: worktree });
+  await run("git", ["commit", "-m", message], { cwd: worktree });
+}
+
+/**
+ * Merges a branch into whatever a checkout is on, and says whether it went
+ * through. What a conflict resolution session does by hand, done here in one
+ * line so a scripted one can play either side of it.
+ */
+export async function mergeInto(worktree: string, branch: string): Promise<boolean> {
+  try {
+    await run("git", ["merge", "--no-edit", branch], { cwd: worktree });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Resolves every conflicted path to the given content, and commits the merge. */
+export async function resolveConflictWith(worktree: string, content: string): Promise<void> {
+  const { stdout } = await run("git", ["diff", "--name-only", "--diff-filter=U"], { cwd: worktree });
+  for (const path of stdout.split("\n").filter((line) => line !== "")) {
+    await writeFile(join(worktree, path), content);
+    await run("git", ["add", path], { cwd: worktree });
+  }
+  await run("git", ["commit", "--no-edit"], { cwd: worktree });
+}
+
+/** A bare repository added to a repository as its `origin`, as a forge would be. */
+export async function addOrigin(repository: string): Promise<string> {
+  const remote = await mkdtemp(join(tmpdir(), "squad-remote-"));
+  created.add(remote);
+  await run("git", ["init", "--bare", "--initial-branch", "main"], { cwd: remote });
+  await run("git", ["remote", "add", "origin", remote], { cwd: repository });
+  return remote;
+}
+
+/** The subjects of a branch's commits, newest first: what a merge really did. */
+export async function commitSubjects(repository: string, branch: string): Promise<string[]> {
+  const { stdout } = await run("git", ["log", "--format=%s", branch], { cwd: repository });
+  return stdout.split("\n").filter((line) => line !== "");
+}
+
+/** The content of a file on a branch, or null when the branch does not hold it. */
+export async function fileOnBranch(
+  repository: string,
+  branch: string,
+  path: string,
+): Promise<string | null> {
+  try {
+    const { stdout } = await run("git", ["show", `${branch}:${path}`], { cwd: repository });
+    return stdout;
+  } catch {
+    return null;
   }
 }

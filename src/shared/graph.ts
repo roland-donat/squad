@@ -18,8 +18,10 @@ export const ticketLifecycles = [
   "unstarted",
   "running",
   "awaiting-validation",
+  "merging",
   "failed",
   "interrupted",
+  "conflict",
   "merged",
   "settled",
 ] as const;
@@ -29,14 +31,19 @@ export type TicketLifecycle = (typeof ticketLifecycles)[number];
  * Whether a ticket's sub-session is one squad can take back: it stopped, its
  * branch and its worktree are still there, and its session id is written down.
  * Read wherever that question is asked, rather than each caller spelling the
- * two states out again and one of them being forgotten the day a third arrives.
+ * three states out again and one of them being forgotten the day a fourth
+ * arrives.
  *
- * Answered on a state or on a lifecycle, which name these two the same way: a
+ * A conflict belongs here for the same reason the other two do: the work is on
+ * the branch, the session that wrote it is still known, and the way out is to
+ * take it back. What differs is only what squad says when it does.
+ *
+ * Answered on a state or on a lifecycle, which name these the same way: a
  * ticket waiting for a place reads as `queued`, and what squad has to know
  * before opening its session is the run it recorded underneath.
  */
 export function isResumable(state: TicketState | TicketLifecycle): boolean {
-  return state === "failed" || state === "interrupted";
+  return state === "failed" || state === "interrupted" || state === "conflict";
 }
 
 /**
@@ -151,11 +158,11 @@ export function resolveTicketState(
 ): TicketState {
   const { kind, lifecycle, queuedAt } = record;
   if (holdsNothingBack(lifecycle)) return "merged";
-  // What squad recorded of a run outranks what the edges say. A ticket only
-  // ever ran because its blockers were merged, so the two never disagree; and
+  // What squad is doing right now outranks everything else. A ticket only ever
+  // ran because its blockers were merged, so the two never disagree; and
   // reading the edges first would make a running ticket flicker back to `ready`
   // the day a blocker is added in front of it.
-  if (lifecycle === "running" || lifecycle === "awaiting-validation") return lifecycle;
+  if (lifecycle === "running" || lifecycle === "merging") return lifecycle;
   // The edges only outrank a ticket that never ran at all: a blocker posted in
   // front of a waiting launch takes that launch out of the frontier, which is
   // exactly what a `fix` ticket is for. The request itself is not thrown away,
@@ -163,7 +170,15 @@ export function resolveTicketState(
   if (lifecycle === "unstarted" && !blockerIds.every((blockerId) => cleared.has(blockerId))) {
     return "blocked";
   }
+  // Before the run underneath it, and after the two states above: a correction
+  // owed on a rejected test sheet is a launch squad accepted and has not opened
+  // yet, exactly like a first launch that found the caps full. Reading the
+  // report instead would show a sheet still waiting for a reader who has
+  // already been through it.
   if (queuedAt !== null) return "queued";
-  if (lifecycle === "failed" || lifecycle === "interrupted") return lifecycle;
+  if (lifecycle === "awaiting-validation") return "awaiting-validation";
+  if (lifecycle === "failed" || lifecycle === "interrupted" || lifecycle === "conflict") {
+    return lifecycle;
+  }
   return kind === "decision" ? "awaiting-decision" : "ready";
 }

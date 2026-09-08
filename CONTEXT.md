@@ -51,6 +51,13 @@ La session claude-code d'un seul ticket, ouverte vierge dans son propre worktree
 Détruite à la validation du ticket, conservée en cas d'échec pour permettre la reprise.
 _Éviter_ : session de ticket, exécuteur, agent, tâche
 
+**Session de résolution** (`resolveConflict`) :
+La session ouverte pour un seul travail, démêler un conflit de fusion, dans le worktree
+du ticket concerné et non dans celui de la feature. Ce n'est pas la sous-session du
+ticket : elle ne rapporte rien, ne devient pas celle que reprend le ticket, et ce qui
+dit si elle a réussi est git, quand squad retente la fusion.
+_Éviter_ : sous-session de conflit, agent de merge, session de rattrapage
+
 **Angle de lancement** (`LaunchAngle`) :
 Sous quel angle une sous-session est lancée : `implement` pour construire, `diagnose`
 pour chercher ce qui cloche avant de retoucher quoi que ce soit. L'angle ne se pose
@@ -106,6 +113,20 @@ ticket. Elle existe parce que deux tickets verts séparément peuvent être roug
 ce qu'aucune sous-session ne peut voir depuis son worktree.
 _Éviter_ : CI locale, test de fumée, build
 
+**Feature drainée** (`drained`) :
+Une feature dont tous les tickets du graphe sont fusionnés. C'est ce qui déclenche sa
+livraison : sa branche est poussée et une pull request est ouverte, décrite depuis ses
+tickets et leurs fiches validées.
+_Éviter_ : feature finie, feature complète, feature livrée
+
+**Pull request** (`pullRequestUrl`) :
+La demande de fusion de la branche de feature dans la branche par défaut. Squad l'ouvre
+seul et n'en ouvre qu'une, l'adresse étant écrite sur la feature. Il demande à la forge
+de la fusionner dès que l'intégration continue le permet, mais seulement si aucun test
+manuel n'a été demandé sur la feature : dès qu'un point de fiche a été mis sous les yeux
+de quelqu'un, c'est cette personne qui décide de la suite.
+_Éviter_ : PR, merge request, demande de tirage
+
 ## L'autonomie
 
 **Go-as-recommandé** (`goAsRecommended`) :
@@ -147,6 +168,10 @@ les agents. Il borne la cascade, pas le nombre total de tickets.
   rapporter ne conclut rien : squad lui redemande son rapport.
 - Chaque fusion de ticket déclenche une **vérification d'intégration**, dont l'échec
   engendre un ticket de genre `fix` posé en bloqueur de la suite.
+- Les fusions d'un même **projet** sont sérialisées, une seule à la fois, qu'elles
+  viennent d'un ticket ou d'une **feature drainée**.
+- Une **feature drainée** part en **pull request** ; un conflit ouvre une **session de
+  résolution** avant de retenter, et un conflit qui persiste arrête le ticket.
 
 ## Ambiguïtés levées
 

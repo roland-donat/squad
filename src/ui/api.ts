@@ -35,6 +35,8 @@ const wording: Record<ErrorCode, string> = {
   project_not_found: "Ce projet est introuvable.",
   feature_not_found: "Cette feature est introuvable.",
   ticket_not_found: "Ce ticket est introuvable.",
+  ticket_not_mergeable:
+    "Ce ticket n'a pas d'étape validée : sa branche ne fusionne qu'une fois sa fiche de tests entièrement cochée.",
   edge_crosses_features:
     "Une arête de blocage relie deux tickets d'une même feature.",
   edge_would_create_cycle: "Cette arête fermerait une boucle dans le graphe.",

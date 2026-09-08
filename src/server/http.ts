@@ -13,20 +13,20 @@ import {
   type ApiErrorBody,
   type SquadEvent,
 } from "../shared/api";
-import type { Alerts } from "./alerts";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
 import { buildMcpHandler } from "./mcp";
 import type { MainSessions } from "./sessions";
 import type { Store } from "./store";
 import type { SubSessions } from "./sub-sessions";
+import type { Validations } from "./validations";
 
 export interface HttpDependencies {
   store: Store;
   bus: EventBus;
   mainSessions: MainSessions;
   subSessions: SubSessions;
-  alerts: Alerts;
+  validations: Validations;
 }
 
 /**
@@ -39,7 +39,7 @@ export function buildApiRouter({
   bus,
   mainSessions,
   subSessions,
-  alerts,
+  validations,
 }: HttpDependencies): express.Router {
   const router = express.Router();
   router.use(express.json());
@@ -112,11 +112,15 @@ export function buildApiRouter({
     response.status(202).json({ ticket });
   });
 
-  router.post(`${apiRoutes.tickets}/:ticketId/test-sheet`, (request, response) => {
+  router.post(`${apiRoutes.tickets}/:ticketId/test-sheet`, async (request, response) => {
     const body = parse(reviewTestSheetBody, request.body);
-    const ticket = store.reviewTestSheet({ ticketId: request.params.ticketId, ...body });
-    bus.publish({ type: "graph-changed", graph: store.featureGraph(ticket.featureId) });
-    response.json({ ticket });
+    const reviewed = store.reviewTestSheet({ ticketId: request.params.ticketId, ...body });
+    bus.publish({ type: "graph-changed", graph: store.featureGraph(reviewed.featureId) });
+    // Awaited, so what the answer carries is the ticket as the review left it:
+    // a correction handed back puts the step in progress again, and a client
+    // reading the answer would otherwise see the state it had a moment before.
+    await validations.afterReview(reviewed);
+    response.json({ ticket: store.requireTicket(reviewed.id) });
   });
 
   router.get(apiRoutes.settings, (_request, response) => {
@@ -135,7 +139,7 @@ export function buildApiRouter({
 
   // Squad's own MCP endpoint: the surface the agents talk to, on the very port
   // that serves the interface, so a session has one address for all of squad.
-  router.all(apiRoutes.mcp, buildMcpHandler({ store, bus, alerts, subSessions }));
+  router.all(apiRoutes.mcp, buildMcpHandler({ store, bus, validations, subSessions }));
 
   router.get(apiRoutes.events, (request, response) => {
     response.writeHead(200, {

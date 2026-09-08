@@ -26,9 +26,13 @@ const stateExplanations: Record<TicketState, string> = {
   running: "En cours : sa sous-session travaille dans son worktree.",
   "awaiting-validation":
     "Étape rapportée : la fiche de tests ci-dessous attend d'être passée en revue. La sous-session n'est pas détruite, elle reste le fil où la correction se fera.",
+  merging:
+    "En fusion : sa sous-session est fermée, sa branche revient dans la branche de feature, puis la vérification d'intégration tourne dessus.",
   failed:
-    "Arrêté : sa sous-session a échoué, ou s'est terminée sans rapporter sa fin d'étape ; le fil dit lequel. Son worktree, sa branche et sa sous-session sont conservés.",
+    "Arrêté : sa sous-session a échoué, s'est terminée sans rapporter sa fin d'étape, ou sa branche n'a pas pu être fusionnée ; le fil dit lequel. Son worktree, sa branche et sa sous-session sont conservés.",
   interrupted: "Interrompu : squad s'est arrêté pendant que sa sous-session travaillait.",
+  conflict:
+    "En conflit : la fusion de sa branche dans la branche de feature s'est heurtée aux mêmes lignes, et la session de résolution n'en est pas venue à bout. Le reprendre rouvre sa sous-session là où elle en était.",
   "awaiting-decision": "À trancher : cela se fait dans la session principale, pas ici.",
   merged: "Fusionné.",
 };

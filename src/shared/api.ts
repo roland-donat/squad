@@ -33,6 +33,7 @@ export const errorCodes = [
   "coverage_mismatch",
   "test_sheet_not_found",
   "test_sheet_already_reviewed",
+  "ticket_not_mergeable",
   "not_found",
   "data_directory_inside_project",
   "internal_error",
@@ -67,6 +68,15 @@ export interface Project {
    * the other. The machine-wide cap is what bounds their sum.
    */
   featureConcurrencyCap: number;
+  /**
+   * What squad runs on the feature worktree after every ticket merge: the
+   * project's own typing and test pass, as one command line. Null when none is
+   * declared, and then nothing runs and no merge is ever held back by a check
+   * that does not exist. Declaring it is what makes squad able to catch what two
+   * separately green tickets break together, so it is optional in the schema
+   * only.
+   */
+  verifyCommand: string | null;
   createdAt: string;
 }
 
@@ -95,6 +105,13 @@ export interface Feature {
   title: string;
   /** The feature branch and its checkout, started from the default branch. */
   worktree: Worktree | null;
+  /**
+   * The pull request squad opened once every ticket of the graph had merged, or
+   * null while the feature is still being built. Written down rather than asked
+   * of the forge at each read: it is what says the feature was delivered, and
+   * it must stay true when nothing can reach the network.
+   */
+  pullRequestUrl: string | null;
   createdAt: string;
 }
 
@@ -107,8 +124,12 @@ export type TicketKind = (typeof ticketKinds)[number];
  * interface never derives a state of its own: `merged` is recorded, `blocked`,
  * `ready` and `awaiting-decision` follow from the blocking edges and the kind,
  * and `queued` is a launch squad accepted and has not opened yet.
- * The list grows as the execution states arrive; nothing here is stored under
- * these names.
+ *
+ * `merging` is the whole tail of a validated step: the sub-session is closed,
+ * the branch goes back into the feature branch, and the project's verification
+ * runs on it. `conflict` is where that tail stops when a merge conflicts twice,
+ * the second time after a resolution session was given the ticket's worktree to
+ * sort it out. Nothing is stored under these names.
  */
 export const ticketStates = [
   "blocked",
@@ -116,8 +137,10 @@ export const ticketStates = [
   "queued",
   "running",
   "awaiting-validation",
+  "merging",
   "failed",
   "interrupted",
+  "conflict",
   "awaiting-decision",
   "merged",
 ] as const;
@@ -305,6 +328,18 @@ export interface MainSession {
 const concurrencyCapSchema = z.number().int().min(1);
 
 /**
+ * The command line squad runs to check the feature branch, or null to declare
+ * that this project has none. Trimmed to nothing reads as null rather than as a
+ * command that runs a shell and returns green: an empty check that always passes
+ * is the one failure nobody would notice.
+ */
+const verifyCommandSchema = z
+  .string()
+  .trim()
+  .nullable()
+  .transform((command) => (command === null || command === "" ? null : command));
+
+/**
  * What the caps are until someone declares otherwise. Declared here rather than
  * in the schema alone, so the column default, the value read back from a row
  * written before these columns existed, and what the interface shows before its
@@ -323,12 +358,14 @@ export const registerProjectBody = z.object({
   /** Taken from the branch the repository is on when it is left out. */
   defaultBranch: z.string().trim().min(1).optional(),
   featureConcurrencyCap: concurrencyCapSchema.optional(),
+  verifyCommand: verifyCommandSchema.optional(),
 });
 export type RegisterProjectBody = z.infer<typeof registerProjectBody>;
 
 /** What can be changed on a registered project. What is left out is left alone. */
 export const updateProjectBody = z.object({
   featureConcurrencyCap: concurrencyCapSchema.optional(),
+  verifyCommand: verifyCommandSchema.optional(),
 });
 export type UpdateProjectBody = z.infer<typeof updateProjectBody>;
 

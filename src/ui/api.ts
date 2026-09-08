@@ -1,5 +1,6 @@
 import {
   apiRoutes,
+  attachRecordedSessionRoute,
   featureRoute,
   mainSessionMessagesRoute,
   mainSessionRoute,
@@ -14,6 +15,7 @@ import {
   type LaunchAngle,
   type OpenFeatureBody,
   type Project,
+  type RecordedSession,
   type RegisterProjectBody,
   type ReviewTestSheetBody,
   type SendMainSessionMessageBody,
@@ -45,6 +47,10 @@ const wording: Record<ErrorCode, string> = {
   project_has_work_in_flight:
     "Ce projet a du travail sorti en worktree : son chemin ne change qu'une fois que plus rien n'en est sorti.",
   question_not_found: "Cette question est introuvable.",
+  recorded_session_not_found:
+    "Cette conversation est introuvable : claude-code ne la garde plus, ou elle a été renommée.",
+  recorded_session_already_attached:
+    "Cette conversation est déjà le fil d'une feature : une conversation appartient à un seul fil.",
   question_not_pending:
     "Cette question ne peut plus recevoir de réponse : elle a déjà été répondue ou abandonnée.",
   recommendation_not_an_option:
@@ -173,12 +179,48 @@ export async function updateSettings(body: UpdateSettingsBody): Promise<Settings
   return settings;
 }
 
+/**
+ * The conversations claude-code has recorded, asked for rather than received on
+ * the event stream: they are another program's files, and squad does not hear
+ * about them changing.
+ */
+export async function listRecordedSessions(
+  search: string,
+): Promise<{ sessions: RecordedSession[]; matching: number; readable: boolean }> {
+  const route =
+    search.trim() === ""
+      ? apiRoutes.recordedSessions
+      : `${apiRoutes.recordedSessions}?search=${encodeURIComponent(search)}`;
+  return read<{ sessions: RecordedSession[]; matching: number; readable: boolean }>(route);
+}
+
+/**
+ * Turns a recorded conversation into a feature: its repository is registered if
+ * squad did not know it, and its main session is that conversation resumed.
+ */
+export async function attachRecordedSession(sessionId: string): Promise<Feature> {
+  const { feature } = await send<{ feature: Feature }>(attachRecordedSessionRoute(sessionId), {});
+  return feature;
+}
+
+async function read<T>(route: string): Promise<T> {
+  return answerOf<T>(await fetch(route));
+}
+
 async function send<T>(route: string, body: unknown, method: "POST" | "PUT" = "POST"): Promise<T> {
   const response = await fetch(route, {
     method,
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+  return answerOf<T>(response);
+}
+
+/**
+ * What the server answered, or the refusal it answered instead. One place reads
+ * an error code, whichever request brought it back.
+ */
+async function answerOf<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const failure = (await response.json().catch(() => null)) as ApiErrorBody | null;
     throw new ApiError(failure?.error.code ?? "internal_error");

@@ -63,6 +63,15 @@ que se tiennent le découpage en tickets, les questions, les décisions et les �
 avec `/ask-matt`. Elle dialogue, elle n'ordonnance pas.
 _Éviter_ : session de feature, session parente, conversation
 
+**Session enregistrée** (`RecordedSession`) :
+Une conversation claude-code déjà menée, que squad lit dans le stockage de claude-code pour
+en faire le point de départ d'une feature. La rattacher ouvre une feature dont la session
+principale est cette conversation, reprise sur son identifiant : le grilling et le spec
+écrits au terminal sont donc encore en tête. Squad n'en lit que ce qui l'identifie, le dépôt
+où elle a tourné, la branche, son titre et le premier message ; ce qui s'y est dit ne devient
+jamais un état de squad. Une conversation appartient à une seule feature.
+_Éviter_ : historique, archive, transcript, log
+
 **Sous-session** (`SubSession`) :
 La session claude-code d'un seul ticket, ouverte vierge dans son propre worktree.
 Détruite à la validation du ticket, conservée en cas d'échec pour permettre la reprise.

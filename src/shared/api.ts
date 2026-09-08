@@ -38,6 +38,8 @@ export const errorCodes = [
   "project_has_work_in_flight",
   "project_not_carried",
   "repository_still_used",
+  "recorded_session_not_found",
+  "recorded_session_already_attached",
   "question_not_found",
   "question_not_pending",
   "recommendation_not_an_option",
@@ -159,6 +161,13 @@ export interface Feature {
   title: string;
   /** Every repository this feature carries, its home project first. */
   repositories: FeatureRepository[];
+  /**
+   * The recorded conversation this feature's main session was resumed from, or
+   * null when it was opened blank. Written down rather than read off the running
+   * session: it is what says a conversation already belongs to a feature, and it
+   * has to say so when nothing is running.
+   */
+  resumedSessionId: string | null;
   /**
    * Whether squad drives this feature on its own: it launches what the frontier
    * allows without being asked, and answers an agent's implementation questions
@@ -390,6 +399,34 @@ export interface ThreadEntry {
    */
   detail: string | null;
   createdAt: string;
+}
+
+/**
+ * A conversation claude-code has already recorded, as squad reads it to offer a
+ * feature that starts from work already done rather than from an empty thread.
+ * Everything here identifies the session; nothing here is what was said in it,
+ * which squad never reads and never turns into state of its own.
+ */
+export interface RecordedSession {
+  /** The session id, which is what resuming it runs on. */
+  id: string;
+  /** Where it ran, which is not always the root of the repository it ran in. */
+  cwd: string;
+  /**
+   * The repository that directory belongs to, found by walking up to the
+   * nearest `.git`, or null when it belongs to none. What the reader recognises
+   * a session by, and what attaching it registers.
+   */
+  repository: string | null;
+  branch: string | null;
+  /** What it was named, when it was named. */
+  title: string | null;
+  /** The opening of what was first asked of it, cut short. */
+  firstMessage: string | null;
+  /** When it was last written to, which is what "the most recent" means. */
+  recordedAt: string;
+  /** How big its transcript is: resuming a large one is paid for at the first turn. */
+  bytes: number;
 }
 
 /** A main session squad is holding open right now. */
@@ -692,6 +729,12 @@ export const apiRoutes = {
   settings: "/api/settings",
   questions: "/api/questions",
   /**
+   * The conversations claude-code has recorded, read on request rather than
+   * carried on the event stream: they are another program's storage, they change
+   * without squad hearing about it, and a stale list is worse than one asked for.
+   */
+  recordedSessions: "/api/recorded-sessions",
+  /**
    * Squad's MCP endpoint, the only contract between the agents and squad
    * (ADR 0002). It lives under /api like the rest of the server surface, so the
    * rule "anything the API did not claim is the interface" keeps holding.
@@ -709,9 +752,24 @@ export function featureRoute(featureId: string): string {
   return `${apiRoutes.features}/${featureId}`;
 }
 
+/**
+ * What attaching a recorded session opens. The title is what the feature will be
+ * called; left out, squad takes what the session was called, and failing that
+ * the first thing that was asked of it.
+ */
+export const attachRecordedSessionBody = z.object({
+  title: z.string().trim().min(1).optional(),
+});
+export type AttachRecordedSessionBody = z.infer<typeof attachRecordedSessionBody>;
+
 /** Where the developer answers a question, which unblocks the agent that asked. */
 export function questionAnswerRoute(questionId: string): string {
   return `${apiRoutes.questions}/${questionId}/answer`;
+}
+
+/** Where a recorded session becomes a feature squad drives. */
+export function attachRecordedSessionRoute(sessionId: string): string {
+  return `${apiRoutes.recordedSessions}/${sessionId}/attach`;
 }
 
 export function featureGraphRoute(featureId: string): string {

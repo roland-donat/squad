@@ -32,6 +32,13 @@ export interface TestSquadOptions {
   dataDir?: string;
   /** The scripted double, for a scenario that has an agent do the work. */
   launcher?: AgentLauncher;
+  /**
+   * Where the conversations squad may resume are read from. A scenario writes
+   * its own, so no test ever reads the conversations of the developer running
+   * the suite; left out, squad reads a directory that does not exist under the
+   * temporary data directory, which is the same as having recorded nothing.
+   */
+  recordedSessionsDir?: string;
 }
 
 export async function startTestSquad(options: TestSquadOptions = {}): Promise<TestSquad> {
@@ -42,6 +49,7 @@ export async function startTestSquad(options: TestSquadOptions = {}): Promise<Te
       port: 0,
       ui: "none",
       ...(options.launcher === undefined ? {} : { launcher: options.launcher }),
+      recordedSessionsDir: options.recordedSessionsDir ?? join(dataDir, "aucune-session"),
     });
   let server = await start();
   const streams: EventStream[] = [];

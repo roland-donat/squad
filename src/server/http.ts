@@ -3,6 +3,7 @@ import type { ZodType } from "zod";
 import {
   answerQuestionBody,
   apiRoutes,
+  attachRecordedSessionBody,
   launchTicketBody,
   openFeatureBody,
   registerProjectBody,
@@ -20,6 +21,7 @@ import { SquadError } from "./errors";
 import type { EventBus } from "./events";
 import { buildMcpHandler } from "./mcp";
 import type { Questions } from "./questions";
+import type { Resumptions } from "./resumptions";
 import type { MainSessions } from "./sessions";
 import type { Store } from "./store";
 import type { Merges } from "./merges";
@@ -35,6 +37,7 @@ export interface HttpDependencies {
   merges: Merges;
   questions: Questions;
   autonomy: Autonomy;
+  resumptions: Resumptions;
 }
 
 /**
@@ -51,6 +54,7 @@ export function buildApiRouter({
   merges,
   questions,
   autonomy,
+  resumptions,
 }: HttpDependencies): express.Router {
   const router = express.Router();
   router.use(express.json());
@@ -115,7 +119,9 @@ export function buildApiRouter({
 
   router.post(`${apiRoutes.features}/:featureId/main-session`, async (request, response) => {
     const body = parse(startMainSessionBody, request.body);
-    const session = await mainSessions.start(request.params.featureId, body.prompt);
+    const session = await mainSessions.start(request.params.featureId, {
+      ...(body.prompt === undefined ? {} : { prompt: body.prompt }),
+    });
     // Accepted, not done: the session runs for as long as its agent does, and
     // what it produces arrives on the event stream.
     response.status(202).json({ sessionId: session.id });
@@ -158,6 +164,25 @@ export function buildApiRouter({
     // asked for comes back to it as the result of its own tool call.
     const question = questions.answer(request.params.questionId, body.answer);
     response.json({ question });
+  });
+
+  router.get(apiRoutes.recordedSessions, async (request, response) => {
+    const search = request.query["search"];
+    if (search !== undefined && typeof search !== "string") {
+      throw new SquadError("invalid_request", 400, "search must be a single value");
+    }
+    // Read on request rather than pushed on the event stream: these are another
+    // program's files, they change without squad hearing about it, and a list
+    // held from earlier would offer conversations that have since moved on.
+    response.json(await resumptions.list(search ?? ""));
+  });
+
+  router.post(`${apiRoutes.recordedSessions}/:sessionId/attach`, async (request, response) => {
+    const body = parse(attachRecordedSessionBody, request.body);
+    const attached = await resumptions.attach(request.params.sessionId, body.title);
+    // Accepted, not done: the feature is opened and its session is resumed, and
+    // what that session says arrives on the event stream like everything else.
+    response.status(201).json(attached);
   });
 
   router.get(apiRoutes.settings, (_request, response) => {

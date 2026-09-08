@@ -1,4 +1,4 @@
-import type { MainSession } from "../shared/api";
+import type { MainSession, RecordedSession } from "../shared/api";
 import { mainSessionBriefing } from "./agents/briefing";
 import type { AgentLauncher, AgentSession } from "./agents/launcher";
 import { SquadError } from "./errors";
@@ -57,7 +57,16 @@ export class MainSessions {
     return this.running.get(featureId)?.id ?? null;
   }
 
-  async start(featureId: string, prompt?: string): Promise<AgentSession> {
+  /**
+   * Opens the main session of a feature, blank or resumed. Resumed, it answers
+   * to the id of the conversation it continues: the thread of this feature is
+   * that conversation carrying on, not a second one beside it.
+   */
+  async start(
+    featureId: string,
+    options: { prompt?: string; resume?: RecordedSession } = {},
+  ): Promise<AgentSession> {
+    const { prompt, resume } = options;
     const { store, bus, launcher, mcpUrl } = this.dependencies;
     const feature = store.requireFeature(featureId);
     if (this.running.has(feature.id)) {
@@ -74,6 +83,7 @@ export class MainSessions {
       featureId: feature.id,
       workingDirectory: project.path,
       mcpUrl: mcpUrl(),
+      ...(resume === undefined ? {} : { resumeSessionId: resume.id }),
       // Every repository the feature carries, home first: a session that was
       // not told them cannot write a ticket for one of them.
       briefing: mainSessionBriefing(
@@ -83,6 +93,21 @@ export class MainSessions {
     });
     this.running.set(feature.id, session);
     bus.publish({ type: "main-session-started", featureId: feature.id, sessionId: session.id });
+    if (resume !== undefined) {
+      // On the thread, because it is the one thing the developer cannot see for
+      // themselves: what looks like an empty thread is a conversation squad did
+      // not write and will not repeat. Where it lives is said, not copied.
+      this.append(feature.id, session.id, {
+        kind: "notice",
+        text: "the main session was resumed from a recorded conversation",
+        detail: [
+          `${resume.title ?? "untitled"} (${resume.id})`,
+          `recorded in ${resume.cwd}${resume.branch === null ? "" : ` on ${resume.branch}`}`,
+          `last written to on ${resume.recordedAt}, ${Math.round(resume.bytes / 1024)} kB`,
+          "what was said in it is not repeated here: claude-code keeps it, and this session remembers it",
+        ].join("\n"),
+      });
+    }
     // Drained before the prompt goes in, so nothing the session says on its way
     // up can be emitted into an audience that is not listening yet.
     const drained = this.drain(feature.id, session);

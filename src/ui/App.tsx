@@ -5,6 +5,7 @@ import { openFeature, registerProject, setGoAsRecommended } from "./api";
 import { FeatureGraphView } from "./graph/FeatureGraphView";
 import { Failure, useSubmission } from "./submission";
 import { MainSessionView } from "./session/MainSessionView";
+import { RecordedSessions } from "./session/RecordedSessions";
 import { SettingsView } from "./settings/SettingsView";
 import { TicketPanel } from "./ticket/TicketPanel";
 import {
@@ -76,6 +77,20 @@ export function App() {
       />
 
       {settingsOpen && <SettingsView settings={state.settings} projects={projects} />}
+
+      {!settingsOpen && (
+        // Above the graph and under the two panels that hold what squad already
+        // drives: this is where a feature comes from when it comes from work
+        // already done at the terminal.
+        <RecordedSessions
+          projects={projects}
+          onAttached={(feature) => {
+            setSelectedId(feature.projectId);
+            setOpenFeatureId(feature.id);
+            setOpenTicketId(null);
+          }}
+        />
+      )}
 
       <main className="app__body" hidden={settingsOpen}>
         <section className="panel" aria-labelledby="titre-projets">

@@ -11,8 +11,9 @@ import { openDatabase } from "./db/open";
 import { EventBus } from "./events";
 import { buildApiRouter } from "./http";
 import { Merges } from "./merges";
-import { resolveDataDir } from "./paths";
+import { resolveDataDir, resolveRecordedSessionsDir } from "./paths";
 import { Questions } from "./questions";
+import { Resumptions } from "./resumptions";
 import { MainSessions } from "./sessions";
 import { Store } from "./store";
 import { SubSessions } from "./sub-sessions";
@@ -32,6 +33,12 @@ export interface SquadServerOptions {
    * non-determinism is removed.
    */
   launcher?: AgentLauncher;
+  /**
+   * Where claude-code keeps the conversations squad may resume. Defaults to its
+   * real location; the seam suite hands in a directory it wrote itself, so a
+   * test never reads the developer's own conversations.
+   */
+  recordedSessionsDir?: string;
 }
 
 /** Squad is a single-user tool on a single machine: it never leaves the loopback. */
@@ -87,6 +94,12 @@ export async function startSquadServer(
   const merges = new Merges({ store, bus, alerts, worktrees, launcher, subSessions, autonomy, mcpUrl });
   const validations = new Validations({ alerts, merges, subSessions });
   const questions = new Questions({ store, bus, alerts, autonomy, mainSessions });
+  const resumptions = new Resumptions({
+    store,
+    bus,
+    mainSessions,
+    recordedSessionsDir: options.recordedSessionsDir ?? resolveRecordedSessionsDir(),
+  });
   // Before anything is served: a ticket the previous run left saying `running`
   // has no process behind it any more, and no client should ever be handed a
   // state squad already knows to be false. The questions of that run go the
@@ -106,6 +119,7 @@ export async function startSquadServer(
       merges,
       questions,
       autonomy,
+      resumptions,
     }),
   );
   const ui = await mountUi(app, options.ui ?? "auto");

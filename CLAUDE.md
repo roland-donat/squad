@@ -194,6 +194,8 @@ src/server/db/             # schéma drizzle et ouverture de la base
 src/server/agents/         # lanceur d'agent : l'interface étroite et son repli
 src/server/alerts.ts       # bureau et webhook, quand la progression s'arrête
 src/server/questions.ts    # ce qu'un agent demande, et l'attente que ça ouvre
+src/server/recorded-sessions.ts # les conversations claude-code, lues et jamais interprétées
+src/server/resumptions.ts  # une conversation enregistrée devient une feature
 src/server/autonomy.ts     # go-as-recommandé : ce qui part seul, et ce qui l'arrête
 src/server/scheduler.ts    # ce qui part maintenant : fonction pure du graphe et des plafonds
 src/server/validations.ts  # ce qui suit une fiche : fusionner, corriger, ou attendre
@@ -230,6 +232,33 @@ le checkout principal ne quitte jamais la branche par défaut. La branche et le
 chemin sont **écrits sur la ligne** du dépôt porté et du ticket, pas recalculés
 depuis leur titre : un ticket renommé demain doit retrouver le worktree qu'il a
 ouvert aujourd'hui.
+
+### Le stockage de claude-code, lu et jamais écrit
+
+Squad lit les conversations que claude-code range sous `~/.claude/projects`, un
+répertoire par projet et un `.jsonl` par session, pour proposer d'en reprendre
+une. Trois règles tiennent cette lecture :
+
+- **Seules les sessions**, c'est-à-dire `<projet>/<session>.jsonl`. Ce qui vit
+  sous `<session>/subagents/` est le fil d'un agent qu'une session a lancé : sur
+  un poste réel, 169 sessions cohabitent avec 1250 de ces fils, et aucun ne se
+  reprend comme session principale.
+- **Seulement l'en-tête.** Les transcripts atteignent 79 Mo pièce, 1,6 Go au
+  total ; tout ce que squad affiche (identifiant, chemin, branche, titre,
+  premier message) tient dans les premières lignes. Elles sont lues dans un
+  tampon de 16 ko ouvert sur le fichier, jamais par un `readFile` qu'on
+  tronquerait ensuite : mesuré sur le poste, 167 sessions listées en 53 ms pour
+  17 Mo de mémoire, là où lire les fichiers entiers en ferait passer 1,6 Go.
+- **En mode dégradé.** C'est le stockage privé d'un autre programme, non
+  documenté : un répertoire absent, un fichier illisible ou une ligne d'une
+  forme inconnue donnent moins de sessions, jamais une erreur.
+
+Squad lit ce qui identifie une conversation, l'identifiant, le chemin, la
+branche, le titre et le début du premier message, qui sert à nommer la feature.
+Le corps de la conversation n'est jamais lu, et rien de ce qui s'y trouve ne
+devient un état de squad. Ce que la conversation contient, c'est à la session
+reprise de le dire, par un appel d'outil, jamais à squad de l'analyser
+(ADR 0002).
 
 ### Les alertes pendant les tests
 

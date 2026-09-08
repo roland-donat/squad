@@ -135,7 +135,7 @@ export function buildApiRouter({
 
   // Squad's own MCP endpoint: the surface the agents talk to, on the very port
   // that serves the interface, so a session has one address for all of squad.
-  router.all(apiRoutes.mcp, buildMcpHandler({ store, bus, alerts }));
+  router.all(apiRoutes.mcp, buildMcpHandler({ store, bus, alerts, subSessions }));
 
   router.get(apiRoutes.events, (request, response) => {
     response.writeHead(200, {

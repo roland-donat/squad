@@ -26,17 +26,23 @@ export interface Scheduling {
    * They hold a place like a running one, and they are not handed back: without
    * this, every scheduling during that window would launch them again.
    */
-  starting: readonly string[];
+  opening: readonly string[];
 }
 
 /**
- * The tickets to open a sub-session for, right now. The ones that have waited
- * longest come first, so a launch is never overtaken forever by newer ones, and
- * two launches asked for in the same millisecond are ordered by id rather than
- * left to the order rows happen to come back in.
+ * The tickets to open a sub-session for, right now.
+ *
+ * A launch that takes a stopped sub-session back goes before one that has never
+ * run: its work is already on its branch, and a restart has to cost the turn
+ * that was in flight and nothing more, which it would not if the ticket that
+ * was running were sent to the back of a queue of tickets that were not.
+ *
+ * Between two of the same kind, the one that has waited longest goes first, so
+ * a launch is never overtaken forever by newer ones; two asked for in the same
+ * millisecond are ordered by id rather than left to the order rows come back in.
  */
-export function nextLaunches({ features, machineCap, starting }: Scheduling): string[] {
-  const held = new Set(starting);
+export function nextLaunches({ features, machineCap, opening }: Scheduling): string[] {
+  const held = new Set(opening);
   const occupied = (feature: ScheduledFeature) =>
     feature.graph.tickets.filter(
       (ticket) => ticket.state === "running" || held.has(ticket.id),
@@ -56,13 +62,16 @@ export function nextLaunches({ features, machineCap, starting }: Scheduling): st
           id: ticket.id,
           featureId: feature.graph.featureId,
           queuedAt: ticket.queuedAt ?? "",
+          // A session written on the ticket is a session to take back: nothing
+          // else ever puts one there.
+          resuming: ticket.sessionId !== null,
         })),
     )
-    .sort((one, other) =>
-      one.queuedAt === other.queuedAt
-        ? one.id.localeCompare(other.id)
-        : one.queuedAt.localeCompare(other.queuedAt),
-    );
+    .sort((one, other) => {
+      if (one.resuming !== other.resuming) return one.resuming ? -1 : 1;
+      if (one.queuedAt !== other.queuedAt) return one.queuedAt.localeCompare(other.queuedAt);
+      return one.id.localeCompare(other.id);
+    });
 
   const launches: string[] = [];
   for (const ticket of waiting) {

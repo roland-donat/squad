@@ -41,12 +41,10 @@ export class Worktrees {
    * along the way, since the ticket branch starts from the feature branch.
    */
   forTicket(ticket: Ticket): Promise<Worktree> {
-    const next = this.queue.then(
-      () => this.checkOutForTicket(ticket),
-      () => this.checkOutForTicket(ticket),
-    );
-    // What the next caller waits on never rejects: a checkout that failed is
-    // its own caller's business, and must not fail the one queued behind it.
+    const next = this.queue.then(() => this.checkOutForTicket(ticket));
+    // What the queue holds never rejects, which is what lets the line above
+    // chain on it plainly: a checkout that failed is its own caller's business,
+    // and must not fail the one queued behind it.
     this.queue = next.catch(() => {});
     return next;
   }

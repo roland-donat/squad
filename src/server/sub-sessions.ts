@@ -140,7 +140,7 @@ export class SubSessions {
     const launches = nextLaunches({
       features: store.scheduledFeatures(),
       machineCap: store.settings().machineConcurrencyCap,
-      starting: [...this.opening.keys()],
+      opening: [...this.opening.keys()],
     });
     for (const ticketId of launches) {
       // Held as a promise that never rejects: a shutdown awaits these to know
@@ -258,7 +258,6 @@ export class SubSessions {
    * up over them, and a restart is exactly when that is likely.
    */
   takeBack(stranded: readonly Ticket[]): void {
-    if (stranded.length === 0) return;
     const { store } = this.dependencies;
     for (const stopped of stranded) {
       const ticket = store.requireTicket(stopped.id);
@@ -266,6 +265,9 @@ export class SubSessions {
       store.queueLaunch(ticket.id, "implement");
       this.publishGraph(ticket.featureId);
     }
+    // Always, even with nothing stranded: a launch squad accepted before it
+    // stopped is still owed, and a machine killed between accepting one and
+    // opening it comes back up with a row nothing else would ever look at.
     this.schedule();
   }
 
@@ -310,7 +312,20 @@ export class SubSessions {
     // Written on the thread before it is handed over, so what the session was
     // asked for is on the record even if it dies reading it.
     this.append(ticket, session.id, { kind: "pilot", text: message });
-    await session.send(message);
+    try {
+      await session.send(message);
+    } catch (failure) {
+      // The session is open and its place is taken: a message that could not be
+      // handed over is this session's ending, not a launch that never happened.
+      // Stopping it lets the drain started above record that ending like any
+      // other, and keeps `abandon` meaning what it says.
+      this.append(ticket, session.id, {
+        kind: "notice",
+        text: "squad could not hand the sub-session what it is to work on",
+        detail: failure instanceof Error ? failure.message : String(failure),
+      });
+      await session.stop();
+    }
     return session;
   }
 

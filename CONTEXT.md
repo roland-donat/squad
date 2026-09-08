@@ -129,6 +129,8 @@ rendrait le développeur responsable de revenir cliquer.
 **Ordonnanceur** (`nextLaunches`) :
 Ce qui décide des lancements à effectuer : une fonction de l'état des graphes et des
 plafonds, sans effet de bord ni appel de modèle. Squad ordonnance, jamais un agent.
+Une reprise passe avant un premier lancement, le travail étant déjà sur sa branche ;
+à égalité, le lancement qui attend depuis le plus longtemps part le premier.
 
 **Plafond de profondeur** (`generationDepthCap`) :
 Le nombre maximal de générations successives de tickets engendrés automatiquement par

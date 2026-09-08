@@ -11,6 +11,7 @@ import {
   type Ticket,
 } from "../../src/shared/api";
 import { listWorktrees } from "../support/git";
+import { connectToSquadTools } from "../support/mcp";
 import { createScriptedLauncher, type ScriptedAgent } from "../support/scripted-launcher";
 import {
   openTestFeature,
@@ -311,7 +312,7 @@ describe("running several tickets at once, under the declared caps", () => {
     for (const path of paths) expect(checkouts).toContain(path);
 
     // Each with its own thread, on its own session: that is what makes clicking
-    // a node open the fil of that ticket and no other.
+    // a node open the thread of that ticket and no other.
     const sessions = running.map((ticket) => ticket.sessionId);
     expect(new Set(sessions).size).toBe(3);
     for (const ticket of running) {
@@ -466,14 +467,14 @@ describe("running several tickets at once, under the declared caps", () => {
     await waitForState(scenario.stream, scenario.featureId, second!.id, "running");
   });
 
-  it("does not forget a launch it accepted when the server restarts", async () => {
+  it("takes the interrupted sub-session back first, and forgets no launch", async () => {
     const titles = ["Le store", "Les outils MCP"];
     const scenario = await start(titles);
     await declareCaps(scenario, { machine: 1, feature: 5 });
     const [first, second] = await writeGraph(scenario, titles);
 
     await launch(first!.id);
-    await waitForState(scenario.stream, scenario.featureId, first!.id, "running");
+    const before = await waitForState(scenario.stream, scenario.featureId, first!.id, "running");
     await launch(second!.id);
     expect((await readTicket(scenario.featureId, second!.id)).state).toBe("queued");
 
@@ -483,6 +484,55 @@ describe("running several tickets at once, under the declared caps", () => {
     const after = await squad.openEventStream();
     expect((await after.next()).type).toBe("snapshot");
 
+    // The one place goes back to the sub-session that was cut off, on its own
+    // session, rather than to the launch that had merely been waiting: a
+    // restart costs the turn in flight and nothing more.
+    const back = await waitForState(after, scenario.featureId, first!.id, "running");
+    expect(back.sessionId).toBe(before.sessionId);
+    expect((await readTicket(scenario.featureId, second!.id)).state).toBe("queued");
+
+    // And the launch accepted before the restart still goes, when its turn comes.
+    gate(first!.id).open();
     await waitForState(after, scenario.featureId, second!.id, "running");
+  });
+
+  it("starts a launch a decision was holding back, once the decision is settled", async () => {
+    const titles = ["Le store", "Les outils MCP"];
+    const scenario = await start(titles);
+    await declareCaps(scenario, { machine: 1, feature: 5 });
+    const [first, second] = await writeGraph(scenario, titles);
+
+    await launch(first!.id);
+    await waitForState(scenario.stream, scenario.featureId, first!.id, "running");
+    await launch(second!.id);
+
+    // A decision posted in front of a launch that is already waiting. The
+    // request is not thrown away: the ticket reads as blocked while its blocker
+    // stands, since a place is not what it is waiting for any more.
+    const tools = await connectToSquadTools(squad.url);
+    const decision = (await tools.call("create_ticket", {
+      featureId: scenario.featureId,
+      kind: "decision",
+      title: "Quelle base",
+      description: "SQLite ou Postgres.",
+      blocks: [second!.id],
+    })) as Ticket;
+    expect((await readTicket(scenario.featureId, second!.id)).state).toBe("blocked");
+
+    // The place comes back, and it stays free: what holds this launch is the
+    // decision, not the machine.
+    gate(first!.id).open();
+    await waitForState(scenario.stream, scenario.featureId, first!.id, "awaiting-validation");
+    expect((await readTicket(scenario.featureId, second!.id)).state).toBe("blocked");
+
+    // Settling releases what it blocked, and the launch asked for long before
+    // goes without anyone having to ask again.
+    await tools.call("settle_decision", {
+      featureId: scenario.featureId,
+      ticketId: decision.id,
+      conclusion: "SQLite, pour rester local.",
+    });
+    await waitForState(scenario.stream, scenario.featureId, second!.id, "running");
+    await tools.close();
   });
 });

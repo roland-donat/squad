@@ -497,8 +497,9 @@ export class Store {
       .where(eq(tickets.id, ticketId))
       .get();
     if (!row || row.queuedAt === null) return null;
-    // The angle is written with the timestamp and only with it; the fallback
-    // stands for a row written before this column existed, never for a choice.
+    // The two columns are written together and cleared together, so an angle is
+    // there whenever a timestamp is. The fallback is what the type asks for,
+    // and it reads as a first launch, which is what a missing angle would be.
     return { angle: row.queuedAngle ?? "implement", lifecycle: row.lifecycle };
   }
 

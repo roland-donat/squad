@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Feature, Project, RecordedSession, ThreadEntry } from "../../src/shared/api";
-import { apiRoutes, attachRecordedSessionRoute } from "../../src/shared/api";
+import { apiRoutes, attachRecordedSessionRoute, mainSessionRoute } from "../../src/shared/api";
 import { createTemporaryRepository } from "../support/git";
 import { writeRecordedSessions, type RecordedSessionSpec } from "../support/recorded-sessions";
 import { createScriptedLauncher, type ScriptedAgent } from "../support/scripted-launcher";
@@ -174,7 +174,7 @@ describe("resuming a recorded conversation", () => {
     expect(await list("grilling introuvable")).toEqual([]);
   });
 
-  it("attaches a conversation: its repository, a feature, and the session resumed", async () => {
+  it("attaches a conversation: its repository, a feature, and what it is bound to", async () => {
     const repository = await createTemporaryRepository();
     const { opened } = await start([
       {
@@ -204,18 +204,55 @@ describe("resuming a recorded conversation", () => {
     expect(feature.title).toBe("Le grilling de la fondation");
     expect(feature.resumedSessionId).toBe("a-reprendre");
 
-    // And the main session is that conversation carrying on, in its repository.
+    // No session is opened by attaching. A claude-code session resumed with
+    // nothing to say has nothing to do and ends at once, and the message that
+    // followed would then open a blank one, which is the whole point missed.
+    expect(opened).toEqual([]);
+
+    // The thread says what this feature is bound to, and says where the
+    // conversation lives rather than repeating it.
+    const said = (await readThread(feature.id)).filter((entry) => entry.kind === "notice");
+    expect(said.map((entry) => entry.text)).toContain(
+      "this feature was opened on a recorded conversation",
+    );
+    expect(said[0]?.detail).toContain(repository);
+  });
+
+  it("resumes that conversation at every start, not only at the first", async () => {
+    const repository = await createTemporaryRepository();
+    const { opened } = await start([
+      { id: "a-reprendre", cwd: repository, title: "Le grilling de la fondation" },
+    ]);
+    const attached = await squad.request("POST", attachRecordedSessionRoute("a-reprendre"), {});
+    const { feature } = (await attached.json()) as { feature: Feature };
+
+    // What the developer types first is what opens it, and it opens as that
+    // conversation carrying on, in its own repository.
+    const first = await squad.request("POST", mainSessionRoute(feature.id), {
+      prompt: "/to-spec",
+    });
+    expect(first.status).toBe(202);
     await expect.poll(() => opened.length, { timeout: 10_000 }).toBe(1);
     expect(opened[0]?.resumeSessionId).toBe("a-reprendre");
     expect(opened[0]?.workingDirectory).toBe(repository);
 
-    // The thread says so, and says where the conversation lives rather than
-    // repeating it.
-    const said = (await readThread(feature.id)).filter((entry) => entry.kind === "notice");
-    expect(said.map((entry) => entry.text)).toContain(
-      "the main session was resumed from a recorded conversation",
-    );
-    expect(said[0]?.detail).toContain(repository);
+    // And so does the next one. A session lives as long as its process; the one
+    // that comes after it is the same thread of work, and squad opened a blank
+    // session there for as long as the binding was read once and then forgotten.
+    parked.splice(0).forEach((open) => open());
+    await expect
+      .poll(async () => {
+        const running = await squad.request("GET", apiRoutes.features);
+        await running.json();
+        return opened.length;
+      }, { timeout: 10_000 })
+      .toBe(1);
+    const again = await squad.request("POST", mainSessionRoute(feature.id), {
+      prompt: "/to-tickets",
+    });
+    expect(again.status).toBe(202);
+    await expect.poll(() => opened.length, { timeout: 10_000 }).toBe(2);
+    expect(opened[1]?.resumeSessionId).toBe("a-reprendre");
   });
 
   it("refuses a conversation that is already the thread of a feature", async () => {

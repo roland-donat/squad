@@ -107,6 +107,48 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
   await opened.getByRole("button", { name: "fermer" }).click();
   await expect(page.getByRole("region", { name: "Session principale" })).toBeVisible();
 
+  // A second repository, and a feature carrying both: the graph then says on
+  // every node which one builds it, since the answer stops being the same
+  // everywhere.
+  const second = await createTemporaryRepository();
+  await page.getByLabel("Chemin du dépôt").fill(second);
+  await page.getByRole("button", { name: "Enregistrer le projet" }).click();
+  await expect(page.getByText(await realpath(second), { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: new RegExp(repositoryRoot.split("/").at(-1) ?? "") }).click();
+
+  await page.getByLabel("Intitulé de la feature").fill("Sur deux dépôts");
+  await page.getByLabel(second.split("/").at(-1) ?? "").check();
+  await page.getByRole("button", { name: "Ouvrir la feature" }).click();
+  await expect(
+    page.getByRole("region", { name: "Graphe" }).getByText(/2 dépôts/),
+  ).toBeVisible();
+
+  const withBoth = await request.get("/api/features");
+  const { features: carried } = (await withBoth.json()) as { features: Feature[] };
+  const carrying = carried.at(-1);
+  if (!carrying) throw new Error("the feature just opened is missing from the API");
+  const both = await connectToSquadTools(baseURL ?? "");
+  await both.call("create_ticket", {
+    featureId: carrying.id,
+    kind: "build",
+    title: "Ici",
+    description: "Dans le dépôt d'attache.",
+  });
+  await both.call("create_ticket", {
+    featureId: carrying.id,
+    projectId: carrying.repositories[1]?.projectId,
+    kind: "build",
+    title: "Là-bas",
+    description: "Dans l'autre dépôt.",
+  });
+  await both.close();
+
+  const elsewhere = second.split("/").at(-1) ?? "";
+  await expect(page.getByLabel(`Là-bas, construction, prêt, ${elsewhere}`)).toBeVisible();
+  await expect(
+    page.getByLabel(`Ici, construction, prêt, ${repositoryRoot.split("/").at(-1)}`),
+  ).toBeVisible();
+
   // Go-as-recommandé, on the feature it drives. It is armed here on a feature
   // whose graph is empty, so squad has nothing to launch and this walk-through
   // opens no session: what is proven is the control, not the drain, which the
@@ -142,7 +184,9 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
   const { projects } = (await (await request.get("/api/projects")).json()) as {
     projects: Project[];
   };
-  expect(projects.at(-1)?.verifyCommand).toBe("pnpm verify");
+  // The one whose fieldset was filled in, named rather than counted: a second
+  // repository was registered above, and the last of the list is that one.
+  expect(projects.find((each) => each.path === repositoryRoot)?.verifyCommand).toBe("pnpm verify");
 
   await page.getByRole("button", { name: "revenir au pilotage" }).click();
 

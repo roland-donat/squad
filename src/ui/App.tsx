@@ -132,29 +132,30 @@ export function App() {
                       .join(", ")}
                   </span>
                 )}
-                {openedFeature.repositories
-                  .filter((carried) => carried.pullRequestUrl !== null)
-                  .map((carried) => (
-                    // Once the graph has drained: one address per repository
-                    // squad sent off, and the place the rest of that story is
-                    // told.
-                    <a
-                      key={carried.projectId}
-                      className="link"
-                      href={carried.pullRequestUrl ?? ""}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      pull request{" "}
-                      {openedFeature.repositories.length > 1
-                        ? repositoryNames.get(carried.projectId)
-                        : ""}
-                    </a>
-                  ))}
+                {openedFeature.repositories.flatMap((carried) =>
+                  // Once the graph has drained: one address per repository squad
+                  // sent off, and the place the rest of that story is told.
+                  carried.pullRequestUrl === null
+                    ? []
+                    : [
+                        <a
+                          key={carried.projectId}
+                          className="link"
+                          href={carried.pullRequestUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          pull request{" "}
+                          {openedFeature.repositories.length > 1
+                            ? repositoryNames.get(carried.projectId)
+                            : ""}
+                        </a>,
+                      ],
+                )}
               </p>
               <FeatureGraphView
                 graph={graph}
-                repositories={repositoryNames}
+                repositoryNames={repositoryNames}
                 selectedId={openedTicket?.id ?? null}
                 onSelect={setOpenTicketId}
               />

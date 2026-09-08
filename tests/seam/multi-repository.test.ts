@@ -84,6 +84,8 @@ describe("a feature that carries several repositories", () => {
     tickets: TicketSpec[];
     carryOther?: boolean;
     verifyCommand?: string;
+    /** A verification of its own for a repository, over the shared one. */
+    verifyOn?: Partial<Record<"muscadet" | "raichu", string>>;
     mainSession?: (agent: ScriptedAgent, projects: Record<string, Project>) => Promise<void>;
     subSession?: (agent: ScriptedAgent, title: string) => Promise<void>;
   }): Promise<Scene> {
@@ -116,20 +118,21 @@ describe("a feature that carries several repositories", () => {
       }),
     });
 
-    const register = async (path: string): Promise<Project> => {
+    const register = async (path: string, verifyCommand?: string): Promise<Project> => {
       const response = await squad.request("POST", apiRoutes.projects, { path });
       expect(response.status).toBe(201);
       const { project } = (await response.json()) as { project: Project };
-      if (options.verifyCommand !== undefined) {
+      const command = verifyCommand ?? options.verifyCommand;
+      if (command !== undefined) {
         const declared = await squad.request("PUT", projectRoute(project.id), {
-          verifyCommand: options.verifyCommand,
+          verifyCommand: command,
         });
         expect(declared.status).toBe(200);
       }
       return project;
     };
-    const home = await register(await createTemporaryRepository());
-    const other = await register(await createTemporaryRepository());
+    const home = await register(await createTemporaryRepository(), options.verifyOn?.muscadet);
+    const other = await register(await createTemporaryRepository(), options.verifyOn?.raichu);
     const stranger = await register(await createTemporaryRepository());
     registered["muscadet"] = home;
     registered["raichu"] = other;
@@ -298,6 +301,72 @@ describe("a feature that carries several repositories", () => {
       scene.other.id,
       scene.stranger.id,
     ]);
+  });
+
+  it("drops a repository nothing points at, and keeps one that carries a ticket", async () => {
+    const scene = await start({
+      tickets: [{ title: "L'interface de muscadet", on: "raichu" }],
+    });
+    const featureId = (await scene.feature()).id;
+
+    // Carried but empty: dropping it takes nothing with it.
+    const carried = await scene.feature();
+    expect(carried.repositories).toHaveLength(2);
+
+    // And the one a ticket is built in stays, whatever the list says: a ticket
+    // squad has nowhere to build is a ticket it could never launch.
+    const refused = await squad.request("PUT", `${apiRoutes.features}/${featureId}`, {
+      projectIds: [scene.home.id],
+    });
+    expect(refused.status).toBe(409);
+    expect((await scene.feature()).repositories).toHaveLength(2);
+
+    // The home project is carried whatever is named, since it is where the main
+    // session runs and what a ticket falls back to.
+    const kept = await squad.request("PUT", `${apiRoutes.features}/${featureId}`, {
+      projectIds: [scene.other.id],
+    });
+    expect(kept.status).toBe(200);
+    expect((await scene.feature()).repositories.map((each) => each.projectId)).toEqual([
+      scene.home.id,
+      scene.other.id,
+    ]);
+  });
+
+  it("writes a red check's fix in its own repository, and blocks nothing elsewhere", async () => {
+    const scene = await start({
+      // Red in the first repository only: what breaks there says nothing about
+      // the other, and the correction must not stop its work.
+      verifyOn: { muscadet: "exit 1" },
+      tickets: [
+        { title: "L'interface de muscadet", criteria: ["Elle est en place"] },
+        { title: "Le reste de muscadet" },
+        { title: "Les appels de raichu", on: "raichu" },
+      ],
+      subSession: async (agent) => {
+        await agent.awaitMessage();
+        await commitFile(agent.request.workingDirectory, "interface.ts", "1\n", "feat: interface");
+        await reportCovered(agent);
+      },
+    });
+
+    await scene.launch("L'interface de muscadet");
+    await scene.reaches("L'interface de muscadet", "merged");
+
+    // The correction is born where the branch broke, and in front of what has
+    // not started there.
+    const fix = await expect
+      .poll(async () => (await scene.graph()).tickets.find((each) => each.kind === "fix"), {
+        timeout: 15_000,
+      })
+      .toBeDefined()
+      .then(async () => (await scene.graph()).tickets.find((each) => each.kind === "fix"));
+    expect(fix?.projectId).toBe(scene.home.id);
+    await scene.reaches("Le reste de muscadet", "blocked");
+
+    // And the other repository carries on: its work has nothing to do with a
+    // branch that broke somewhere else.
+    expect((await scene.ticket("Les appels de raichu")).state).toBe("ready");
   });
 
   it("merges two repositories at once and opens one pull request each", async () => {

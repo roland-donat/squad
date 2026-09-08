@@ -202,8 +202,8 @@ le ticket est écrit quand même et rien de ce qui tourne n'est annulé.
 - Un **projet** porte plusieurs **features**, simultanément possible.
 - Une **feature** possède un **graphe** de **tickets** et une **session principale**,
   et porte un ou plusieurs **dépôts portés** ; chaque **ticket** se construit dans
-  l'un d'eux, et une **arête** relie deux tickets de la feature quels que soient les
-  leurs.
+  l'un d'eux, et une **arête** relie deux tickets de la feature quels que soient
+  leurs dépôts.
 - Un **ticket** de genre `build` ou `fix` s'exécute dans une **sous-session** ; un ticket
   de genre `decision` ne s'exécute pas et se tranche dans la session principale.
 - Une **étape** se termine par un **rapport de fin d'étape**, qui produit une **fiche de

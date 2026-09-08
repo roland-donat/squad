@@ -103,20 +103,15 @@ export class Merges {
    * just happened. A merge is the usual way a graph drains, and not the only
    * one: settling the last decision of a feature releases nothing and merges
    * nothing, yet it is exactly the moment every ticket of that graph has come
-   * to rest. Queued on each repository's chain like a merge, since what it may
-   * do is push a branch and open a pull request.
+   * to rest.
+   *
+   * Every repository of the feature, each queued on its own chain like a merge,
+   * since what it may do is push a branch and open a pull request. One pull
+   * request per repository and no coordination between them: they are separate
+   * branches on separate remotes, and holding one back until the others are
+   * green would mean squad polling the forge, which it does nowhere.
    */
   deliver(featureId: string): void {
-    this.deliverEveryRepository(featureId);
-  }
-
-  /**
-   * Sends off every repository of a drained feature, each on its own chain. One
-   * pull request per repository and no coordination between them: they are
-   * separate branches on separate remotes, and holding one back until the
-   * others are green would mean squad polling the forge, which it does nowhere.
-   */
-  private deliverEveryRepository(featureId: string): void {
     const { store } = this.dependencies;
     const feature = store.requireFeature(featureId);
     for (const carried of feature.repositories) {
@@ -197,7 +192,7 @@ export class Merges {
     // Every repository of the feature, not only the one that just merged: the
     // ticket that drained the graph may well be the last of its own repository
     // while another was already waiting for it.
-    this.deliverEveryRepository(feature.id);
+    this.deliver(feature.id);
     subSessions.schedule();
   }
 

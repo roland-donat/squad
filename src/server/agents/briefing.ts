@@ -14,7 +14,12 @@ import { squadToolName, squadTools } from "../mcp";
  * tracker is squad, `/to-tickets` files GitHub issues and the graph stays empty.
  */
 export function mainSessionBriefing(feature: Feature, repositories: readonly Project[]): string {
-  const carried = repositories.map((project) => `  - ${project.name}: ${project.path} (\`projectId: "${project.id}"\`)`);
+  const carried = repositories.map(
+    (project) => `  - ${project.name}: ${project.path} (\`projectId: "${project.id}"\`)`,
+  );
+  // Read from what declares it rather than from the order of the list: the home
+  // project is a field of the feature, and an order is only an order.
+  const home = repositories.find((project) => project.id === feature.projectId);
   return [
     `You are the main session of the squad feature "${feature.title}", whose feature id is ${feature.id}.`,
     "",
@@ -28,7 +33,7 @@ export function mainSessionBriefing(feature: Feature, repositories: readonly Pro
     "",
     "This feature carries these repositories, and a ticket is built in one of them:",
     ...carried,
-    `Pass \`projectId\` on a ticket built anywhere other than ${repositories[0]?.name ?? "the home repository"}, which is where you are running and what a ticket falls back to. A ticket naming a repository this feature does not carry is refused: carry it first, and only what squad already drives can be carried. If the work reaches a repository squad does not drive, say so rather than working around it.`,
+    `Pass \`projectId\` on a ticket built anywhere other than ${home?.name ?? "the home repository"}, which is where you are running and what a ticket falls back to. A ticket naming a repository this feature does not carry is refused: carry it first, and only what squad already drives can be carried. If the work reaches a repository squad does not drive, say so rather than working around it.`,
     "",
     "A ticket carries a kind: `build` for a vertical slice to construct, `decision` for a question only the developer can answer, `fix` for a correction born of a red check. A `decision` ticket is never implemented and never opens a session of its own: it waits in the graph until the developer settles it in this thread. The moment they do, call the settle tool with their conclusion in their own terms, in enough detail for a fresh session to act on it without reading this thread. Squad parses no prose: a decision you do not write through that tool never reaches the graph.",
     "",

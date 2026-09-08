@@ -43,7 +43,7 @@ function stateLabel(ticket: Ticket): string {
 
 export function FeatureGraphView({
   graph,
-  repositories,
+  repositoryNames,
   selectedId,
   onSelect,
 }: {
@@ -53,7 +53,7 @@ export function FeatureGraphView({
    * built in only when there are several: on a feature carrying one, the answer
    * is the same everywhere and the chip would be noise on every node.
    */
-  repositories: Map<string, string>;
+  repositoryNames: Map<string, string>;
   selectedId: string | null;
   onSelect: (ticketId: string) => void;
 }) {
@@ -120,7 +120,7 @@ export function FeatureGraphView({
                 ticket.title,
                 kindLabels[ticket.kind],
                 stateLabel(ticket),
-                ...(repositories.size > 1 ? [repositories.get(ticket.projectId) ?? ""] : []),
+                ...(repositoryNames.size > 1 ? [repositoryNames.get(ticket.projectId) ?? ""] : []),
               ].join(", ")}
               onClick={() => onSelect(ticket.id)}
             >
@@ -128,9 +128,9 @@ export function FeatureGraphView({
               <span className="node__chips">
                 <span className="chip chip--kind">{kindLabels[ticket.kind]}</span>
                 <span className="chip chip--state">{stateLabel(ticket)}</span>
-                {repositories.size > 1 && (
+                {repositoryNames.size > 1 && (
                   <span className="chip chip--repository">
-                    {repositories.get(ticket.projectId) ?? "dépôt inconnu"}
+                    {repositoryNames.get(ticket.projectId) ?? "dépôt inconnu"}
                   </span>
                 )}
               </span>

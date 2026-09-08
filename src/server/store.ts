@@ -408,16 +408,7 @@ export class Store {
     this.db.transaction((tx) => {
       tx.insert(features).values(row).run();
       tx.insert(featureRepositories)
-        .values(
-          carried.map((projectId) => ({
-            featureId: row.id,
-            projectId,
-            branch: null,
-            worktreePath: null,
-            pullRequestUrl: null,
-            createdAt,
-          })),
-        )
+        .values(carried.map((projectId) => carriedRow(row.id, projectId, createdAt)))
         .run();
     });
     return this.requireFeature(row.id);
@@ -451,20 +442,13 @@ export class Store {
    * an agent reading a path out of a `CLAUDE.md` must not be able to widen that.
    * Carrying one twice is not an error, since two agents may read the same line.
    */
-  carryRepository(featureId: string, projectId: string): Feature {
+  private carryRepository(featureId: string, projectId: string): Feature {
     const feature = this.requireFeature(featureId);
     const project = this.requireProject(projectId);
     if (!feature.repositories.some((each) => each.projectId === project.id)) {
       this.db
         .insert(featureRepositories)
-        .values({
-          featureId: feature.id,
-          projectId: project.id,
-          branch: null,
-          worktreePath: null,
-          pullRequestUrl: null,
-          createdAt: new Date().toISOString(),
-        })
+        .values(carriedRow(feature.id, project.id, new Date().toISOString()))
         .run();
     }
     return this.requireFeature(feature.id);
@@ -481,12 +465,23 @@ export class Store {
     const wanted = new Set([feature.projectId, ...projectIds]);
     for (const projectId of wanted) this.requireProject(projectId);
     const dropped = feature.repositories.filter((each) => !wanted.has(each.projectId));
-    const inFlight = dropped.filter((each) => each.worktree !== null);
-    if (inFlight.length > 0) {
+    // A repository is dropped only when nothing of the feature points at it any
+    // more: a checkout holds work on a branch, and a ticket written for it would
+    // be a ticket squad has nowhere left to build.
+    const held = dropped.filter(
+      (each) =>
+        each.worktree !== null ||
+        this.db
+          .select({ id: tickets.id })
+          .from(tickets)
+          .where(and(eq(tickets.featureId, feature.id), eq(tickets.projectId, each.projectId)))
+          .all().length > 0,
+    );
+    if (held.length > 0) {
       throw new SquadError(
-        "project_has_work_in_flight",
+        "repository_still_used",
         409,
-        `feature "${feature.title}" has work checked out in ${inFlight.map((each) => this.requireProject(each.projectId).name).join(", ")}: a repository is dropped once nothing of it is checked out`,
+        `feature "${feature.title}" still has work in ${held.map((each) => this.requireProject(each.projectId).name).join(", ")}: a repository is dropped once no ticket of the feature is built there and nothing of it is checked out`,
       );
     }
     this.db.transaction((tx) => {
@@ -506,16 +501,7 @@ export class Store {
       );
       if (added.length > 0) {
         tx.insert(featureRepositories)
-          .values(
-            added.map((projectId) => ({
-              featureId: feature.id,
-              projectId,
-              branch: null,
-              worktreePath: null,
-              pullRequestUrl: null,
-              createdAt,
-            })),
-          )
+          .values(added.map((projectId) => carriedRow(feature.id, projectId, createdAt)))
           .run();
       }
     });
@@ -827,7 +813,10 @@ export class Store {
 
   /**
    * What the scheduler decides on: every feature holding a launch that waits or
-   * a sub-session that runs, each beside the cap its project declares. The
+   * a sub-session that runs, each beside the cap its home project declares. The
+   * home project and not the most restrictive of what the feature carries: the
+   * cap says how much of one piece of work may run at once, and a feature that
+   * merely touches a narrow repository is not a narrower piece of work. The
    * others are left out because they contribute nothing to the count, not as an
    * approximation: a feature with neither would change no answer.
    */
@@ -1512,6 +1501,22 @@ export class Store {
     }
     return byTicket;
   }
+}
+
+/**
+ * A repository a feature carries and has not touched yet: no branch, no
+ * checkout, no pull request. Written in one place, since the three ways of
+ * carrying one all start from the same nothing.
+ */
+function carriedRow(featureId: string, projectId: string, createdAt: string) {
+  return {
+    featureId,
+    projectId,
+    branch: null,
+    worktreePath: null,
+    pullRequestUrl: null,
+    createdAt,
+  };
 }
 
 /** The settings are one row, and this is it. */

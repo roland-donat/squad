@@ -26,7 +26,10 @@ secrets.env
 CLAUDE.local.md
 
 # Dépendances et artefacts de build
-node_modules/
+# Sans la barre oblique : un worktree de travail relie souvent son node_modules
+# au checkout principal par un lien symbolique, et `node_modules/` ne l'attrape
+# pas, un lien n'étant pas un répertoire pour git.
+node_modules
 dist/
 
 # Sorties Playwright

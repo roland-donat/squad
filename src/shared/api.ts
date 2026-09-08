@@ -37,6 +37,7 @@ export const errorCodes = [
   "branch_not_found",
   "project_has_work_in_flight",
   "project_not_carried",
+  "repository_still_used",
   "question_not_found",
   "question_not_pending",
   "recommendation_not_an_option",

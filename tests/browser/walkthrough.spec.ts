@@ -198,9 +198,38 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
   // repository was registered above, and the last of the list is that one.
   expect(projects.find((each) => each.path === repositoryRoot)?.verifyCommand).toBe("pnpm verify");
 
+  // Leaving the settings comes back to the feature that was being watched: they
+  // are a screen of their own, and their address carries no selection.
   await page.getByRole("button", { name: "revenir au pilotage" }).click();
+  await expect(featuresPanel.getByRole("button", { name: /^Sans graphe/ })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
 
-  // The state lives on the server, so it survives a reload of the page.
+  // The address says what is watched, so a reload lands back on it rather than
+  // on the first feature of the list: the state comes from the server, the
+  // selection from the URL.
+  await page.getByRole("button", { name: /^Fondation/ }).click();
+  await expect(page).toHaveURL(/\/projects\/[^/]+\/features\/[^/]+$/);
+  const watched = page.url();
   await page.reload();
+  await expect(page).toHaveURL(watched);
   await expect(nodes).toHaveCount(4);
+
+  // A ticket has an address of its own, and squad serves its shell on it: this
+  // is what a link left in an alert or a bookmark walks back into.
+  await page.getByLabel("Le store, construction, prêt").click();
+  const ticket = page.url();
+  expect(ticket).toMatch(/\/tickets\/[^/]+$/);
+  await page.goto(ticket);
+  await expect(
+    page.getByRole("region", { name: "Ticket" }).getByText("La base et ses migrations."),
+  ).toBeVisible();
+
+  // An address naming something squad does not have is corrected rather than
+  // obeyed: the screen falls back on what it can show, and stops claiming the
+  // rest.
+  await page.goto("/projects/nexistepas/features/nonplus");
+  await expect(page).toHaveURL(/\/projects\/[^/]+\/features\/[^/]+$/);
+  await expect(page).not.toHaveURL(/nexistepas/);
 });

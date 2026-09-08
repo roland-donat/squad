@@ -205,7 +205,7 @@ describe("go-as-recommended, from the drain to what stops it", () => {
       summary: `Ce que demandait « ${own.title} » est construit.`,
       coverage: own.acceptanceCriteria.map((criterion) => ({
         criterionId: criterion.id,
-        covered: true,
+        verdict: "automated",
       })),
       recommendation: "Fusionner.",
     });

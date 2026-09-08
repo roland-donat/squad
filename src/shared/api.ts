@@ -31,6 +31,7 @@ export const errorCodes = [
   "launch_already_requested",
   "no_step_in_progress",
   "coverage_mismatch",
+  "checked_without_note",
   "test_sheet_not_found",
   "test_sheet_already_reviewed",
   "ticket_not_mergeable",
@@ -228,16 +229,38 @@ export interface AcceptanceCriterion {
 }
 
 /**
- * Whether an acceptance criterion is covered by an automatic test, as the
- * sub-session declared it when it ended its step. Declared criterion by
- * criterion rather than as a count: what the test sheet is made of is exactly
- * what was left undeclared as covered, and a count could not say which.
+ * How an acceptance criterion was settled, as the sub-session declared it when
+ * it ended its step.
+ *
+ * Three verdicts and not two, because between "a test covers it" and "only a
+ * person can tell" lies everything an agent can settle by running something,
+ * and that is most of it. A criterion nobody automated but that a command
+ * answers is the agent's to run, not the developer's to check by hand: handing
+ * it over returns the work that was delegated, in a form nobody but the agent
+ * can act on.
  */
+export const criterionVerdicts = ["automated", "checked", "judgement"] as const;
+export type CriterionVerdict = (typeof criterionVerdicts)[number];
+
 export interface CriterionCoverage {
   criterionId: string;
   /** The criterion as it read when the step was reported. */
   text: string;
-  covered: boolean;
+  /**
+   * `automated` when an automatic test really covers it, `checked` when the
+   * agent settled it itself by running something, `judgement` when only a
+   * person can: ergonomics, wording, a domain arbitration, an intent to
+   * confirm. Only the last kind reaches the test sheet.
+   */
+  verdict: CriterionVerdict;
+  /**
+   * What the agent ran and what it answered. On a `checked` criterion it is the
+   * whole of what the developer reads instead of doing the work again, so one
+   * without it is refused. On a `judgement` criterion it is what was already
+   * established around the part only a person can settle, and it is shown next
+   * to that point on the sheet rather than dropped.
+   */
+  note: string | null;
 }
 
 /**

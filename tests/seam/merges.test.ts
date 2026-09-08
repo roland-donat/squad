@@ -204,7 +204,7 @@ describe("validating, merging, checking and delivering", () => {
       summary,
       coverage: own.acceptanceCriteria.map((criterion) => ({
         criterionId: criterion.id,
-        covered: true,
+        verdict: "automated",
       })),
       recommendation: "Fusionner.",
     });
@@ -219,7 +219,7 @@ describe("validating, merging, checking and delivering", () => {
       summary,
       coverage: own.acceptanceCriteria.map((criterion) => ({
         criterionId: criterion.id,
-        covered: false,
+        verdict: "judgement",
       })),
       recommendation: "À vérifier à la main.",
     });

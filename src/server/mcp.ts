@@ -3,7 +3,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { RequestHandler } from "express";
 import { z } from "zod";
 import type { Question, Ticket } from "../shared/api";
-import { ticketKinds } from "../shared/api";
+import { criterionVerdicts, ticketKinds } from "../shared/api";
 import type { AskInput } from "./questions";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
@@ -131,21 +131,29 @@ const reportStepShape = {
           .string()
           .min(1)
           .describe("The id of the acceptance criterion, as handed to you with the ticket."),
-        covered: z
-          .boolean()
+        verdict: z
+          .enum(criterionVerdicts)
           .describe(
-            "True when an automatic test you wrote or ran actually checks this criterion. False when only a human can tell.",
+            "How the criterion was settled. `automated` when a test you wrote or ran checks it and will keep checking it. `checked` when no test covers it but you settled it yourself by running something: a command, a script, a query, a browser. `judgement` when only a person can tell: ergonomics, wording, a domain arbitration, an intent to confirm.",
+          ),
+        note: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe(
+            "What you ran and what it answered. Required on a `checked` criterion: it is what the developer reads instead of doing the work again. Worth writing on a `judgement` one too, to say what you already established around the part only a person can settle; it is shown next to that point.",
           ),
       }),
     )
     .describe(
-      "One entry per acceptance criterion of the ticket, exactly once each and none other. Every criterion you declare uncovered becomes a point the developer checks by hand.",
+      "One entry per acceptance criterion of the ticket, exactly once each and none other. Only what you declare `judgement` becomes a point the developer goes through: before writing that verdict, ask yourself whether a command, a test or a script answers, and if one does, run it and declare `checked`. Handing over what you could have settled returns the work that was delegated to you.",
     ),
   suggestions: z
     .array(z.string().trim().min(1))
     .default([])
     .describe(
-      "Points you suggest checking by hand beyond the criteria: what the ticket did not foresee and you would look at yourself.",
+      "Points you suggest checking by hand beyond the criteria: what the ticket did not foresee and only a person can judge. The same rule holds here: what you can settle yourself, settle, and say so in the summary rather than suggesting it.",
     ),
   recommendation: z
     .string()
@@ -307,7 +315,7 @@ function buildMcpServer({
     {
       title: "Report the end of a step",
       description:
-        "Ends the step of a ticket: what you built, whether an automatic test covers each acceptance criterion, what you suggest checking by hand, and what you recommend doing next. The criteria you declare uncovered, plus your suggestions, become the test sheet the developer goes through. Reporting puts the ticket in awaiting-validation; stay available afterwards, since what a point fails on comes back to you. A step you do not report through this tool is a step squad has to ask you about again: it never concludes a ticket is done because a session stopped.",
+        "Ends the step of a ticket: what you built, how each acceptance criterion was settled, what you suggest looking at by hand, and what you recommend doing next. Only the criteria you declare `judgement`, plus your suggestions, become the test sheet the developer goes through: everything a command, a test or a script can answer is yours to run and to declare `checked`, with what it answered. A sheet full of technical points the developer cannot judge is a sheet that returns the work you were given. Reporting puts the ticket in awaiting-validation; stay available afterwards, since what a point fails on comes back to you. A step you do not report through this tool is a step squad has to ask you about again: it never concludes a ticket is done because a session stopped.",
       inputSchema: reportStepShape,
     },
     async (input) =>

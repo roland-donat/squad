@@ -9,6 +9,7 @@ import type {
   AutonomyHaltReason,
   BlockingEdge,
   CriterionCoverage,
+  CriterionVerdict,
   Feature,
   FeatureGraph,
   FeatureRepository,
@@ -122,7 +123,7 @@ export interface RecordStepReportInput {
   summary: string;
   recommendation: string;
   /** One entry per acceptance criterion of the ticket, no more and no fewer. */
-  coverage: Array<{ criterionId: string; covered: boolean }>;
+  coverage: Array<{ criterionId: string; verdict: CriterionVerdict; note?: string | null }>;
   /** What the agent suggests checking by hand beyond the criteria. */
   suggestions: string[];
 }
@@ -1060,8 +1061,10 @@ export class Store {
 
   /**
    * Records the end of a step, and with it the test sheet the developer will go
-   * through: the acceptance criteria the agent declared no automatic test
-   * covers, followed by what it suggests looking at on top of them.
+   * through: the acceptance criteria only a person can settle, followed by what
+   * the agent suggests looking at on top of them. A criterion the agent settled
+   * itself by running something stays in the report, with what it ran, and does
+   * not reach the sheet.
    *
    * The coverage has to name every criterion of the ticket and nothing else. A
    * partial declaration is refused rather than read as "the rest is covered":
@@ -1106,7 +1109,8 @@ export class Store {
               criterionId: entry.criterionId,
               position,
               text: entry.text,
-              covered: entry.covered,
+              verdict: entry.verdict,
+              note: entry.note,
             })),
           )
           .run();
@@ -1144,7 +1148,7 @@ export class Store {
     ticket: Ticket,
     input: RecordStepReportInput,
   ): { coverage: CriterionCoverage[]; points: Array<{ criterionId: string | null; text: string }> } {
-    const declared = new Map(input.coverage.map((entry) => [entry.criterionId, entry.covered]));
+    const declared = new Map(input.coverage.map((entry) => [entry.criterionId, entry]));
     const known = new Set(ticket.acceptanceCriteria.map((criterion) => criterion.id));
     const missing = ticket.acceptanceCriteria.filter((criterion) => !declared.has(criterion.id));
     const unknown = input.coverage.filter((entry) => !known.has(entry.criterionId));
@@ -1157,22 +1161,42 @@ export class Store {
       throw new SquadError(
         "coverage_mismatch",
         400,
-        `the report must say, for each of the ${ticket.acceptanceCriteria.length} acceptance criteria of "${ticket.title}" and for those only, whether an automatic test covers it: ${said.join("; ")}`,
+        `the report must say, for each of the ${ticket.acceptanceCriteria.length} acceptance criteria of "${ticket.title}" and for those only, how it was settled: ${said.join("; ")}`,
       );
     }
 
-    const coverage = ticket.acceptanceCriteria.map((criterion) => ({
-      criterionId: criterion.id,
-      text: criterion.text,
-      covered: declared.get(criterion.id) === true,
-    }));
+    const coverage = ticket.acceptanceCriteria.map((criterion) => {
+      const entry = declared.get(criterion.id);
+      const note = entry?.note?.trim() ?? "";
+      return {
+        criterionId: criterion.id,
+        text: criterion.text,
+        verdict: entry?.verdict ?? "judgement",
+        note: note === "" ? null : note,
+      };
+    });
+
+    // A criterion the agent settled itself is only worth the sheet it spares if
+    // it says what it ran: without that, the developer has no way to tell a
+    // verification from a claim, and doing the work again is the only recourse.
+    const unsaid = coverage.filter((entry) => entry.verdict === "checked" && entry.note === null);
+    if (unsaid.length > 0) {
+      throw new SquadError(
+        "checked_without_note",
+        400,
+        `a criterion settled by the agent has to say what was run and what it answered: ${unsaid
+          .map((entry) => `nothing said of "${entry.text}"`)
+          .join("; ")}`,
+      );
+    }
+
     return {
       coverage,
-      // The sheet is what nobody automated: the uncovered criteria, in the order
-      // the ticket wrote them, then what the agent suggested on top of them.
+      // The sheet is what nobody but a person can settle, in the order the
+      // ticket wrote them, then what the agent suggested on top of them.
       points: [
         ...coverage
-          .filter((entry) => !entry.covered)
+          .filter((entry) => entry.verdict === "judgement")
           .map((entry) => ({ criterionId: entry.criterionId, text: entry.text })),
         ...input.suggestions.map((text) => ({ criterionId: null, text })),
       ],
@@ -1492,7 +1516,12 @@ export class Store {
       .orderBy(asc(criterionCoverage.position))
       .all()) {
       const list = coverage.get(row.reportId) ?? [];
-      list.push({ criterionId: row.criterionId, text: row.text, covered: row.covered });
+      list.push({
+        criterionId: row.criterionId,
+        text: row.text,
+        verdict: row.verdict,
+        note: row.note,
+      });
       coverage.set(row.reportId, list);
     }
     const sheets = new Map<string, TestSheetPoint[]>();

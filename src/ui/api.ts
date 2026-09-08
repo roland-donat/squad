@@ -76,7 +76,9 @@ const wording: Record<ErrorCode, string> = {
     "Le lancement de ce ticket est déjà demandé : il attend une place sous les plafonds de concurrence.",
   no_step_in_progress: "Aucune sous-session ne tourne sur ce ticket : il n'y a pas d'étape à clore.",
   coverage_mismatch:
-    "Le rapport doit dire, pour chaque critère d'acceptation du ticket et pour ceux-là seuls, s'il est couvert par un test automatique.",
+    "Le rapport doit dire, pour chaque critère d'acceptation du ticket et pour ceux-là seuls, comment il a été réglé.",
+  checked_without_note:
+    "Un critère réglé par l'agent doit dire ce qui a été lancé et ce que ça a répondu.",
   test_sheet_not_found: "Ce ticket n'a pas encore de fiche de tests.",
   test_sheet_already_reviewed: "Cette fiche de tests a déjà été passée en revue.",
   not_found: "Cette route n'existe pas.",

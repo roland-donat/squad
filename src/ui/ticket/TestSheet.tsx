@@ -1,13 +1,13 @@
 import { useState, type FormEvent } from "react";
-import type { StepReport, TestSheetPoint } from "../../shared/api";
+import type { CriterionCoverage, StepReport, TestSheetPoint } from "../../shared/api";
 import { ApiError, reviewTestSheet } from "../api";
 
 /**
- * The test sheet of a reported step: what the agent built, what it says an
- * automatic test covers, and what is left for a human to look at. A point is
- * checked when it works; leaving it unchecked with a comment is how the
- * developer says what is wrong, and that comment is what goes back to the
- * sub-session.
+ * The test sheet of a reported step: what the agent built, what a test covers,
+ * what the agent settled itself and how, and what is left for a person to
+ * judge. A point is checked when it works; leaving it unchecked with a comment
+ * is how the developer says what is wrong, and that comment is what goes back
+ * to the sub-session.
  *
  * A sheet is gone through once. Afterwards it is read back rather than edited:
  * what was said is the record the correction is based on.
@@ -21,27 +21,23 @@ export function TestSheet({ ticketId, report }: { ticketId: string; report: Step
         <span className="chip">recommandation</span> {report.recommendation}
       </p>
 
-      {report.coverage.some((entry) => entry.covered) && (
-        <>
-          <h3 className="ticket__heading">Couverts par un test automatique</h3>
-          <ul className="ticket__criteria">
-            {report.coverage
-              .filter((entry) => entry.covered)
-              .map((entry) => (
-                <li key={entry.criterionId}>{entry.text}</li>
-              ))}
-          </ul>
-        </>
-      )}
+      <Settled
+        title="Couverts par un test automatique"
+        entries={report.coverage.filter((entry) => entry.verdict === "automated")}
+      />
+      <Settled
+        title="Réglés par l'agent"
+        entries={report.coverage.filter((entry) => entry.verdict === "checked")}
+      />
 
       <h3 className="ticket__heading">Fiche de tests</h3>
       {report.sheet.length === 0 ? (
         <p className="empty">
-          Rien à vérifier à la main : tous les critères sont couverts par des tests automatiques et
-          l'agent n'a rien suggéré de plus.
+          Rien à juger : tous les critères sont couverts par un test ou réglés par l'agent, et il
+          n'a rien suggéré de plus.
         </p>
       ) : report.reviewedAt === null ? (
-        <SheetForm ticketId={ticketId} points={report.sheet} />
+        <SheetForm ticketId={ticketId} points={report.sheet} notes={notesByCriterion(report)} />
       ) : (
         <ReviewedSheet report={report} />
       )}
@@ -49,8 +45,52 @@ export function TestSheet({ ticketId, report }: { ticketId: string; report: Step
   );
 }
 
+/**
+ * The criteria the developer does not have to go through, and why: a test
+ * covers them, or the agent settled them itself and says what it ran. Reading
+ * this is what spares doing the work again, so a checked criterion shows its
+ * note rather than hiding it behind the claim.
+ */
+function Settled({ title, entries }: { title: string; entries: CriterionCoverage[] }) {
+  if (entries.length === 0) return null;
+  return (
+    <>
+      <h3 className="ticket__heading">{title}</h3>
+      <ul className="ticket__criteria">
+        {entries.map((entry) => (
+          <li key={entry.criterionId}>
+            {entry.text}
+            {entry.note !== null && <p className="sheet__comment">{entry.note}</p>}
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+/**
+ * What the agent already established on a criterion it still hands over: read
+ * under the point, so the developer judges what is left rather than starting
+ * from nothing.
+ */
+function notesByCriterion(report: StepReport): Record<string, string> {
+  const notes: Record<string, string> = {};
+  for (const entry of report.coverage) {
+    if (entry.verdict === "judgement" && entry.note !== null) notes[entry.criterionId] = entry.note;
+  }
+  return notes;
+}
+
 /** What the developer fills in, one point at a time, then hands back in one go. */
-function SheetForm({ ticketId, points }: { ticketId: string; points: TestSheetPoint[] }) {
+function SheetForm({
+  ticketId,
+  points,
+  notes,
+}: {
+  ticketId: string;
+  points: TestSheetPoint[];
+  notes: Record<string, string>;
+}) {
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [comments, setComments] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState("");
@@ -93,6 +133,9 @@ function SheetForm({ ticketId, points }: { ticketId: string; points: TestSheetPo
               <span className="sheet__text">{point.text}</span>
               <span className="chip">{originLabel(point)}</span>
             </label>
+            {point.criterionId !== null && notes[point.criterionId] !== undefined && (
+              <p className="sheet__comment">{notes[point.criterionId]}</p>
+            )}
             <label className="field">
               <span>Commentaire</span>
               <input

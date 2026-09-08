@@ -88,7 +88,7 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
 
   // The indicator lists what waits on the developer, and opens it: the decision
   // nothing blocks is there, the one still blocked is not.
-  const waiting = page.getByRole("region", { name: "En attente de moi" });
+  const waiting = page.getByRole("region", { name: "Actions en attente" });
   await expect(waiting.getByRole("button")).toHaveCount(1);
   const entry = waiting.getByRole("button", { name: /Quelle base/ });
   await expect(entry).toContainText("décision à trancher");
@@ -236,4 +236,24 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
   await page.goto("/projects/nexistepas/features/nonplus");
   await expect(page).toHaveURL(/\/projects\/[^/]+\/features\/[^/]+$/);
   await expect(page).not.toHaveURL(/nexistepas/);
+
+  // The ground the interface is drawn on. It is a setting like the others, so
+  // the click goes to the server and comes back on the event stream; and it
+  // survives a reload, which is the only place the copy read before React
+  // mounts is proven to be written and read.
+  const root = page.locator("html");
+  const themeSwitch = page.getByRole("group", { name: "Thème de l'interface" });
+  await expect(root).not.toHaveAttribute("data-theme", /.*/);
+  // The label rather than the radio, which is hidden under it: this is the
+  // gesture a person makes.
+  await themeSwitch.getByText("sombre").click();
+  await expect(root).toHaveAttribute("data-theme", "dark");
+  await page.reload();
+  await expect(root).toHaveAttribute("data-theme", "dark");
+  await expect(page.getByLabel("sombre")).toBeChecked();
+
+  // Back to the browser's own setting, which writes no attribute at all: a
+  // choice given back is not a third ground.
+  await themeSwitch.getByText("système").click();
+  await expect(root).not.toHaveAttribute("data-theme", /.*/);
 });

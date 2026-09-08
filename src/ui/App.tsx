@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import type { AutonomyHaltReason, Feature, Project } from "../shared/api";
+import { themes, type AutonomyHaltReason, type Feature, type Project, type Theme } from "../shared/api";
 import { pendingActions, type PendingAction, type PendingReason } from "../shared/pending";
 import { piloting, type PilotingRoute } from "../shared/ui-routes";
-import { openFeature, registerProject, setGoAsRecommended } from "./api";
+import { openFeature, registerProject, setGoAsRecommended, updateSettings } from "./api";
+// The lockup itself, not a copy of it in JSX: one drawing serves the header, the
+// favicon and the README, and a second one would drift from it in silence.
+import lockup from "./brand/squad-lockup.svg?raw";
 import { FeatureGraphView } from "./graph/FeatureGraphView";
 import { navigate, useRoute } from "./route";
 import { Failure, useSubmission } from "./submission";
 import { MainSessionView } from "./session/MainSessionView";
 import { RecordedSessions } from "./session/RecordedSessions";
 import { SettingsView } from "./settings/SettingsView";
+import { applyTheme } from "./theme";
 import { TicketPanel } from "./ticket/TicketPanel";
 import {
   featureQuestionsOf,
@@ -70,6 +74,14 @@ export function App() {
       { replace: true },
     );
   }, [state.loaded, route.screen, shownProjectId, shownFeatureId, shownTicketId]);
+  // The ground the interface is drawn on, as squad holds it. Held back until the
+  // first snapshot: before it the settings are placeholders, and applying them
+  // would undo what the bootstrap script painted from the last known theme.
+  const theme = state.settings.theme;
+  useEffect(() => {
+    if (!state.loaded) return;
+    applyTheme(theme);
+  }, [state.loaded, theme]);
   // The repositories the opened feature carries, named: the graph and the
   // ticket panel say which one a ticket is built in, and both read this.
   const repositoryNames = new Map(
@@ -97,7 +109,10 @@ export function App() {
   return (
     <div className="app">
       <header className="app__header">
-        <h1>squad</h1>
+        {/* The name is drawn in the lockup, so the heading is for what reads the
+            page rather than for what looks at it. */}
+        <span className="brand" aria-hidden="true" dangerouslySetInnerHTML={{ __html: lockup }} />
+        <h1 className="visually-hidden">squad</h1>
         <p>Poste de pilotage local pour agents claude-code</p>
         <span className={connected ? "badge badge--live" : "badge"}>
           {connected ? "connecté" : "hors ligne"}
@@ -109,6 +124,7 @@ export function App() {
         >
           {settingsOpen ? "revenir au pilotage" : "réglages"}
         </button>
+        <ThemeSwitch theme={theme} />
       </header>
 
       {settingsOpen && <SettingsView settings={state.settings} projects={projects} />}
@@ -264,6 +280,52 @@ export function App() {
   );
 }
 
+/** The three grounds, in the order they are offered. */
+const themeLabels: Record<Theme, string> = {
+  system: "système",
+  light: "clair",
+  dark: "sombre",
+};
+
+/**
+ * Which ground the interface is drawn on. The choice is a squad setting like
+ * any other, so it goes to the server and comes back on the event stream: the
+ * switch shows what is in force, never what was clicked.
+ *
+ * Three native radios rather than hand-written ARIA: the arrow keys, the group
+ * semantics and the announced state all come for free.
+ */
+function ThemeSwitch({ theme }: { theme: Theme }) {
+  // What was just clicked. A ref rather than state, since the submission reads
+  // it when it runs and nothing renders from it.
+  const chosen = useRef<Theme>(theme);
+  const { error, run } = useSubmission(() => updateSettings({ theme: chosen.current }));
+
+  return (
+    <>
+      <fieldset className="theme">
+        <legend className="visually-hidden">Thème de l'interface</legend>
+        {themes.map((option) => (
+          <label className="theme__option" key={option}>
+            <input
+              type="radio"
+              name="theme"
+              value={option}
+              checked={option === theme}
+              onChange={() => {
+                chosen.current = option;
+                void run();
+              }}
+            />
+            <span>{themeLabels[option]}</span>
+          </label>
+        ))}
+      </fieldset>
+      <Failure message={error} />
+    </>
+  );
+}
+
 /** What each reason means for the developer, said as the thing they have to do. */
 const reasonLabels: Record<PendingReason, string> = {
   question: "question d'un agent",
@@ -290,7 +352,7 @@ function WaitingPanel({
 }) {
   return (
     <section className="panel panel--waiting" aria-labelledby="titre-attente">
-      <h2 id="titre-attente">En attente de moi</h2>
+      <h2 id="titre-attente">Actions en attente</h2>
       {actions.length === 0 ? (
         <p className="empty">Rien n'attend d'action de ma part.</p>
       ) : (

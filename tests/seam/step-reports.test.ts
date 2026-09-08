@@ -390,6 +390,7 @@ describe("ending a step, its test sheet and its alerts", () => {
         desktopNotifications: false,
         machineConcurrencyCap: defaultConcurrencyCaps.machine,
         generationDepthCap: defaultGenerationDepthCap,
+        theme: "system",
       },
     });
 

@@ -60,8 +60,8 @@ pnpm db:generate      # génère une migration après modification du schéma
 recrée une table (contrainte `check` modifiée) et lui ajoute des colonnes,
 `drizzle-kit` copie l'ancienne table en sélectionnant les colonnes nouvelles,
 qui n'y existent pas encore : la migration échoue au démarrage sur une base
-existante, et jamais sur une base neuve. C'est le cas de `drizzle/0004`, corrigé
-à la main. Une suite verte ne l'attrape pas : la vérifier sur une base écrite par
+existante, et jamais sur une base neuve. C'est le cas de `drizzle/0004` et de
+`drizzle/0011`, corrigés à la main. Une suite verte ne l'attrape pas : la vérifier sur une base écrite par
 la version précédente.
 
 Réglages par variable d'environnement : `SQUAD_PORT` (7300 par défaut) et
@@ -70,14 +70,22 @@ Réglages par variable d'environnement : `SQUAD_PORT` (7300 par défaut) et
 Le reste des réglages vit dans la base, s'édite par l'API et se lit sur l'écran
 de réglages de l'interface. `GET` et `PUT` sur `/api/settings` pour ce qui vaut à
 l'échelle de la machine : l'URL du webhook d'alerte, le canal de notification de
-bureau, le plafond de sous-sessions simultanées et le plafond de profondeur
-d'engendrement. `PUT` sur `/api/projects/<id>` pour ce qui est propre à un projet :
+bureau, le plafond de sous-sessions simultanées, le plafond de profondeur
+d'engendrement et le thème de l'interface. `PUT` sur `/api/projects/<id>` pour ce qui est propre à un projet :
 le chemin du dépôt, la branche par défaut, le plafond de sous-sessions simultanées
 d'une de ses features, et la commande de vérification lancée sur la branche de
 feature après chaque fusion. `PUT` sur `/api/features/<id>` pour ce qui est propre
 à une feature : le go-as-recommandé et les dépôts qu'elle porte. Le plus restrictif des deux plafonds de
 concurrence s'applique. Rien n'est lu dans l'environnement, de sorte que ce qui est
 en vigueur se relit par la même surface que le reste.
+
+Le thème fait exception sur un point, et un seul : sa commande est dans l'en-tête
+plutôt que sur l'écran de réglages, parce qu'on s'aperçoit qu'un thème ne va pas
+en regardant autre chose, et que devoir naviguer pour le corriger est toute la
+gêne. Il reste un réglage comme les autres, tenu en base et diffusé sur le flux ;
+le navigateur n'en garde qu'une copie, lue avant le montage de React pour ne pas
+peindre le mauvais fond le temps d'un aller-retour, et que rien ne relit jamais
+dans squad.
 
 Le chemin d'un projet ne change pas tant qu'une de ses features a un worktree
 sorti : les branches de squad partent du dépôt que le projet nomme et y
@@ -108,6 +116,14 @@ automatique de la pull request.
 - **Maquettes d'interface** : sous `docs/mockups/`, gitignoré. Ce sont des
   artefacts jetables, les versionner reviendrait à publier une intention comme si
   c'était une spécification.
+- **Charte** : palette EdgeMind (EMBlue `#1f416d`, EMOrange `#ef7b26`, EMGray
+  `#c9d4e6`) et Open Sans, embarquée sous `src/ui/fonts/` plutôt qu'empruntée à
+  la machine. Une couleur porte un sens et le garde dans les deux thèmes, seule
+  sa valeur change, ce que `light-dark()` tient en une déclaration par jeton :
+  l'accent est EMBlue, et EMOrange ne marque que ce qui attend une action du
+  développeur. La marque est **un seul dessin** (`src/ui/brand/`), servi à
+  l'en-tête, au favicon et au README ; son bleu est en `currentColor`, donc elle
+  suit le thème sans second fichier.
 
 ## Conception
 
@@ -207,6 +223,9 @@ src/server/pull-request.ts # la description d'une pull request, écrite depuis l
 src/server/fix-ticket.ts   # le ticket qu'écrit une vérification d'intégration rouge
 src/ui/                    # interface React servie par le serveur
 src/ui/route.ts            # l'adresse : ce qui est regardé, tenu dans l'URL
+src/ui/theme.ts            # le thème sur la page, et la copie que lit le premier rendu
+src/ui/brand/              # la marque : un seul dessin, pour l'en-tête, le favicon et le README
+src/ui/fonts/              # Open Sans sous-ensemblée, la police de la charte EdgeMind
 src/ui/graph/              # disposition en couches et rendu du graphe
 src/ui/question/           # une question d'agent, ses options et sa réponse
 src/ui/settings/           # l'écran de réglages, machine et projets

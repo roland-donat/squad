@@ -629,6 +629,14 @@ export const updateFeatureBody = z.object({
 export type UpdateFeatureBody = z.infer<typeof updateFeatureBody>;
 
 /**
+ * Which ground the interface is drawn on. `system` is not a third palette but
+ * the absence of a choice: the browser's own setting then decides, and keeps
+ * deciding when it changes.
+ */
+export const themes = ["system", "light", "dark"] as const;
+export type Theme = (typeof themes)[number];
+
+/**
  * What squad is configured with, machine-wide. Everything here is what the
  * developer sets once and squad reads at every alert; nothing is derived from
  * the environment, so what is in force is always readable through the API.
@@ -650,6 +658,12 @@ export interface Settings {
    * agent may write ten tickets while building one, and that is one generation.
    */
   generationDepthCap: number;
+  /**
+   * Which ground the interface is drawn on. Held here rather than in the
+   * browser alone, so that what is in force is read through the same surface as
+   * the rest of the settings.
+   */
+  theme: Theme;
 }
 
 export const updateSettingsBody = z.object({
@@ -658,6 +672,7 @@ export const updateSettingsBody = z.object({
   desktopNotifications: z.boolean().optional(),
   machineConcurrencyCap: concurrencyCapSchema.optional(),
   generationDepthCap: generationDepthCapSchema.optional(),
+  theme: z.enum(themes).optional(),
 });
 export type UpdateSettingsBody = z.infer<typeof updateSettingsBody>;
 

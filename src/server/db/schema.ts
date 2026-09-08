@@ -16,6 +16,7 @@ import {
   launchAngles,
   questionStates,
   sheetVerdicts,
+  themes,
   threadEntryKinds,
   ticketKinds,
 } from "../../shared/api";
@@ -333,8 +334,13 @@ export const settings = sqliteTable(
     generationDepthCap: integer("generation_depth_cap")
       .notNull()
       .default(defaultGenerationDepthCap),
+    /** Which ground the interface is drawn on; `system` leaves it to the browser. */
+    theme: text("theme", { enum: themes }).notNull().default("system"),
   },
-  (table) => [check("settings_single_row", sql`${table.id} = 1`)],
+  (table) => [
+    check("settings_single_row", sql`${table.id} = 1`),
+    check("settings_theme", sql`${table.theme} in (${literals(themes)})`),
+  ],
 );
 
 /**

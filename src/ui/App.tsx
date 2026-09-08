@@ -111,67 +111,17 @@ export function App() {
         </button>
       </header>
 
-      <WaitingPanel
-        actions={pendingActions(state.graphs, state.questions)}
-        features={features}
-        onOpen={open}
-      />
-
       {settingsOpen && <SettingsView settings={state.settings} projects={projects} />}
 
-      {!settingsOpen && (
-        // Above the graph and under the two panels that hold what squad already
-        // drives: this is where a feature comes from when it comes from work
-        // already done at the terminal.
-        <RecordedSessions
-          projects={projects}
-          onAttached={(feature) =>
-            navigate(piloting({ projectId: feature.projectId, featureId: feature.id }))
-          }
+      {/* The work, in one row and above everything else: what waits on me, the
+          graph it waits in, and the thread it is settled in. What squad is set
+          up with lives below, since setting it up is not piloting it. */}
+      <main className="app__work" hidden={settingsOpen}>
+        <WaitingPanel
+          actions={pendingActions(state.graphs, state.questions)}
+          features={features}
+          onOpen={open}
         />
-      )}
-
-      <main className="app__body" hidden={settingsOpen}>
-        <section className="panel" aria-labelledby="titre-projets">
-          <h2 id="titre-projets">Projets</h2>
-          <RegisterProjectForm />
-          <ul className="list">
-            {projects.map((project) => (
-              <li key={project.id}>
-                <button
-                  type="button"
-                  className={project.id === selected?.id ? "row row--selected" : "row"}
-                  onClick={() => navigate(piloting({ projectId: project.id }))}
-                  aria-current={project.id === selected?.id}
-                >
-                  <span className="row__title">{project.name}</span>
-                  <span className="row__detail">{project.path}</span>
-                </button>
-              </li>
-            ))}
-            {projects.length === 0 && (
-              <li className="empty">Aucun projet enregistré pour l'instant.</li>
-            )}
-          </ul>
-        </section>
-
-        <section className="panel" aria-labelledby="titre-features">
-          <h2 id="titre-features">Features</h2>
-          {selected ? (
-            <FeaturesPanel
-              project={selected}
-              projects={projects}
-              features={featuresOfProject}
-              openedId={openedFeature?.id ?? null}
-              onOpen={(featureId) => navigate(piloting({ projectId: selected.id, featureId }))}
-            />
-          ) : (
-            <p className="empty">Enregistrer un projet pour y ouvrir une feature.</p>
-          )}
-        </section>
-      </main>
-
-      <div className="app__feature" hidden={settingsOpen}>
         <section className="panel panel--graph" aria-labelledby="titre-graphe">
           <h2 id="titre-graphe">Graphe</h2>
           {openedFeature && graph ? (
@@ -259,7 +209,57 @@ export function App() {
             )}
           </section>
         )}
-      </div>
+      </main>
+
+      {/* What squad is set up with, under the work rather than above it:
+          registering a repository, opening a feature and resuming a
+          conversation are what one does once, and piloting is what one does
+          all day. */}
+      <aside className="app__setup" hidden={settingsOpen}>
+        <section className="panel" aria-labelledby="titre-projets">
+          <h2 id="titre-projets">Projets</h2>
+          <RegisterProjectForm />
+          <ul className="list">
+            {projects.map((project) => (
+              <li key={project.id}>
+                <button
+                  type="button"
+                  className={project.id === selected?.id ? "row row--selected" : "row"}
+                  onClick={() => navigate(piloting({ projectId: project.id }))}
+                  aria-current={project.id === selected?.id}
+                >
+                  <span className="row__title">{project.name}</span>
+                  <span className="row__detail">{project.path}</span>
+                </button>
+              </li>
+            ))}
+            {projects.length === 0 && (
+              <li className="empty">Aucun projet enregistré pour l'instant.</li>
+            )}
+          </ul>
+        </section>
+
+        <section className="panel" aria-labelledby="titre-features">
+          <h2 id="titre-features">Features</h2>
+          {selected ? (
+            <FeaturesPanel
+              project={selected}
+              projects={projects}
+              features={featuresOfProject}
+              openedId={openedFeature?.id ?? null}
+              onOpen={(featureId) => navigate(piloting({ projectId: selected.id, featureId }))}
+            />
+          ) : (
+            <p className="empty">Enregistrer un projet pour y ouvrir une feature.</p>
+          )}
+        </section>
+        <RecordedSessions
+          projects={projects}
+          onAttached={(feature) =>
+            navigate(piloting({ projectId: feature.projectId, featureId: feature.id }))
+          }
+        />
+      </aside>
     </div>
   );
 }

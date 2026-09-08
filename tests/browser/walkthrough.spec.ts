@@ -34,6 +34,11 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
   const session = page.getByRole("region", { name: "Session principale" });
   await expect(session.getByText("Fil vide.")).toBeVisible();
   await expect(session.getByRole("button", { name: "Ouvrir la session principale" })).toBeVisible();
+  // The two commands this thread exists for, one click each. They are not
+  // clicked here: doing so would open a real claude-code session, which this
+  // walk-through never does.
+  await expect(session.getByRole("button", { name: "/to-spec" })).toBeVisible();
+  await expect(session.getByRole("button", { name: "/to-tickets" })).toBeVisible();
 
   // The graph is written by an agent through squad's tools, never by the
   // interface: the walk-through writes it the way an agent would.

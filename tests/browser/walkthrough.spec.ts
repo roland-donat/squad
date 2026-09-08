@@ -115,9 +115,7 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
   await page.getByLabel("Intitulé de la feature").fill("Sans graphe");
   await page.getByRole("button", { name: "Ouvrir la feature" }).click();
   await featuresPanel.getByRole("button", { name: "go-as-recommandé : arrêté" }).click();
-  await expect(
-    featuresPanel.getByRole("button", { name: "go-as-recommandé : en cours" }),
-  ).toBeVisible();
+  await expect(featuresPanel.getByText("go-as-recommandé : en cours")).toBeVisible();
   await featuresPanel.getByRole("button", { name: "arrêter" }).click();
   await expect(
     featuresPanel.getByRole("button", { name: "go-as-recommandé : arrêté" }),

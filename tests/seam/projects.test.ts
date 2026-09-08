@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { realpath } from "node:fs/promises";
-import type { ApiErrorBody, Feature, Project, Ticket } from "../../src/shared/api";
+import type { ApiErrorBody, Project, Ticket } from "../../src/shared/api";
 import {
   apiRoutes,
   featureGraphRoute,
@@ -249,8 +249,6 @@ describe("changing a project's settings", () => {
       const listed = await running.request("GET", apiRoutes.projects);
       const { projects } = (await listed.json()) as { projects: Project[] };
       expect(projects[0]?.path).toBe(project.path);
-      // Read so the feature the scenario opened is not left unused.
-      expect((feature as Feature).id).toBe(feature.id);
     } finally {
       park();
       await running.dispose();

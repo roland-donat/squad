@@ -6,6 +6,7 @@ import {
   mainSessionRoute,
   questionAnswerRoute,
   ticketSessionRoute,
+  ticketTestSheetRoute,
 } from "../../src/shared/api";
 import { pendingActions } from "../../src/shared/pending";
 import { connectToSquadTools } from "../support/mcp";
@@ -203,7 +204,7 @@ describe("a question asked from a session, and the wait it opens", () => {
 
   it("refuses a recommendation that is not one of the options offered", async () => {
     const refusal = { text: "" };
-    const { featureId, stream, ticket } = await start({
+    const { featureId, ticket } = await start({
       subSession: async (agent) => {
         await agent.awaitMessage();
         const outcome = await agent.attempt("ask_question", {
@@ -227,8 +228,6 @@ describe("a question asked from a session, and the wait it opens", () => {
       .toBe("failed");
     expect(refusal.text).toContain("DuckDB");
     expect((await readSnapshot()).questions).toEqual([]);
-    // Read to keep the stream drained for the disposal that follows.
-    expect(stream).toBeDefined();
   });
 
   it("refuses a question about a ticket no session ever ran", async () => {
@@ -249,6 +248,55 @@ describe("a question asked from a session, and the wait it opens", () => {
     } finally {
       await tools.close();
     }
+  });
+
+  it("abandons what a session that has ended was waiting on", async () => {
+    const asking = { question: null as Question | null };
+    const { featureId, stream, ticket } = await start({
+      subSession: async (agent) => {
+        await agent.awaitMessage();
+        const own = (await agent.call("read_graph", { featureId: agent.request.featureId })) as {
+          tickets: Ticket[];
+        };
+        const criteria =
+          own.tickets.find((each) => each.id === agent.request.ticketId)?.acceptanceCriteria ?? [];
+        // Reported first, so the sheet is what ends this session: the question
+        // is asked by a sub-session that is still alive and stops being one.
+        await agent.call("report_step", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          summary: "La base s'ouvre.",
+          coverage: criteria.map((criterion) => ({ criterionId: criterion.id, covered: false })),
+          recommendation: "Fusionner une fois la fiche passée.",
+        });
+        asking.question = (await agent.call("ask_question", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          question: "Faut-il aussi indexer les fils ?",
+          options: ["oui", "non"],
+          recommendation: "non",
+          scopeChanging: false,
+        })) as Question;
+      },
+    });
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    const asked = await waitForQuestion(stream, "pending");
+
+    // The sheet comes back green, which closes the sub-session and merges its
+    // branch: what it was waiting on has nobody left to hear an answer.
+    const sheet = (await readTicket(featureId)).stepReport;
+    const review = await squad.request("POST", ticketTestSheetRoute(ticket.id), {
+      points: (sheet?.sheet ?? []).map((point) => ({ id: point.id, passed: true, comment: "" })),
+      feedback: "",
+    });
+    expect(review.status).toBe(200);
+
+    const abandoned = await waitForQuestion(stream, "abandoned");
+    expect(abandoned.id).toBe(asked.id);
+    expect(pendingActions([await readGraph(featureId)], [abandoned])).toEqual([]);
+    const late = await squad.request("POST", questionAnswerRoute(asked.id), { answer: "oui" });
+    expect(late.status).toBe(409);
   });
 
   it("abandons a question its session cannot come back to, and says so", async () => {

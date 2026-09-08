@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
-import { and, asc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import { defaultConcurrencyCaps, defaultGenerationDepthCap } from "../shared/api";
 import type {
   AcceptanceCriterion,
@@ -1050,17 +1050,32 @@ export class Store {
    * listens, like the running steps it interrupts.
    */
   abandonPendingQuestions(): Question[] {
+    return this.abandonQuestions(eq(questions.state, "pending"));
+  }
+
+  /**
+   * The questions one session was waiting on, marked abandoned. A session that
+   * is over cannot read an answer, so leaving its question in front of the
+   * developer would ask them for something nobody would ever hear.
+   */
+  abandonQuestionsOfSession(sessionId: string): Question[] {
+    return this.abandonQuestions(
+      and(eq(questions.state, "pending"), eq(questions.sessionId, sessionId)),
+    );
+  }
+
+  private abandonQuestions(waiting: SQL | undefined): Question[] {
     const pending = this.db
       .select({ id: questions.id })
       .from(questions)
-      .where(eq(questions.state, "pending"))
+      .where(waiting)
       .orderBy(sql`rowid`)
       .all();
     if (pending.length === 0) return [];
     this.db
       .update(questions)
       .set({ state: "abandoned", answeredAt: new Date().toISOString() })
-      .where(eq(questions.state, "pending"))
+      .where(waiting)
       .run();
     return pending.map((row) => this.requireQuestion(row.id));
   }
@@ -1159,7 +1174,17 @@ export class Store {
     return next;
   }
 
-  private requireTicketOfFeature(ticketId: string, featureId: string) {
+  /**
+   * A ticket's row, refused when it belongs to another feature. Close to
+   * `requireTicketIn` and deliberately not the same: this one answers "is this
+   * ticket of this graph" for something an agent named beside another ticket,
+   * so its refusal names the crossing rather than hiding it as an absence, and
+   * it hands back the row rather than the computed node.
+   */
+  private requireTicketOfFeature(
+    ticketId: string,
+    featureId: string,
+  ): typeof tickets.$inferSelect {
     const ticket = this.db.select().from(tickets).where(eq(tickets.id, ticketId)).get();
     if (!ticket) {
       throw new SquadError("ticket_not_found", 404, `no ticket with id ${ticketId}`);

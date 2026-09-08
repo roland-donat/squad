@@ -103,13 +103,33 @@ export class Questions {
    * in front of a developer whose answer would go nowhere.
    */
   abandonInterrupted(): void {
-    for (const question of this.dependencies.store.abandonPendingQuestions()) {
+    this.abandon(
+      this.dependencies.store.abandonPendingQuestions(),
+      "squad stopped while this question was waiting for an answer",
+    );
+  }
+
+  /**
+   * Settles what a session that has just ended was waiting on. Same reason: an
+   * answer given to a session that is over reaches nobody, and a question that
+   * stays in the indicator asks the developer for something no agent will hear.
+   */
+  abandonFor(sessionId: string): void {
+    this.abandon(
+      this.dependencies.store.abandonQuestionsOfSession(sessionId),
+      "the session that asked it ended before it was answered",
+    );
+  }
+
+  private abandon(abandoned: readonly Question[], why: string): void {
+    for (const question of abandoned) {
       this.announce(question);
-      this.note(question, {
-        kind: "notice",
-        text: "the question was abandoned",
-        detail: "squad stopped while this question was waiting for an answer",
-      });
+      this.note(question, { kind: "notice", text: "the question was abandoned", detail: why });
+      // The waiter, if squad is still holding one: a call left pending would
+      // keep a promise alive for an answer that is never coming.
+      const waiter = this.waiting.get(question.id);
+      this.waiting.delete(question.id);
+      waiter?.(question);
     }
   }
 

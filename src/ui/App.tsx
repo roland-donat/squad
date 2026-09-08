@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import type { AutonomyHaltReason, Feature, Project } from "../shared/api";
 import { pendingActions, type PendingAction, type PendingReason } from "../shared/pending";
-import { ApiError, openFeature, registerProject, setGoAsRecommended } from "./api";
+import { openFeature, registerProject, setGoAsRecommended } from "./api";
 import { FeatureGraphView } from "./graph/FeatureGraphView";
+import { Failure, useSubmission } from "./submission";
 import { MainSessionView } from "./session/MainSessionView";
 import { SettingsView } from "./settings/SettingsView";
 import { TicketPanel } from "./ticket/TicketPanel";
@@ -227,91 +228,53 @@ const haltLabels: Record<AutonomyHaltReason, string> = {
 };
 
 /**
- * Go-as-recommandé sur une feature : squad lance seul ce que la frontière
- * permet et répond aux questions d'implémentation par la recommandation de
- * l'agent. Ce qui l'a interrompu se lit ici, et le relancer est ce qui dit que
- * c'est traité : rien d'autre ne rearme une nuit d'autonomie.
+ * Go-as-recommended on the feature it drives: squad launches what the frontier
+ * allows and answers implementation questions with the agent's own
+ * recommendation. What stopped it is read here, and starting it again is what
+ * says that is dealt with: nothing else restarts a night of autonomy.
+ *
+ * One control per state rather than one control that means three things: arming
+ * it, taking it back after a stop and stopping it are three decisions, and a
+ * button whose meaning depends on what it says is a button read wrong.
  */
 function AutonomySwitch({ feature }: { feature: Feature }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const halt = feature.autonomyHalt;
-
-  async function set(goAsRecommended: boolean) {
-    setBusy(true);
-    setError(null);
-    try {
-      await setGoAsRecommended(feature.id, goAsRecommended);
-    } catch (failure) {
-      setError(failure instanceof ApiError ? failure.message : "Le serveur est injoignable.");
-    } finally {
-      setBusy(false);
-    }
-  }
+  const arming = useSubmission(() => setGoAsRecommended(feature.id, true));
+  const stopping = useSubmission(() => setGoAsRecommended(feature.id, false));
+  const busy = arming.busy || stopping.busy;
 
   return (
     <span className="autonomy">
-      <button
-        type="button"
-        className={feature.goAsRecommended && halt === null ? "chip chip--armed" : "chip"}
-        disabled={busy}
-        onClick={() => void set(!feature.goAsRecommended || halt !== null)}
-      >
-        {feature.goAsRecommended
-          ? halt === null
-            ? "go-as-recommandé : en cours"
-            : "go-as-recommandé : interrompu, relancer"
-          : "go-as-recommandé : arrêté"}
-      </button>
+      {!feature.goAsRecommended && (
+        <button type="button" className="chip" disabled={busy} onClick={() => void arming.run()}>
+          go-as-recommandé : arrêté
+        </button>
+      )}
       {feature.goAsRecommended && halt !== null && (
-        <span className="autonomy__halt">
-          {haltLabels[halt.reason]} : « {halt.detail} »
-        </span>
+        <>
+          <button type="button" className="chip" disabled={busy} onClick={() => void arming.run()}>
+            go-as-recommandé : interrompu, relancer
+          </button>
+          <span className="autonomy__halt">
+            {haltLabels[halt.reason]} : « {halt.detail} »
+          </span>
+        </>
+      )}
+      {feature.goAsRecommended && halt === null && (
+        <span className="chip chip--armed">go-as-recommandé : en cours</span>
       )}
       {feature.goAsRecommended && (
-        <button type="button" className="link" disabled={busy} onClick={() => void set(false)}>
+        <button
+          type="button"
+          className="link"
+          disabled={busy}
+          onClick={() => void stopping.run()}
+        >
           arrêter
         </button>
       )}
-      {error && (
-        <span className="error" role="alert">
-          {error}
-        </span>
-      )}
+      <Failure message={arming.error ?? stopping.error} />
     </span>
-  );
-}
-
-/**
- * Submission state shared by every form: an action in flight, and the failure it
- * may come back with, rendered from the error code the server sent.
- */
-function useSubmission(action: () => Promise<void>) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      await action();
-    } catch (failure) {
-      setError(failure instanceof ApiError ? failure.message : "Le serveur est injoignable.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return { busy, error, submit };
-}
-
-function Failure({ message }: { message: string | null }) {
-  if (!message) return null;
-  return (
-    <p className="error" role="alert">
-      {message}
-    </p>
   );
 }
 

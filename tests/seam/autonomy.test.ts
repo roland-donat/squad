@@ -353,6 +353,39 @@ describe("go-as-recommended, from the drain to what stops it", () => {
     await scene.reaches(held, "running");
   });
 
+  it("stops on a ticket that stopped, while what was running carries on", async () => {
+    const alive = gate();
+    const scene = await start({
+      tickets: [{ title: "Le store" }, { title: "Les outils MCP" }],
+      subSession: async (agent, title) => {
+        await agent.awaitMessage();
+        if (title === "Le store") throw new Error("la sous-session est tombée");
+        await alive.passed;
+      },
+    });
+    const receiver = await catchAlerts();
+
+    await scene.arm();
+    await scene.reaches("Le store", "failed");
+
+    // There and then, rather than once the graph has run out of work: a run
+    // nobody is watching must not pile more onto a feature someone has to look
+    // at. What was already running is left alone.
+    await expect
+      .poll(async () => (await scene.feature()).autonomyHalt?.reason, { timeout: 10_000 })
+      .toBe("failure");
+    expect((await scene.feature()).autonomyHalt?.detail).toBe("Le store");
+    // Nothing is cancelled: the launch the mode had already accepted opens all
+    // the same, and what it opens goes on working.
+    await scene.reaches("Les outils MCP", "running");
+
+    // Two things are said: the sub-session that stopped, and the night that
+    // stopped with it.
+    const alerts = [(await receiver.next()).text ?? "", (await receiver.next()).text ?? ""];
+    expect(alerts.some((text) => /sous-session/i.test(text))).toBe(true);
+    expect(alerts.some((text) => /go-as-recommandé/i.test(text))).toBe(true);
+  });
+
   it("stops when a ticket born of a ticket reaches the declared depth", async () => {
     const alive = gate();
     const born = { ticket: null as Ticket | null };

@@ -2,7 +2,7 @@ import { realpath } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
-import { apiRoutes } from "../shared/api";
+import { apiRoutes, type Ticket } from "../shared/api";
 import { createClaudeCodeLauncher } from "./agents/claude-code";
 import type { AgentLauncher } from "./agents/launcher";
 import { Alerts } from "./alerts";
@@ -67,8 +67,22 @@ export async function startSquadServer(
   // be changed while squad runs, and the next alert must go to the new one.
   const alerts = new Alerts(store);
   const worktrees = new Worktrees(store, bus, dataDir);
-  const mainSessions = new MainSessions({ store, bus, launcher, mcpUrl });
-  const subSessions = new SubSessions({ store, bus, launcher, worktrees, alerts, mcpUrl });
+  // Read late, like the address above: the sessions let go of what they were
+  // waiting on when they end, and the questions are held by a module that has
+  // to know the sessions to write on the right thread.
+  const asked = { abandonFor: (sessionId: string) => questions.abandonFor(sessionId) };
+  const stopped = { ticketStopped: (ticket: Ticket) => autonomy.ticketStopped(ticket) };
+  const mainSessions = new MainSessions({ store, bus, launcher, questions: asked, mcpUrl });
+  const subSessions = new SubSessions({
+    store,
+    bus,
+    launcher,
+    worktrees,
+    alerts,
+    questions: asked,
+    autonomy: stopped,
+    mcpUrl,
+  });
   const autonomy = new Autonomy({ store, bus, alerts, subSessions });
   const merges = new Merges({ store, bus, alerts, worktrees, launcher, subSessions, autonomy, mcpUrl });
   const validations = new Validations({ alerts, merges, subSessions });

@@ -98,12 +98,28 @@ export class Autonomy {
   }
 
   /**
+   * A ticket that has just stopped, and that squad will not take back on its
+   * own. It ends the unattended run then and there rather than when the graph
+   * runs out of work: a failure is an event, nothing about it is latent, and a
+   * mode that kept launching onto a feature somebody has to look at would be
+   * unattended rather than autonomous.
+   */
+  ticketStopped(ticket: Ticket): void {
+    if (!this.driven(ticket.featureId)) return;
+    this.halt(ticket.featureId, { reason: "failure", detail: ticket.title });
+  }
+
+  /**
    * A ticket an agent asked for while building another. Squad writes it down
    * whatever its depth and cancels nothing: what the cap bounds is the running,
    * not the recording, and a cascade that stops is one the developer reads
    * before deciding it should go on.
    */
   ticketCreated(ticket: Ticket): void {
+    // A first generation is nobody's cascade: it is what the main session
+    // wrote, and a cap of zero means "nothing an agent asked for runs
+    // unattended", never "nothing runs at all".
+    if (ticket.generation === 0) return;
     if (ticket.generation < this.dependencies.store.settings().generationDepthCap) return;
     if (!this.driven(ticket.featureId)) return;
     this.halt(ticket.featureId, { reason: "depth-cap", detail: ticket.title });
@@ -129,14 +145,13 @@ export class Autonomy {
     try {
       const graph = store.featureGraph(featureId);
       const launches = frontier(graph);
-      for (const ticket of launches) {
-        store.queueLaunch(ticket.id, "implement");
-        publishGraph(store, this.dependencies.bus, featureId);
-      }
+      for (const ticket of launches) store.queueLaunch(ticket.id, "implement");
       if (launches.length > 0) {
-        // Once, after the whole queue is written: the scheduler reads the
-        // state and opens what the caps allow, so telling it per launch would
-        // only make it read the same thing several times.
+        // Both once, after the whole queue is written: the graph is announced
+        // as it now stands rather than once per ticket, and the scheduler reads
+        // the whole state anyway, so telling it per launch would only make it
+        // read the same thing several times.
+        publishGraph(store, this.dependencies.bus, featureId);
         subSessions.schedule();
         return;
       }
@@ -193,12 +208,13 @@ function isInFlight(ticket: Ticket): boolean {
  * named here is therefore what the developer has to settle for the feature to
  * go anywhere at all.
  *
- * Two of the four halting reasons are read here. The third, a question that
- * changes what is built, is answered where the question is asked; the fourth,
- * the depth cap, is an event rather than a state, since a cascade that reached
- * its depth would otherwise stop the mode again the moment it is armed back.
+ * A decision ticket is read here rather than when it is written, and that is
+ * the whole reason this exists: one written at breakdown time blocks nothing
+ * yet, and a mode that stopped on it there and then would never start at all.
+ * A ticket that stopped is read here too, but only as a backstop, since one
+ * that stops while the mode runs halts it at that very moment.
  */
-export function stuckOn(graph: FeatureGraph): Halt | null {
+function stuckOn(graph: FeatureGraph): Halt | null {
   const decision = graph.tickets.find((ticket) => ticket.state === "awaiting-decision");
   if (decision) return { reason: "decision", detail: decision.title };
   const stopped = graph.tickets.find(

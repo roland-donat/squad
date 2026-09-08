@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import type { Project, Settings } from "../../shared/api";
-import { ApiError, updateProject, updateSettings } from "../api";
+import { updateProject, updateSettings } from "../api";
+import { Failure, useSubmission } from "../submission";
 
 /**
  * Everything squad is configured with, in one place: what holds for the machine
@@ -44,30 +45,6 @@ export function SettingsView({
   );
 }
 
-/** Submission state shared by both forms: an action in flight, and its failure. */
-function useSubmission(action: () => Promise<void>) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError(null);
-    setSaved(false);
-    try {
-      await action();
-      setSaved(true);
-    } catch (failure) {
-      setError(failure instanceof ApiError ? failure.message : "Le serveur est injoignable.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return { busy, error, saved, submit };
-}
-
 function MachineForm({ settings }: { settings: Settings }) {
   const [webhookUrl, setWebhookUrl] = useState(settings.webhookUrl ?? "");
   const [desktop, setDesktop] = useState(settings.desktopNotifications);
@@ -84,7 +61,7 @@ function MachineForm({ settings }: { settings: Settings }) {
     settings.machineConcurrencyCap,
     settings.generationDepthCap,
   ]);
-  const { busy, error, saved, submit } = useSubmission(async () => {
+  const { busy, error, done, submit } = useSubmission(async () => {
     await updateSettings({
       // Empty clears it: an alert then goes to the desktop and nowhere else.
       webhookUrl: webhookUrl.trim() === "" ? null : webhookUrl.trim(),
@@ -133,7 +110,7 @@ function MachineForm({ settings }: { settings: Settings }) {
       <button type="submit" disabled={busy}>
         Enregistrer les réglages
       </button>
-      <Outcome error={error} saved={saved} />
+      <Outcome error={error} saved={done} />
     </form>
   );
 }
@@ -149,7 +126,7 @@ function ProjectForm({ project }: { project: Project }) {
     setVerifyCommand(project.verifyCommand ?? "");
     setCap(String(project.featureConcurrencyCap));
   }, [project.path, project.defaultBranch, project.verifyCommand, project.featureConcurrencyCap]);
-  const { busy, error, saved, submit } = useSubmission(async () => {
+  const { busy, error, done, submit } = useSubmission(async () => {
     await updateProject(project.id, {
       path,
       defaultBranch,
@@ -198,7 +175,7 @@ function ProjectForm({ project }: { project: Project }) {
         <button type="submit" disabled={busy}>
           Enregistrer le projet
         </button>
-        <Outcome error={error} saved={saved} />
+        <Outcome error={error} saved={done} />
       </fieldset>
     </form>
   );
@@ -206,13 +183,7 @@ function ProjectForm({ project }: { project: Project }) {
 
 /** What a submission left behind: a failure to read, or a change that took. */
 function Outcome({ error, saved }: { error: string | null; saved: boolean }) {
-  if (error !== null) {
-    return (
-      <p className="error" role="alert">
-        {error}
-      </p>
-    );
-  }
+  if (error !== null) return <Failure message={error} />;
   if (!saved) return null;
   return (
     <p className="settings__saved" role="status">

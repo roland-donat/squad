@@ -149,7 +149,7 @@ _Éviter_ : mode automatique, pilote automatique, sans surveillance
 
 **Interruption du mode** (`AutonomyHalt`) :
 Ce qui a arrêté le go-as-recommandé, écrit sur la feature : la raison et ce sur quoi il a
-buté. Le mode reste armé, et le rearmer est ce qui dit que la raison est traitée.
+buté. Le mode reste armé, et le réarmer est ce qui dit que la raison est traitée.
 _Éviter_ : pause, suspension, erreur
 
 **Question structurante** (`scopeChanging`) :

@@ -1,6 +1,7 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { Question } from "../../shared/api";
-import { ApiError, answerQuestion } from "../api";
+import { answerQuestion } from "../api";
+import { Failure, useSubmission } from "../submission";
 
 /**
  * The questions of a session: the one waiting for an answer, and the ones
@@ -37,24 +38,12 @@ export function Questions({ questions }: { questions: Question[] }): ReactNode {
  * able to give.
  */
 function AskedQuestion({ question }: { question: Question }) {
-  const [choice, setChoice] = useState(question.recommendation);
+  // Null is the answer the agent did not offer, which is why it is not one of
+  // the options: an empty string would be a option that reads as absent.
+  const [choice, setChoice] = useState<string | null>(question.recommendation);
   const [free, setFree] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const answer = choice === otherChoice ? free.trim() : choice;
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      await answerQuestion(question.id, { answer });
-    } catch (failure) {
-      setError(failure instanceof ApiError ? failure.message : "Le serveur est injoignable.");
-    } finally {
-      setBusy(false);
-    }
-  }
+  const answer = choice ?? free.trim();
+  const { busy, error, submit } = useSubmission(() => answerQuestion(question.id, { answer }));
 
   return (
     <form className="form question" onSubmit={submit}>
@@ -63,8 +52,8 @@ function AskedQuestion({ question }: { question: Question }) {
         {question.scopeChanging && <span className="chip chip--scope">périmètre</span>}
       </p>
       <ul className="list question__options">
-        {[...question.options, otherChoice].map((option) => (
-          <li key={option === otherChoice ? "autre" : option}>
+        {[...question.options, null].map((option) => (
+          <li key={option ?? "autre"}>
             <label className="question__option">
               <input
                 type="radio"
@@ -72,13 +61,13 @@ function AskedQuestion({ question }: { question: Question }) {
                 checked={choice === option}
                 onChange={() => setChoice(option)}
               />
-              <span className="sheet__text">{option === otherChoice ? "Autre réponse" : option}</span>
+              <span className="sheet__text">{option ?? "Autre réponse"}</span>
               {option === question.recommendation && <span className="chip">recommandé</span>}
             </label>
           </li>
         ))}
       </ul>
-      {choice === otherChoice && (
+      {choice === null && (
         <label className="field">
           <span>Ma réponse</span>
           <textarea
@@ -92,11 +81,7 @@ function AskedQuestion({ question }: { question: Question }) {
       <button type="submit" disabled={busy || answer === ""}>
         Répondre
       </button>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      <Failure message={error} />
     </form>
   );
 }
@@ -122,9 +107,3 @@ function SettledQuestion({ question }: { question: Question }) {
     </div>
   );
 }
-
-/**
- * The choice that is not one of the agent's. An empty string cannot collide
- * with an option, which the tools refuse to leave empty.
- */
-const otherChoice = "";

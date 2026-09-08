@@ -74,7 +74,12 @@ export class MainSessions {
       featureId: feature.id,
       workingDirectory: project.path,
       mcpUrl: mcpUrl(),
-      briefing: mainSessionBriefing(feature),
+      // Every repository the feature carries, home first: a session that was
+      // not told them cannot write a ticket for one of them.
+      briefing: mainSessionBriefing(
+        feature,
+        feature.repositories.map((carried) => store.requireProject(carried.projectId)),
+      ),
     });
     this.running.set(feature.id, session);
     bus.publish({ type: "main-session-started", featureId: feature.id, sessionId: session.id });

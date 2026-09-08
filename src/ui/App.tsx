@@ -36,6 +36,14 @@ export function App() {
   // that changes state while its panel is open must show the change, and the
   // panel must close itself if the ticket leaves the feature being watched.
   const openedTicket = graph?.tickets.find((ticket) => ticket.id === openTicketId) ?? null;
+  // The repositories the opened feature carries, named: the graph and the
+  // ticket panel say which one a ticket is built in, and both read this.
+  const repositoryNames = new Map(
+    (openedFeature?.repositories ?? []).map((carried) => [
+      carried.projectId,
+      projects.find((project) => project.id === carried.projectId)?.name ?? "dépôt inconnu",
+    ]),
+  );
 
   /** Opens what an entry of the indicator points at, wherever it lives. */
   function open(action: PendingAction) {
@@ -98,6 +106,7 @@ export function App() {
           {selected ? (
             <FeaturesPanel
               project={selected}
+              projects={projects}
               features={featuresOfProject}
               openedId={openedFeature?.id ?? null}
               onOpen={setOpenFeatureId}
@@ -115,21 +124,37 @@ export function App() {
             <>
               <p className="panel__context">
                 de <strong>{openedFeature.title}</strong>
-                {openedFeature.pullRequestUrl !== null && (
-                  // Once the graph has drained: the address squad opened, and
-                  // the one place the rest of the story is told.
-                  <a
-                    className="link"
-                    href={openedFeature.pullRequestUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    pull request
-                  </a>
+                {openedFeature.repositories.length > 1 && (
+                  <span className="row__meta">
+                    {openedFeature.repositories.length} dépôts :{" "}
+                    {openedFeature.repositories
+                      .map((carried) => repositoryNames.get(carried.projectId))
+                      .join(", ")}
+                  </span>
                 )}
+                {openedFeature.repositories
+                  .filter((carried) => carried.pullRequestUrl !== null)
+                  .map((carried) => (
+                    // Once the graph has drained: one address per repository
+                    // squad sent off, and the place the rest of that story is
+                    // told.
+                    <a
+                      key={carried.projectId}
+                      className="link"
+                      href={carried.pullRequestUrl ?? ""}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      pull request{" "}
+                      {openedFeature.repositories.length > 1
+                        ? repositoryNames.get(carried.projectId)
+                        : ""}
+                    </a>
+                  ))}
               </p>
               <FeatureGraphView
                 graph={graph}
+                repositories={repositoryNames}
                 selectedId={openedTicket?.id ?? null}
                 onSelect={setOpenTicketId}
               />
@@ -146,6 +171,11 @@ export function App() {
               ticket={openedTicket}
               thread={ticketThreadOf(state, openedTicket.id)}
               questions={ticketQuestionsOf(state, openedTicket.id)}
+              repository={
+                repositoryNames.size > 1
+                  ? (repositoryNames.get(openedTicket.projectId) ?? null)
+                  : null
+              }
               onClose={() => setOpenTicketId(null)}
             />
           </section>
@@ -316,20 +346,30 @@ function RegisterProjectForm() {
 
 function FeaturesPanel({
   project,
+  projects,
   features,
   openedId,
   onOpen,
 }: {
   project: Project;
+  /** Every registered project, since a feature may carry more than its own. */
+  projects: Project[];
   features: Feature[];
   openedId: string | null;
   onOpen: (featureId: string) => void;
 }) {
   const [title, setTitle] = useState("");
+  const [alsoOn, setAlsoOn] = useState<string[]>([]);
+  const others = projects.filter((each) => each.id !== project.id);
   const { busy, error, submit } = useSubmission(async () => {
-    const created = await openFeature({ projectId: project.id, title });
+    const created = await openFeature({
+      projectId: project.id,
+      title,
+      otherProjectIds: alsoOn,
+    });
     onOpen(created.id);
     setTitle("");
+    setAlsoOn([]);
   });
 
   return (
@@ -347,6 +387,27 @@ function FeaturesPanel({
             required
           />
         </label>
+        {others.length > 0 && (
+          <fieldset className="field">
+            <legend>Autres dépôts que cette feature peut toucher</legend>
+            {others.map((other) => (
+              <label key={other.id} className="field field--check">
+                <input
+                  type="checkbox"
+                  checked={alsoOn.includes(other.id)}
+                  onChange={(event) =>
+                    setAlsoOn((current) =>
+                      event.target.checked
+                        ? [...current, other.id]
+                        : current.filter((id) => id !== other.id),
+                    )
+                  }
+                />
+                <span>{other.name}</span>
+              </label>
+            ))}
+          </fieldset>
+        )}
         <button type="submit" disabled={busy}>
           Ouvrir la feature
         </button>

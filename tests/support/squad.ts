@@ -1,7 +1,13 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { apiRoutes, type Feature, type Project, type SquadEvent } from "../../src/shared/api";
+import {
+  apiRoutes,
+  type Feature,
+  type FeatureRepository,
+  type Project,
+  type SquadEvent,
+} from "../../src/shared/api";
 import type { AgentLauncher } from "../../src/server/agents/launcher";
 import { startSquadServer } from "../../src/server/server";
 import { createTemporaryRepository } from "./git";
@@ -173,6 +179,19 @@ export async function openTestFeature(
   // is one, and a test comparing worktree paths would compare two spellings of
   // the same place.
   return { project, feature, repository: project.path };
+}
+
+/**
+ * The one repository a feature carries, which is its home project. Every
+ * scenario but the multi-repository ones works on a feature carrying exactly
+ * one, and reading it through this says so rather than indexing a list.
+ */
+export function onlyRepository(feature: Feature): FeatureRepository {
+  const [carried, ...others] = feature.repositories;
+  if (!carried || others.length > 0) {
+    throw new Error(`feature "${feature.title}" carries ${feature.repositories.length} repositories`);
+  }
+  return carried;
 }
 
 /** Waits for the next event of a given type, dropping whatever comes before it. */

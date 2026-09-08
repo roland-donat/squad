@@ -92,8 +92,10 @@ export class Merges {
    * like everything else squad does on its own.
    */
   merge(ticket: Ticket): void {
-    const feature = this.dependencies.store.requireFeature(ticket.featureId);
-    this.enqueue(feature.projectId, () => this.carryOut(ticket.id));
+    // On the chain of the ticket's own repository, not of its feature's home
+    // one: two tickets of one feature that live in different repositories
+    // merge into different branches and cannot get in each other's way.
+    this.enqueue(ticket.projectId, () => this.carryOut(ticket.id));
   }
 
   /**
@@ -101,18 +103,29 @@ export class Merges {
    * just happened. A merge is the usual way a graph drains, and not the only
    * one: settling the last decision of a feature releases nothing and merges
    * nothing, yet it is exactly the moment every ticket of that graph has come
-   * to rest. Queued on the project's chain like a merge, since what it may do
-   * is push a branch and open a pull request.
+   * to rest. Queued on each repository's chain like a merge, since what it may
+   * do is push a branch and open a pull request.
    */
   deliver(featureId: string): void {
-    const feature = this.dependencies.store.requireFeature(featureId);
-    this.enqueue(feature.projectId, async () => {
-      if (this.stopping) return;
-      await this.deliverIfDrained(
-        feature,
-        this.dependencies.store.requireProject(feature.projectId),
-      );
-    });
+    this.deliverEveryRepository(featureId);
+  }
+
+  /**
+   * Sends off every repository of a drained feature, each on its own chain. One
+   * pull request per repository and no coordination between them: they are
+   * separate branches on separate remotes, and holding one back until the
+   * others are green would mean squad polling the forge, which it does nowhere.
+   */
+  private deliverEveryRepository(featureId: string): void {
+    const { store } = this.dependencies;
+    const feature = store.requireFeature(featureId);
+    for (const carried of feature.repositories) {
+      if (carried.worktree === null || carried.pullRequestUrl !== null) continue;
+      this.enqueue(carried.projectId, async () => {
+        if (this.stopping) return;
+        await this.deliverIfDrained(featureId, carried.projectId);
+      });
+    }
   }
 
   /**
@@ -164,12 +177,14 @@ export class Merges {
     this.publishGraph(merging.featureId);
 
     const feature = store.requireFeature(merging.featureId);
-    const project = store.requireProject(feature.projectId);
+    // The ticket's own repository: its branch goes home there, and the check
+    // that follows is the one that repository declares.
+    const project = store.requireProject(merging.projectId);
     const merge: Merge = {
       ticket: merging,
       feature,
       project,
-      featureWorktree: await this.dependencies.worktrees.forFeature(feature),
+      featureWorktree: await this.dependencies.worktrees.forFeature(feature, project),
     };
     if (!(await this.bringBranchBack(merge))) {
       // Whatever the ticket was holding up stays held up, but a place under the
@@ -179,7 +194,10 @@ export class Merges {
     }
 
     await this.check(merge);
-    await this.deliverIfDrained(feature, project);
+    // Every repository of the feature, not only the one that just merged: the
+    // ticket that drained the graph may well be the last of its own repository
+    // while another was already waiting for it.
+    this.deliverEveryRepository(feature.id);
     subSessions.schedule();
   }
 
@@ -354,6 +372,10 @@ export class Merges {
     check: IntegrationCheck,
   ): void {
     const { store, alerts, autonomy } = this.dependencies;
+    // In the repository whose check went red, and in front of what has not
+    // started there: a branch that no longer passes its own verification is
+    // that repository's business, and blocking another repository's tickets on
+    // it would stop work that has nothing to do with the breakage.
     const fix = store.createTicket(
       fixTicketFor(store.featureGraph(feature.id), ticket, command, check),
     );
@@ -378,20 +400,28 @@ export class Merges {
    * written on the feature says: a drain is worked out again after every merge,
    * and a fix ticket merged after the delivery would otherwise open a second one.
    */
-  private async deliverIfDrained(feature: Feature, project: Project): Promise<void> {
+  private async deliverIfDrained(featureId: string, projectId: string): Promise<void> {
     const { store, alerts, bus } = this.dependencies;
-    const graph = store.featureGraph(feature.id);
+    const graph = store.featureGraph(featureId);
     if (graph.tickets.length === 0) return;
+    // The whole graph, not this repository's share of it: a feature is one
+    // piece of work, and sending off one repository while another is still
+    // being built would publish half an interface.
     if (!graph.tickets.every((each) => each.state === "merged")) return;
-    const current = store.requireFeature(feature.id);
-    if (current.pullRequestUrl !== null || current.worktree === null) return;
+    const feature = store.requireFeature(featureId);
+    const carried = store.requireFeatureRepository(featureId, projectId);
+    if (carried.pullRequestUrl !== null || carried.worktree === null) return;
+    const project = store.requireProject(projectId);
+    // What was built in this repository, which is what its pull request
+    // describes: the tickets of the others belong to their own.
+    const built = { ...graph, tickets: graph.tickets.filter((each) => each.projectId === projectId) };
 
-    // Whose thread the delivery is told on: the last ticket of this feature
-    // that actually ran one. A feature is not a session and has no thread of its
-    // own, and the node that drained the graph may be a decision, which never
-    // opened one.
-    const ticket = lastWithSession(graph);
-    const branch = current.worktree.branch;
+    // Whose thread the delivery is told on: the last ticket of this repository
+    // that actually ran a session. A feature is not a session and has no thread
+    // of its own, and the node that drained the graph may be a decision, which
+    // never opened one.
+    const ticket = lastWithSession(built);
+    const branch = carried.worktree.branch;
     try {
       if (!(await hasRemote(project.path, remote))) {
         throw new Error(`the repository has no remote named ${remote} to push ${branch} to`);
@@ -401,24 +431,27 @@ export class Merges {
         repositoryRoot: project.path,
         base: project.defaultBranch,
         head: branch,
-        title: current.title,
-        body: pullRequestBody(current, graph),
+        title: feature.title,
+        body: pullRequestBody(feature, built),
       });
-      bus.publish({ type: "feature-changed", feature: store.recordPullRequest(feature.id, url) });
+      bus.publish({
+        type: "feature-changed",
+        feature: store.recordPullRequest(featureId, projectId, url),
+      });
       this.note(ticket, {
         kind: "notice",
-        text: "the feature is drained: its branch is pushed and a pull request is open",
+        text: `the feature is drained: its branch is pushed on ${project.name} and a pull request is open`,
         detail: url,
       });
-      await this.settleAutoMerge(ticket, current, project, url);
+      await this.settleAutoMerge(ticket, feature, project, url);
     } catch (failure) {
       const why = failure instanceof Error ? failure.message : String(failure);
       this.note(ticket, {
         kind: "notice",
-        text: "the feature is drained but could not be sent off",
+        text: `the feature is drained but could not be sent off on ${project.name}`,
         detail: why,
       });
-      alerts.raise(alertFor.featureNotDelivered(current.title, why));
+      alerts.raise(alertFor.featureNotDelivered(feature.title, why));
     }
   }
 
@@ -439,7 +472,9 @@ export class Merges {
     url: string,
   ): Promise<void> {
     const { store, alerts } = this.dependencies;
-    if (store.featureAskedForManualTesting(feature.id)) {
+    // Asked of this repository alone: each pull request is merged on its own,
+    // so a point checked by hand in one says nothing about the other.
+    if (store.repositoryAskedForManualTesting(feature.id, project.id)) {
       this.note(ticket, {
         kind: "notice",
         text: "the pull request waits for the developer",

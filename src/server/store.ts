@@ -11,6 +11,7 @@ import type {
   CriterionCoverage,
   Feature,
   FeatureGraph,
+  FeatureRepository,
   LaunchAngle,
   OpenFeatureBody,
   Project,
@@ -42,6 +43,7 @@ import {
   acceptanceCriteria,
   blockingEdges,
   criterionCoverage,
+  featureRepositories,
   features,
   projects,
   questionOptions,
@@ -60,6 +62,12 @@ import type { ScheduledFeature } from "./scheduler";
 /** What an agent hands over when it writes a node of the graph. */
 export interface CreateTicketInput {
   featureId: string;
+  /**
+   * The repository this ticket is built in, among those its feature carries.
+   * Left out, it is the feature's home project: the common case is a feature
+   * that carries one repository, and naming it every time would be noise.
+   */
+  projectId?: string | undefined;
   kind: TicketKind;
   title: string;
   description: string;
@@ -144,10 +152,42 @@ export class Store {
     return this.db.select().from(projects).orderBy(sql`rowid`).all();
   }
 
+  /**
+   * Every feature, or those of one project. A feature is listed under its home
+   * project only: that is where its main session runs, and a feature carrying
+   * a repository is not a feature of it.
+   */
   listFeatures(projectId?: string): Feature[] {
     const query = this.db.select().from(features).$dynamic();
     if (projectId !== undefined) query.where(eq(features.projectId, projectId));
-    return query.orderBy(sql`rowid`).all().map(toFeature);
+    const rows = query.orderBy(sql`rowid`).all();
+    const carried = this.readFeatureRepositories(rows.map((row) => row.id));
+    return rows.map((row) => toFeature(row, carried.get(row.id) ?? []));
+  }
+
+  /**
+   * What each feature carries, in the order the rows were written, which puts
+   * the home project first: it is inserted when the feature is opened, and
+   * everything attached afterwards comes after it.
+   */
+  private readFeatureRepositories(featureIds: string[]): Map<string, FeatureRepository[]> {
+    const byFeature = new Map<string, FeatureRepository[]>();
+    if (featureIds.length === 0) return byFeature;
+    for (const row of this.db
+      .select()
+      .from(featureRepositories)
+      .where(inArray(featureRepositories.featureId, featureIds))
+      .orderBy(sql`rowid`)
+      .all()) {
+      const list = byFeature.get(row.featureId) ?? [];
+      list.push({
+        projectId: row.projectId,
+        worktree: toWorktree(row.branch, row.worktreePath),
+        pullRequestUrl: row.pullRequestUrl,
+      });
+      byFeature.set(row.featureId, list);
+    }
+    return byFeature;
   }
 
   storedState(): StoredState {
@@ -321,8 +361,14 @@ export class Store {
   private requireNothingInFlight(project: Project): void {
     const inFlight = this.db
       .select({ title: features.title })
-      .from(features)
-      .where(and(eq(features.projectId, project.id), isNotNull(features.worktreePath)))
+      .from(featureRepositories)
+      .innerJoin(features, eq(featureRepositories.featureId, features.id))
+      .where(
+        and(
+          eq(featureRepositories.projectId, project.id),
+          isNotNull(featureRepositories.worktreePath),
+        ),
+      )
       .all();
     if (inFlight.length > 0) {
       throw new SquadError(
@@ -333,27 +379,147 @@ export class Store {
     }
   }
 
+  /**
+   * Opens a feature on a home project, carrying it and whatever else was named.
+   * Nothing is checked out: a feature opened to paste a spec into it must not
+   * cost a checkout of one repository, let alone three. Each gets one the first
+   * time a ticket of that repository is launched.
+   */
   openFeature(input: OpenFeatureBody): Feature {
     const project = this.requireProject(input.projectId);
+    // The home project first and once, whatever the caller named: it is what
+    // the order of the rows means, and what a ticket falls back to.
+    const carried = [project.id, ...input.otherProjectIds].filter(
+      (projectId, index, all) => all.indexOf(projectId) === index,
+    );
+    for (const projectId of carried) this.requireProject(projectId);
 
+    const createdAt = new Date().toISOString();
     const row = {
       id: randomUUID(),
       projectId: project.id,
       title: input.title,
-      // Nothing is checked out yet: a feature opened to paste a spec into it
-      // must not cost a checkout of the whole repository. It gets one the first
-      // time one of its tickets is launched.
-      branch: null,
-      worktreePath: null,
-      pullRequestUrl: null,
       goAsRecommended: false,
       autonomyHaltReason: null,
       autonomyHaltDetail: null,
       autonomyHaltedAt: null,
-      createdAt: new Date().toISOString(),
+      createdAt,
     };
-    this.db.insert(features).values(row).run();
-    return toFeature(row);
+    this.db.transaction((tx) => {
+      tx.insert(features).values(row).run();
+      tx.insert(featureRepositories)
+        .values(
+          carried.map((projectId) => ({
+            featureId: row.id,
+            projectId,
+            branch: null,
+            worktreePath: null,
+            pullRequestUrl: null,
+            createdAt,
+          })),
+        )
+        .run();
+    });
+    return this.requireFeature(row.id);
+  }
+
+  /**
+   * Adds the repository a path points at to what a feature may touch. The path
+   * is what an agent reads in a `CLAUDE.md`, and squad resolves it to a project
+   * it already drives: squad reads no prose, and a path it was never handed is
+   * not a repository it starts driving because an agent named it.
+   */
+  async carryRepositoryAt(featureId: string, path: string): Promise<Feature> {
+    const root = await resolveRepositoryRoot(path);
+    const project = this.db.select().from(projects).where(eq(projects.path, root)).get();
+    if (!project) {
+      const driven = this.listProjects()
+        .map((each) => `${each.name} (${each.path})`)
+        .join(", ");
+      throw new SquadError(
+        "project_not_found",
+        404,
+        `${root} is not a repository squad drives: it drives ${driven === "" ? "none yet" : driven}`,
+      );
+    }
+    return this.carryRepository(featureId, project.id);
+  }
+
+  /**
+   * Adds a repository to what a feature may touch. Only a registered project
+   * can be carried: squad drives what its owner handed it and nothing else, and
+   * an agent reading a path out of a `CLAUDE.md` must not be able to widen that.
+   * Carrying one twice is not an error, since two agents may read the same line.
+   */
+  carryRepository(featureId: string, projectId: string): Feature {
+    const feature = this.requireFeature(featureId);
+    const project = this.requireProject(projectId);
+    if (!feature.repositories.some((each) => each.projectId === project.id)) {
+      this.db
+        .insert(featureRepositories)
+        .values({
+          featureId: feature.id,
+          projectId: project.id,
+          branch: null,
+          worktreePath: null,
+          pullRequestUrl: null,
+          createdAt: new Date().toISOString(),
+        })
+        .run();
+    }
+    return this.requireFeature(feature.id);
+  }
+
+  /**
+   * Declares the whole list of what a feature carries. The home project stays
+   * whatever is left out, and a repository holding a checkout is refused rather
+   * than dropped: its branch is where work is, and forgetting it here would
+   * leave that branch with nothing pointing at it.
+   */
+  setCarriedRepositories(featureId: string, projectIds: readonly string[]): Feature {
+    const feature = this.requireFeature(featureId);
+    const wanted = new Set([feature.projectId, ...projectIds]);
+    for (const projectId of wanted) this.requireProject(projectId);
+    const dropped = feature.repositories.filter((each) => !wanted.has(each.projectId));
+    const inFlight = dropped.filter((each) => each.worktree !== null);
+    if (inFlight.length > 0) {
+      throw new SquadError(
+        "project_has_work_in_flight",
+        409,
+        `feature "${feature.title}" has work checked out in ${inFlight.map((each) => this.requireProject(each.projectId).name).join(", ")}: a repository is dropped once nothing of it is checked out`,
+      );
+    }
+    this.db.transaction((tx) => {
+      for (const each of dropped) {
+        tx.delete(featureRepositories)
+          .where(
+            and(
+              eq(featureRepositories.featureId, feature.id),
+              eq(featureRepositories.projectId, each.projectId),
+            ),
+          )
+          .run();
+      }
+      const createdAt = new Date().toISOString();
+      const added = [...wanted].filter(
+        (projectId) => !feature.repositories.some((each) => each.projectId === projectId),
+      );
+      if (added.length > 0) {
+        tx.insert(featureRepositories)
+          .values(
+            added.map((projectId) => ({
+              featureId: feature.id,
+              projectId,
+              branch: null,
+              worktreePath: null,
+              pullRequestUrl: null,
+              createdAt,
+            })),
+          )
+          .run();
+      }
+    });
+    return this.requireFeature(feature.id);
   }
 
   requireProject(projectId: string): Project {
@@ -369,7 +535,29 @@ export class Store {
     if (!row) {
       throw new SquadError("feature_not_found", 404, `no feature with id ${featureId}`);
     }
-    return toFeature(row);
+    return toFeature(row, this.readFeatureRepositories([row.id]).get(row.id) ?? []);
+  }
+
+  /**
+   * One repository of a feature, refused when the feature does not carry it. A
+   * ticket, a checkout and a pull request all hang on this pair, and reading it
+   * in one place is what keeps "a feature only touches what it declared" from
+   * being checked differently in three.
+   */
+  requireFeatureRepository(featureId: string, projectId: string): FeatureRepository {
+    const feature = this.requireFeature(featureId);
+    const carried = feature.repositories.find((each) => each.projectId === projectId);
+    if (!carried) {
+      const names = feature.repositories
+        .map((each) => `"${this.requireProject(each.projectId).name}"`)
+        .join(", ");
+      throw new SquadError(
+        "project_not_carried",
+        400,
+        `feature "${feature.title}" does not carry the repository ${projectId}: it carries ${names}`,
+      );
+    }
+    return carried;
   }
 
   /**
@@ -387,6 +575,14 @@ export class Store {
       .orderBy(sql`rowid`)
       .all();
 
+    // The repository this ticket is built in: what it named, or the feature's
+    // home project. Refused when the feature does not carry it, which is what
+    // catches a ticket written for the wrong repository as it is written
+    // rather than two hours later, when its sub-session finds nothing there.
+    const carried = this.requireFeatureRepository(
+      feature.id,
+      input.projectId ?? feature.projectId,
+    );
     const known = new Map(existing.map((ticket) => [ticket.id, ticket]));
     // One deeper than the ticket whose work uncovered this one, and a first
     // generation otherwise. Read from the parent's own depth rather than
@@ -425,6 +621,7 @@ export class Store {
         .values({
           id,
           featureId: feature.id,
+          projectId: carried.projectId,
           kind: input.kind,
           title: input.title,
           description: input.description,
@@ -499,6 +696,7 @@ export class Store {
       tickets: rows.map((row) => ({
         id: row.id,
         featureId: row.featureId,
+        projectId: row.projectId,
         kind: row.kind,
         title: row.title,
         description: row.description,
@@ -550,12 +748,20 @@ export class Store {
     return ticket;
   }
 
-  /** Where a feature's branch lives, written the first time it is checked out. */
-  recordFeatureWorktree(featureId: string, worktree: Worktree): Feature {
+  /**
+   * Where a feature's branch lives in one of its repositories, written the
+   * first time it is checked out there.
+   */
+  recordFeatureWorktree(featureId: string, projectId: string, worktree: Worktree): Feature {
     this.db
-      .update(features)
+      .update(featureRepositories)
       .set({ branch: worktree.branch, worktreePath: worktree.path })
-      .where(eq(features.id, featureId))
+      .where(
+        and(
+          eq(featureRepositories.featureId, featureId),
+          eq(featureRepositories.projectId, projectId),
+        ),
+      )
       .run();
     return this.requireFeature(featureId);
   }
@@ -749,29 +955,42 @@ export class Store {
       .map((row) => this.requireTicket(row.id));
   }
 
-  /** Where a feature's pull request lives, written when squad opens it. */
-  recordPullRequest(featureId: string, url: string): Feature {
+  /**
+   * Where the pull request of one repository lives, written when squad opens
+   * it. One per repository the feature carries: they are separate branches on
+   * separate remotes, and nothing could make them one request.
+   */
+  recordPullRequest(featureId: string, projectId: string, url: string): Feature {
     this.db
-      .update(features)
+      .update(featureRepositories)
       .set({ pullRequestUrl: url })
-      .where(eq(features.id, featureId))
+      .where(
+        and(
+          eq(featureRepositories.featureId, featureId),
+          eq(featureRepositories.projectId, projectId),
+        ),
+      )
       .run();
     return this.requireFeature(featureId);
   }
 
   /**
-   * Whether anything of this feature was ever put in front of a human. Read
-   * over every report rather than the latest one of each ticket: a ticket
+   * Whether anything built in one repository of this feature was ever put in
+   * front of a human. Asked per repository, because each has its own pull
+   * request and each is merged on its own: a point checked by hand in one says
+   * nothing about the work done in another.
+   *
+   * Read over every report rather than the latest one of each ticket: a ticket
    * corrected after a red sheet reports again, and the second report may well
    * be empty while the work still went through someone's hands.
    */
-  featureAskedForManualTesting(featureId: string): boolean {
+  repositoryAskedForManualTesting(featureId: string, projectId: string): boolean {
     const [row] = this.db
       .select({ points: sql<number>`count(*)` })
       .from(testSheetPoints)
       .innerJoin(stepReports, eq(testSheetPoints.reportId, stepReports.id))
       .innerJoin(tickets, eq(stepReports.ticketId, tickets.id))
-      .where(eq(tickets.featureId, featureId))
+      .where(and(eq(tickets.featureId, featureId), eq(tickets.projectId, projectId)))
       .all();
     return (row?.points ?? 0) > 0;
   }
@@ -1299,25 +1518,24 @@ export class Store {
 const singleSettingsRow = 1;
 
 /** A feature row, with its two worktree columns read back as the one thing they are. */
-function toFeature(row: {
-  id: string;
-  projectId: string;
-  title: string;
-  branch: string | null;
-  worktreePath: string | null;
-  pullRequestUrl: string | null;
-  goAsRecommended: boolean;
-  autonomyHaltReason: AutonomyHaltReason | null;
-  autonomyHaltDetail: string | null;
-  autonomyHaltedAt: string | null;
-  createdAt: string;
-}): Feature {
+function toFeature(
+  row: {
+    id: string;
+    projectId: string;
+    title: string;
+    goAsRecommended: boolean;
+    autonomyHaltReason: AutonomyHaltReason | null;
+    autonomyHaltDetail: string | null;
+    autonomyHaltedAt: string | null;
+    createdAt: string;
+  },
+  repositories: FeatureRepository[],
+): Feature {
   return {
     id: row.id,
     projectId: row.projectId,
     title: row.title,
-    worktree: toWorktree(row.branch, row.worktreePath),
-    pullRequestUrl: row.pullRequestUrl,
+    repositories,
     goAsRecommended: row.goAsRecommended,
     autonomyHalt: toHalt(row),
     createdAt: row.createdAt,

@@ -25,7 +25,12 @@ import {
 import { installGhStub, type GhStub } from "../support/gh";
 import { connectToSquadTools } from "../support/mcp";
 import { createScriptedLauncher, type ScriptedAgent } from "../support/scripted-launcher";
-import { openTestFeature, startTestSquad, type TestSquad } from "../support/squad";
+import {
+  onlyRepository,
+  openTestFeature,
+  startTestSquad,
+  type TestSquad,
+} from "../support/squad";
 import { startWebhookReceiver, type WebhookReceiver } from "../support/webhook";
 
 /**
@@ -263,7 +268,7 @@ describe("validating, merging, checking and delivering", () => {
 
     // The work is on the feature branch, and it got there as its own merge
     // commit rather than by fast-forward: the branch says which ticket did what.
-    const featureBranch = (await scene.feature()).worktree?.branch ?? "";
+    const featureBranch = onlyRepository(await scene.feature()).worktree?.branch ?? "";
     expect(await fileOnBranch(scene.repository, featureBranch, "store.ts")).toContain(
       "export const store",
     );
@@ -314,7 +319,7 @@ describe("validating, merging, checking and delivering", () => {
     expect(handed[1]).toContain("Le reste tient.");
     expect(merged.sessionId).toBe(waiting.sessionId);
     expect(merged.stepReport?.summary).toContain("Corrigé");
-    const featureBranch = (await scene.feature()).worktree?.branch ?? "";
+    const featureBranch = onlyRepository(await scene.feature()).worktree?.branch ?? "";
     expect(await fileOnBranch(scene.repository, featureBranch, "store.ts")).toBe("corrigé\n");
   });
 
@@ -332,7 +337,7 @@ describe("validating, merging, checking and delivering", () => {
 
     await scene.launch("Le store");
     const waiting = await scene.reaches("Le store", "awaiting-validation");
-    const featureBranch = (await scene.feature()).worktree?.branch ?? "";
+    const featureBranch = onlyRepository(await scene.feature()).worktree?.branch ?? "";
     // A sheet nobody has been through: the branch stays where it is.
     expect(await fileOnBranch(scene.repository, featureBranch, "store.ts")).toBeNull();
 
@@ -368,7 +373,7 @@ describe("validating, merging, checking and delivering", () => {
     await scene.reaches("Le store", "merged");
     await expect.poll(async () => await pathExists(where), { timeout: 15_000 }).toBe(true);
 
-    const featureWorktree = (await scene.feature()).worktree?.path ?? "";
+    const featureWorktree = onlyRepository(await scene.feature()).worktree?.path ?? "";
     expect((await readFile(where, "utf8")).trim()).toBe(featureWorktree);
     // Green, so nothing was posted in front of the rest: the ticket that had not
     // started is still on the frontier.
@@ -453,7 +458,7 @@ describe("validating, merging, checking and delivering", () => {
 
     expect(resolutions).toHaveLength(1);
     expect(merged.sessionId).not.toBeNull();
-    const featureBranch = (await scene.feature()).worktree?.branch ?? "";
+    const featureBranch = onlyRepository(await scene.feature()).worktree?.branch ?? "";
     expect(await fileOnBranch(scene.repository, featureBranch, "partage.ts")).toBe(
       "les deux côtés\n",
     );
@@ -493,7 +498,7 @@ describe("validating, merging, checking and delivering", () => {
     expect(await pathExists(worktrees.get("L'API") ?? "")).toBe(true);
     expect(await listBranches(scene.repository)).toContain(conflicted.worktree?.branch);
     // The feature branch is left clean rather than sitting on a half merge.
-    const featureBranch = (await scene.feature()).worktree?.branch ?? "";
+    const featureBranch = onlyRepository(await scene.feature()).worktree?.branch ?? "";
     expect(await fileOnBranch(scene.repository, featureBranch, "partage.ts")).toBe("Le store\n");
 
     const alert = await receiver.next();
@@ -537,15 +542,15 @@ describe("validating, merging, checking and delivering", () => {
     await scene.launch("Le store");
     await scene.launch("L'API");
     await scene.reaches("Le store", "merged");
-    expect((await scene.feature()).pullRequestUrl).toBeNull();
+    expect(onlyRepository(await scene.feature()).pullRequestUrl).toBeNull();
 
     second.open();
     await scene.reaches("L'API", "merged");
     await expect
-      .poll(async () => (await scene.feature()).pullRequestUrl, { timeout: 15_000 })
+      .poll(async () => onlyRepository(await scene.feature()).pullRequestUrl, { timeout: 15_000 })
       .toBe("https://forge.test/squad/pull/1");
 
-    const featureBranch = (await scene.feature()).worktree?.branch ?? "";
+    const featureBranch = onlyRepository(await scene.feature()).worktree?.branch ?? "";
     expect(await listBranches(remote)).toContain(featureBranch);
 
     // One pull request and not two: the first merge drained nothing, so it
@@ -597,7 +602,7 @@ describe("validating, merging, checking and delivering", () => {
 
     await scene.launch("Le store");
     await scene.reaches("Le store", "merged");
-    expect((await scene.feature()).pullRequestUrl).toBeNull();
+    expect(onlyRepository(await scene.feature()).pullRequestUrl).toBeNull();
 
     // Settling it merges nothing and releases nobody, and it is still the
     // moment the last node of this graph comes to rest.
@@ -609,7 +614,7 @@ describe("validating, merging, checking and delivering", () => {
     await tools.close();
 
     await expect
-      .poll(async () => (await scene.feature()).pullRequestUrl, { timeout: 15_000 })
+      .poll(async () => onlyRepository(await scene.feature()).pullRequestUrl, { timeout: 15_000 })
       .toBe("https://forge.test/squad/pull/1");
     const [opened] = await gh.callsTo("pr", "create");
     const body = opened?.[(opened?.indexOf("--body") ?? -1) + 1] ?? "";
@@ -635,7 +640,7 @@ describe("validating, merging, checking and delivering", () => {
     await scene.reaches("Le store", "merged");
 
     await expect
-      .poll(async () => (await scene.feature()).pullRequestUrl, { timeout: 15_000 })
+      .poll(async () => onlyRepository(await scene.feature()).pullRequestUrl, { timeout: 15_000 })
       .toBe("https://forge.test/squad/pull/1");
 
     // Waited for first: the alert is raised where squad decides not to merge on
@@ -678,7 +683,7 @@ describe("validating, merging, checking and delivering", () => {
     expect(alert.text).toContain("personal access token");
     expect(alert.text).not.toContain("les migrations tournent");
     expect((alert.text ?? "").length).toBeLessThan(300);
-    expect((await scene.feature()).pullRequestUrl).toBeNull();
+    expect(onlyRepository(await scene.feature()).pullRequestUrl).toBeNull();
   });
 
   it("laisse la pull request ouverte quand la forge refuse de la fusionner seule", async () => {
@@ -698,7 +703,7 @@ describe("validating, merging, checking and delivering", () => {
     await scene.launch("Le store");
     await scene.reaches("Le store", "merged");
     await expect
-      .poll(async () => (await scene.feature()).pullRequestUrl, { timeout: 15_000 })
+      .poll(async () => onlyRepository(await scene.feature()).pullRequestUrl, { timeout: 15_000 })
       .toBe("https://forge.test/squad/pull/1");
 
     // The branch is pushed and the pull request is open: what did not happen is
@@ -811,7 +816,7 @@ describe("validating, merging, checking and delivering", () => {
       })
       .toBe(2);
     await expect
-      .poll(async () => (await features()).filter((each) => each.pullRequestUrl !== null).length, {
+      .poll(async () => (await features()).filter((each) => onlyRepository(each).pullRequestUrl !== null).length, {
         timeout: 20_000,
       })
       .toBe(2);

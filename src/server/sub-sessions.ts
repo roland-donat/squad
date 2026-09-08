@@ -394,7 +394,7 @@ export class SubSessions {
       ticketId: ticket.id,
       workingDirectory: worktree.path,
       mcpUrl: mcpUrl(),
-      briefing: subSessionBriefing(feature, ticket),
+      briefing: subSessionBriefing(feature, ticket, store.requireProject(ticket.projectId)),
       ...(resumeSessionId === undefined ? {} : { resumeSessionId }),
     });
     this.running.set(ticket.id, session);

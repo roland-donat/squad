@@ -10,7 +10,9 @@ en français, le code reste en anglais.
 ## Le graphe
 
 **Ticket** (`Ticket`) :
-L'unité de travail de squad, et le seul type de nœud du graphe. Porte un genre déclaré.
+L'unité de travail de squad, et le seul type de nœud du graphe. Porte un genre déclaré
+et le **dépôt porté** dans lequel il se construit, celui d'attache de sa feature à
+défaut.
 _Éviter_ : issue, tâche, étape, story, carte
 
 **Genre** (`TicketKind`) :
@@ -21,7 +23,9 @@ _Éviter_ : type, catégorie, nature
 
 **Arête de blocage** (`BlockingEdge`) :
 La relation orientée « A doit être fusionné avant que B puisse partir ». C'est la
-seule relation du graphe, donc la seule chose que puisse signifier une flèche.
+seule relation du graphe, donc la seule chose que puisse signifier une flèche. Elle
+relie deux tickets d'une même feature, y compris quand ils se construisent dans deux
+dépôts différents : c'est ce qui rend un ordre inter-dépôts exprimable.
 _Éviter_ : dépendance, lien, parent, enfant, sous-tâche
 
 **Frontière** (`frontier`) :
@@ -30,12 +34,25 @@ peut lancer à l'instant présent.
 _Éviter_ : file d'attente, backlog, tickets prêts, prochaine vague
 
 **Feature** (`Feature`) :
-Un chantier sur un projet, du spec jusqu'à la fusion dans la branche par défaut.
-Une feature possède un graphe et une session principale.
+Un chantier, du spec jusqu'à la fusion dans les branches par défaut. Une feature
+possède un graphe et une session principale, et porte un ou plusieurs **dépôts
+portés**. Son **projet d'attache** est celui où tourne sa session principale et où
+se construisent ses tickets qui ne disent rien d'autre.
 _Éviter_ : chantier, epic, lot, sprint
 
+**Dépôt porté** (`FeatureRepository`) :
+Un des dépôts qu'une feature a le droit de toucher, avec ce que squad y a ouvert :
+sa branche de feature, son worktree et sa pull request. Une feature en porte
+plusieurs quand le travail en traverse plusieurs, une interface changée ici et ses
+appelants là. Chacun est sorti en worktree au premier ticket qui le touche, et pas
+avant. Un ticket qui nomme un dépôt non porté est refusé à l'écriture ; la liste se
+déclare à l'ouverture de la feature, et la session principale peut l'étendre par
+appel d'outil à un dépôt que squad pilote déjà.
+_Éviter_ : sous-projet, module, dépendance
+
 **Projet** (`Project`) :
-Un dépôt git piloté par squad. Un projet peut porter plusieurs features en vol.
+Un dépôt git piloté par squad. Un projet peut porter plusieurs features en vol, et
+être porté par des features attachées ailleurs.
 _Éviter_ : dépôt, espace de travail, application
 
 ## Les sessions
@@ -114,9 +131,12 @@ ce qu'aucune sous-session ne peut voir depuis son worktree.
 _Éviter_ : CI locale, test de fumée, build
 
 **Feature drainée** (`drained`) :
-Une feature dont tous les tickets du graphe sont fusionnés. C'est ce qui déclenche sa
-livraison : sa branche est poussée et une pull request est ouverte, décrite depuis ses
-tickets et leurs fiches validées.
+Une feature dont tous les tickets du graphe sont fusionnés, tous dépôts confondus.
+C'est ce qui déclenche sa livraison : chaque dépôt porté voit sa branche poussée et
+une pull request ouverte, décrite depuis les tickets de ce dépôt et leurs fiches
+validées. Une par dépôt, sans coordination entre elles : ce sont des branches
+distinctes sur des dépôts distincts, et chacune part dès que sa propre intégration
+continue le permet.
 _Éviter_ : feature finie, feature complète, feature livrée
 
 **Pull request** (`pullRequestUrl`) :
@@ -180,7 +200,10 @@ le ticket est écrit quand même et rien de ce qui tourne n'est annulé.
 ## Relations
 
 - Un **projet** porte plusieurs **features**, simultanément possible.
-- Une **feature** possède un **graphe** de **tickets** et une **session principale**.
+- Une **feature** possède un **graphe** de **tickets** et une **session principale**,
+  et porte un ou plusieurs **dépôts portés** ; chaque **ticket** se construit dans
+  l'un d'eux, et une **arête** relie deux tickets de la feature quels que soient les
+  leurs.
 - Un **ticket** de genre `build` ou `fix` s'exécute dans une **sous-session** ; un ticket
   de genre `decision` ne s'exécute pas et se tranche dans la session principale.
 - Une **étape** se termine par un **rapport de fin d'étape**, qui produit une **fiche de
@@ -189,7 +212,8 @@ le ticket est écrit quand même et rien de ce qui tourne n'est annulé.
 - Chaque fusion de ticket déclenche une **vérification d'intégration**, dont l'échec
   engendre un ticket de genre `fix` posé en bloqueur de la suite.
 - Les fusions d'un même **projet** sont sérialisées, une seule à la fois, qu'elles
-  viennent d'un ticket ou d'une **feature drainée**.
+  viennent d'un ticket ou d'une **feature drainée**. Deux tickets d'une même feature
+  qui vivent dans deux dépôts fusionnent donc de front.
 - Une **feature drainée** part en **pull request** ; un conflit ouvre une **session de
   résolution** avant de retenter, et un conflit qui persiste arrête le ticket.
 - Une **question** est posée par une session, sur son ticket pour une sous-session, sur la

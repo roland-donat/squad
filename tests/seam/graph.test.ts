@@ -47,6 +47,7 @@ describe("the graph an agent writes through the MCP tools", () => {
   it("exposes the tools an agent needs to write and read the graph", async () => {
     expect(await tools.listTools()).toEqual([
       "ask_question",
+      "carry_repository",
       "create_ticket",
       "read_graph",
       "report_step",

@@ -45,16 +45,14 @@ export class Worktrees {
   }
 
   /**
-   * The feature's checkout, created if this is the first time anything of the
-   * feature is checked out and reopened if its directory was cleaned off the
-   * disk. Asked for on its own when a ticket branch comes back into it: the
-   * merge happens there, and a feature whose worktree was cleaned up would
-   * otherwise have nowhere to merge into.
+   * The feature's checkout in one of its repositories, created if this is the
+   * first time anything of that repository is checked out and reopened if its
+   * directory was cleaned off the disk. Asked for on its own when a ticket
+   * branch comes back into it: the merge happens there, and a repository whose
+   * worktree was cleaned up would otherwise have nowhere to merge into.
    */
-  forFeature(feature: Feature): Promise<Worktree> {
-    return this.enqueue(() =>
-      this.checkOutForFeature(feature, this.store.requireProject(feature.projectId)),
-    );
+  forFeature(feature: Feature, project: Project): Promise<Worktree> {
+    return this.enqueue(() => this.checkOutForFeature(feature, project));
   }
 
   private enqueue(checkOut: () => Promise<Worktree>): Promise<Worktree> {
@@ -68,7 +66,9 @@ export class Worktrees {
 
   private async checkOutForTicket(ticket: Ticket): Promise<Worktree> {
     const feature = this.store.requireFeature(ticket.featureId);
-    const project = this.store.requireProject(feature.projectId);
+    // The ticket's own repository, not the feature's home one: a feature
+    // carries several, and this is where this ticket is built.
+    const project = this.store.requireProject(ticket.projectId);
     const startedFrom = await this.checkOutForFeature(feature, project);
     return this.checkOut(
       ticket.worktree,
@@ -82,15 +82,21 @@ export class Worktrees {
     );
   }
 
-  /** The feature's checkout, on its own branch, started from the default one. */
+  /**
+   * The feature's checkout in one repository, on its own branch, started from
+   * that repository's default branch. One per repository the feature carries,
+   * each under a directory of its own: two repositories checked out at the same
+   * path would be the same directory holding two working trees.
+   */
   private async checkOutForFeature(feature: Feature, project: Project): Promise<Worktree> {
+    const carried = this.store.requireFeatureRepository(feature.id, project.id);
     return this.checkOut(
-      feature.worktree,
+      carried.worktree,
       // Beside the ticket checkouts rather than above them: a worktree nested
       // in another shows up as untracked files in the branch it is nested in.
       {
         branch: featureBranch(feature),
-        path: join(this.dataDir, "worktrees", feature.id, "feature"),
+        path: join(this.dataDir, "worktrees", feature.id, "repositories", project.id, "feature"),
       },
       project.path,
       project.defaultBranch,
@@ -99,7 +105,7 @@ export class Worktrees {
         // stream holds the whole state, which is what the snapshot promises.
         this.bus.publish({
           type: "feature-changed",
-          feature: this.store.recordFeatureWorktree(feature.id, worktree),
+          feature: this.store.recordFeatureWorktree(feature.id, project.id, worktree),
         });
       },
     );

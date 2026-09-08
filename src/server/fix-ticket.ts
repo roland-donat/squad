@@ -16,6 +16,9 @@ export function fixTicketFor(
 ): CreateTicketInput {
   return {
     featureId: graph.featureId,
+    // In the repository whose verification went red, which is the one the
+    // correction is made in.
+    projectId: merged.projectId,
     kind: "fix",
     title: `Vérification d'intégration rouge après « ${merged.title} »`,
     description: [
@@ -33,7 +36,7 @@ export function fixTicketFor(
     ].join("\n"),
     acceptanceCriteria: [`La commande \`${command}\` repasse au vert sur la branche de feature.`],
     blockedBy: [],
-    blocks: notStarted(graph),
+    blocks: notStarted(graph, merged.projectId),
     // One generation deeper than what broke the branch: a check that comes back
     // red on the correction of a correction is a cascade, and the depth cap is
     // what stops it from running all night on its own.
@@ -42,18 +45,27 @@ export function fixTicketFor(
 }
 
 /**
- * The tickets no sub-session has ever opened, which is what a correction is
- * posted in front of: work piled on a broken feature branch is work to do twice.
- * Read from the session written on the row rather than from the state: a ticket
- * waiting for a place reads as `queued` and has never run, while one that failed
- * has a branch of its own and blocking it would only strand it.
+ * The tickets no sub-session has ever opened, in the repository whose branch is
+ * broken: work piled on a broken feature branch is work to do twice. Read from
+ * the session written on the row rather than from the state: a ticket waiting
+ * for a place reads as `queued` and has never run, while one that failed has a
+ * branch of its own and blocking it would only strand it.
+ *
+ * Only that repository's tickets. A branch that no longer passes its own
+ * verification says nothing about another repository, and holding its work back
+ * would stop what the breakage has nothing to do with.
  *
  * Decision tickets are left out. They are questions for the developer and
  * nothing is built on their answer until squad is told it, so blocking them
  * would only stop the developer from answering.
  */
-function notStarted(graph: FeatureGraph): string[] {
+function notStarted(graph: FeatureGraph, projectId: string): string[] {
   return graph.tickets
-    .filter((ticket) => ticket.sessionId === null && ticket.kind !== "decision")
+    .filter(
+      (ticket) =>
+        ticket.projectId === projectId &&
+        ticket.sessionId === null &&
+        ticket.kind !== "decision",
+    )
     .map((ticket) => ticket.id);
 }

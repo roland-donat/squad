@@ -26,6 +26,7 @@ export const squadMcpServerName = "squad";
 
 export const squadTools = {
   createTicket: "create_ticket",
+  carryRepository: "carry_repository",
   reportStep: "report_step",
   askQuestion: "ask_question",
   settleDecision: "settle_decision",
@@ -41,6 +42,13 @@ export function squadToolName(tool: SquadTool): string {
 
 const createTicketShape = {
   featureId: z.string().min(1).describe("The feature whose graph this ticket belongs to."),
+  projectId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "The repository this ticket is built in, among those the feature carries. Leave it out for the feature's home repository, which is where you are running.",
+    ),
   kind: z
     .enum(ticketKinds)
     .describe(
@@ -66,6 +74,17 @@ const createTicketShape = {
     .optional()
     .describe(
       "The ticket you are building, when your work uncovered this one. It is what squad counts the depth of a cascade with: leave it out only for a ticket nobody's work uncovered.",
+    ),
+};
+
+const carryRepositoryShape = {
+  featureId: z.string().min(1).describe("The feature that is to carry this repository."),
+  path: z
+    .string()
+    .trim()
+    .min(1)
+    .describe(
+      "A path inside the repository, as the project's documentation gives it. Squad resolves it to the repository root and matches it against the projects it already drives.",
     ),
 };
 
@@ -233,6 +252,22 @@ function buildMcpServer({
         autonomy.ticketCreated(ticket);
         bus.publish({ type: "graph-changed", graph: store.featureGraph(input.featureId) });
         return ticket;
+      }),
+  );
+
+  server.registerTool(
+    squadTools.carryRepository,
+    {
+      title: "Carry another repository",
+      description:
+        "Adds a repository to the ones this feature may build tickets in, so a ticket can name it. Use it when the work you are cutting up reaches beyond the repository you are running in, and the project's own documentation says where that other repository is. Only a repository squad already drives can be carried: if the path is not one of them, the answer names those it drives, and the developer registers what is missing.",
+      inputSchema: carryRepositoryShape,
+    },
+    async (input) =>
+      answer(async () => {
+        const feature = await store.carryRepositoryAt(input.featureId, input.path);
+        bus.publish({ type: "feature-changed", feature });
+        return feature;
       }),
   );
 

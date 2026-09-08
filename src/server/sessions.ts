@@ -1,4 +1,4 @@
-import type { MainSession, RecordedSession } from "../shared/api";
+import type { MainSession } from "../shared/api";
 import { mainSessionBriefing } from "./agents/briefing";
 import type { AgentLauncher, AgentSession } from "./agents/launcher";
 import { SquadError } from "./errors";
@@ -58,15 +58,15 @@ export class MainSessions {
   }
 
   /**
-   * Opens the main session of a feature, blank or resumed. Resumed, it answers
-   * to the id of the conversation it continues: the thread of this feature is
-   * that conversation carrying on, not a second one beside it.
+   * Opens the main session of a feature, blank or resumed. A feature that was
+   * opened on a recorded conversation resumes it every time its session is
+   * opened, and not only the first time: a session lives as long as its
+   * process, and the one that comes after it is the same thread of work.
+   * Reading it from the feature is what makes that true wherever the start
+   * comes from, a message typed, a shortcut clicked, or a restart.
    */
-  async start(
-    featureId: string,
-    options: { prompt?: string; resume?: RecordedSession } = {},
-  ): Promise<AgentSession> {
-    const { prompt, resume } = options;
+  async start(featureId: string, options: { prompt?: string } = {}): Promise<AgentSession> {
+    const { prompt } = options;
     const { store, bus, launcher, mcpUrl } = this.dependencies;
     const feature = store.requireFeature(featureId);
     if (this.running.has(feature.id)) {
@@ -83,7 +83,9 @@ export class MainSessions {
       featureId: feature.id,
       workingDirectory: project.path,
       mcpUrl: mcpUrl(),
-      ...(resume === undefined ? {} : { resumeSessionId: resume.id }),
+      ...(feature.resumedSessionId === null
+        ? {}
+        : { resumeSessionId: feature.resumedSessionId }),
       // Every repository the feature carries, home first: a session that was
       // not told them cannot write a ticket for one of them.
       briefing: mainSessionBriefing(
@@ -93,19 +95,14 @@ export class MainSessions {
     });
     this.running.set(feature.id, session);
     bus.publish({ type: "main-session-started", featureId: feature.id, sessionId: session.id });
-    if (resume !== undefined) {
+    if (feature.resumedSessionId !== null) {
       // On the thread, because it is the one thing the developer cannot see for
       // themselves: what looks like an empty thread is a conversation squad did
-      // not write and will not repeat. Where it lives is said, not copied.
+      // not write and will not repeat.
       this.append(feature.id, session.id, {
         kind: "notice",
-        text: "the main session was resumed from a recorded conversation",
-        detail: [
-          `${resume.title ?? "untitled"} (${resume.id})`,
-          `recorded in ${resume.cwd}${resume.branch === null ? "" : ` on ${resume.branch}`}`,
-          `last written to on ${resume.recordedAt}, ${Math.round(resume.bytes / 1024)} kB`,
-          "what was said in it is not repeated here: claude-code keeps it, and this session remembers it",
-        ].join("\n"),
+        text: "this session is the recorded conversation carrying on",
+        detail: `it answers to ${feature.resumedSessionId}, and remembers everything said in it`,
       });
     }
     // Drained before the prompt goes in, so nothing the session says on its way

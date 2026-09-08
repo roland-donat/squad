@@ -1,8 +1,8 @@
 import type { Feature, Project, RecordedSession } from "../shared/api";
+import { appendToThread } from "./threads";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
 import { listRecordedSessions, matchesSearch } from "./recorded-sessions";
-import type { MainSessions } from "./sessions";
 import type { Store } from "./store";
 
 /**
@@ -23,7 +23,6 @@ const shownByDefault = 10;
 export interface ResumptionDependencies {
   store: Store;
   bus: EventBus;
-  mainSessions: MainSessions;
   /** Where claude-code keeps its conversations; the seam suite hands in its own. */
   recordedSessionsDir: string;
 }
@@ -65,7 +64,7 @@ export class Resumptions {
    * main session that fails to open already leaves things.
    */
   async attach(sessionId: string, title?: string): Promise<{ project: Project; feature: Feature }> {
-    const { store, bus, mainSessions } = this.dependencies;
+    const { store, bus } = this.dependencies;
     const recorded = await this.require(sessionId);
     const taken = store.featureResumedFrom(sessionId);
     if (taken !== null) {
@@ -84,11 +83,37 @@ export class Resumptions {
       resumedSessionId: recorded.id,
     });
     bus.publish({ type: "feature-opened", feature });
-    // Resumed rather than opened blank: the session answers to the id it is
-    // resuming, so the thread of this feature is the continuation of that
-    // conversation, not a second one beside it.
-    await mainSessions.start(feature.id, { resume: recorded });
+    // Written down, and no session opened yet. A claude-code session resumed
+    // with nothing to say has nothing to do and ends at once, which is what
+    // attaching used to leave behind: a thread saying the session ended, and a
+    // blank session opened by the first message afterwards. The conversation is
+    // resumed when the developer first speaks, and that is what carries it.
+    this.note(feature, recorded);
     return { project, feature };
+  }
+
+  /**
+   * What the developer cannot see for themselves: this feature's thread is a
+   * conversation squad did not write and will not repeat. Where it lives is
+   * said, not copied, and how big it is says what resuming it will cost.
+   */
+  private note(feature: Feature, recorded: RecordedSession): void {
+    const { store, bus } = this.dependencies;
+    appendToThread(
+      store,
+      bus,
+      { featureId: feature.id, sessionId: recorded.id },
+      {
+        kind: "notice",
+        text: "this feature was opened on a recorded conversation",
+        detail: [
+          `${recorded.title ?? "untitled"} (${recorded.id})`,
+          `recorded in ${recorded.cwd}${recorded.branch === null ? "" : ` on ${recorded.branch}`}`,
+          `last written to on ${recorded.recordedAt}, ${Math.round(recorded.bytes / 1024)} kB`,
+          "the first message sent here resumes it, with everything it already knows",
+        ].join("\n"),
+      },
+    );
   }
 
   private async require(sessionId: string): Promise<RecordedSession> {

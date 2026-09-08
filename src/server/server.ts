@@ -101,7 +101,6 @@ export async function startSquadServer(
   const resumptions = new Resumptions({
     store,
     bus,
-    mainSessions,
     recordedSessionsDir: options.recordedSessionsDir ?? resolveRecordedSessionsDir(),
   });
   // Before anything is served: a ticket the previous run left saying `running`

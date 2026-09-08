@@ -276,6 +276,14 @@ une. Trois règles tiennent cette lecture :
   documenté : un répertoire absent, un fichier illisible ou une ligne d'une
   forme inconnue donnent moins de sessions, jamais une erreur.
 
+Rattacher une conversation n'ouvre aucune session : une session claude-code
+reprise sans rien à dire n'a rien à faire et se termine aussitôt. Le
+rattachement écrit ce à quoi la feature est liée, et c'est le premier message
+envoyé dans le fil qui reprend la conversation. La reprise vaut ensuite pour
+tous les démarrages de cette feature, pas seulement le premier : une session
+vit le temps de son processus, et celle qui lui succède est le même fil de
+travail.
+
 Squad lit ce qui identifie une conversation, l'identifiant, le chemin, la
 branche, le titre et le début du premier message, qui sert à nommer la feature.
 Le corps de la conversation n'est jamais lu, et rien de ce qui s'y trouve ne

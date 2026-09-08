@@ -15,14 +15,22 @@ import { promisify } from "node:util";
 
 const execute = promisify(execFile);
 
-/** A tool that ran and came back unhappy, with what it printed on the way out. */
+/**
+ * A tool that ran and came back unhappy, with what it printed on the way out.
+ *
+ * Its message names the tool and what it was asked to do, never the arguments:
+ * one of these travels into an alert a person reads on a phone, and squad hands
+ * whole pull request descriptions and commit messages to these tools. The
+ * arguments stay on the failure for whoever wants them.
+ */
 export class CommandFailure extends Error {
   constructor(
-    readonly command: string,
+    readonly file: string,
+    readonly args: readonly string[],
     /** What the tool said, from its error output when it wrote any. */
     readonly reason: string,
   ) {
-    super(`${command} failed: ${reason}`);
+    super(`${file} ${args.slice(0, 2).join(" ")} failed: ${reason}`);
     this.name = "CommandFailure";
   }
 }
@@ -37,7 +45,7 @@ export async function runCommand(
     const { stdout } = await execute(file, [...args], { cwd });
     return stdout;
   } catch (cause) {
-    throw new CommandFailure(`${file} ${args.join(" ")}`, reasonOf(cause));
+    throw new CommandFailure(file, args, reasonOf(cause));
   }
 }
 

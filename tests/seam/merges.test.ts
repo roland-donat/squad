@@ -654,6 +654,33 @@ describe("validating, merging, checking and delivering", () => {
     expect(body).toContain("La base s'ouvre");
   });
 
+  it("dit ce que la forge a répondu, sans y recopier la description", async () => {
+    gh = await installGhStub();
+    await gh.refuse("pr create", "GraphQL: Resource not accessible by personal access token");
+    const scene = await start({
+      tickets: [{ title: "Le store", criteria: ["La base s'ouvre"] }],
+      subSession: async (agent) => {
+        await agent.awaitMessage();
+        await commitFile(agent.request.workingDirectory, "store.ts", "1\n", "feat: the store");
+        await reportCovered(agent, "La base s'ouvre et les migrations tournent.");
+      },
+    });
+    await addOrigin(scene.repository);
+    const receiver = await catchAlerts();
+
+    await scene.launch("Le store");
+    await scene.reaches("Le store", "merged");
+
+    // The alert is read on a phone: it carries what the forge said and not the
+    // pull request description squad had handed it, which is thousands of
+    // characters of markdown.
+    const alert = await receiver.next();
+    expect(alert.text).toContain("personal access token");
+    expect(alert.text).not.toContain("les migrations tournent");
+    expect((alert.text ?? "").length).toBeLessThan(300);
+    expect((await scene.feature()).pullRequestUrl).toBeNull();
+  });
+
   it("laisse la pull request ouverte quand la forge refuse de la fusionner seule", async () => {
     gh = await installGhStub();
     await gh.refuse("pr merge", "auto-merge is not enabled on this repository");

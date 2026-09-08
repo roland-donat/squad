@@ -97,6 +97,15 @@ export interface AskQuestionInput {
   scopeChanging: boolean;
 }
 
+/**
+ * What opening a feature takes. The recorded conversation is squad's own to
+ * pass, never the caller's: it is written when a session is attached, and the
+ * route that opens a blank feature has nothing to say about it.
+ */
+export interface OpenFeatureInput extends OpenFeatureBody {
+  resumedSessionId?: string | null;
+}
+
 /** What settling a decision records on the ticket that was waiting. */
 export interface SettleDecisionInput {
   /** The feature the ticket belongs to: a session only settles its own graph. */
@@ -385,7 +394,7 @@ export class Store {
    * cost a checkout of one repository, let alone three. Each gets one the first
    * time a ticket of that repository is launched.
    */
-  openFeature(input: OpenFeatureBody): Feature {
+  openFeature(input: OpenFeatureInput): Feature {
     const project = this.requireProject(input.projectId);
     // The home project first and once, whatever the caller named: it is what
     // the order of the rows means, and what a ticket falls back to.
@@ -399,6 +408,7 @@ export class Store {
       id: randomUUID(),
       projectId: project.id,
       title: input.title,
+      resumedSessionId: input.resumedSessionId ?? null,
       goAsRecommended: false,
       autonomyHaltReason: null,
       autonomyHaltDetail: null,
@@ -422,7 +432,7 @@ export class Store {
    */
   async carryRepositoryAt(featureId: string, path: string): Promise<Feature> {
     const root = await resolveRepositoryRoot(path);
-    const project = this.db.select().from(projects).where(eq(projects.path, root)).get();
+    const project = await this.projectAt(root);
     if (!project) {
       const driven = this.listProjects()
         .map((each) => `${each.name} (${each.path})`)
@@ -514,6 +524,29 @@ export class Store {
       throw new SquadError("project_not_found", 404, `no project with id ${projectId}`);
     }
     return project;
+  }
+
+  /**
+   * The feature whose main session is a given recorded conversation, or null
+   * when no feature has taken it. What says a conversation is already a thread.
+   */
+  featureResumedFrom(sessionId: string): Feature | null {
+    const row = this.db
+      .select({ id: features.id })
+      .from(features)
+      .where(eq(features.resumedSessionId, sessionId))
+      .get();
+    return row ? this.requireFeature(row.id) : null;
+  }
+
+  /**
+   * The project squad drives at a path, or null when it drives none there. The
+   * path is resolved to a repository root first, so a path inside a repository
+   * finds the project of that repository.
+   */
+  async projectAt(path: string): Promise<Project | null> {
+    const root = await resolveRepositoryRoot(path);
+    return this.db.select().from(projects).where(eq(projects.path, root)).get() ?? null;
   }
 
   requireFeature(featureId: string): Feature {
@@ -1528,6 +1561,7 @@ function toFeature(
     id: string;
     projectId: string;
     title: string;
+    resumedSessionId: string | null;
     goAsRecommended: boolean;
     autonomyHaltReason: AutonomyHaltReason | null;
     autonomyHaltDetail: string | null;
@@ -1541,6 +1575,7 @@ function toFeature(
     projectId: row.projectId,
     title: row.title,
     repositories,
+    resumedSessionId: row.resumedSessionId,
     goAsRecommended: row.goAsRecommended,
     autonomyHalt: toHalt(row),
     createdAt: row.createdAt,

@@ -837,3 +837,30 @@ button[disabled] {
   height: 1.1rem;
   accent-color: var(--accent);
 }
+
+/*
+ * Les conversations enregistrées, d'où une feature peut partir. Une ligne par
+ * conversation, avec ce qui permet de la reconnaître et le seul geste qu'elle
+ * offre : la rattacher.
+ */
+.panel--recorded {
+  margin: 1.5rem 0;
+}
+
+.panel--recorded .list {
+  grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr));
+}
+
+.recorded {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.recorded button {
+  justify-self: start;
+  margin-top: 0.4rem;
+}

@@ -16,6 +16,16 @@ export function resolveDataDir(): string {
   return xdg ? join(xdg, "squad") : join(homedir(), ".local", "share", "squad");
 }
 
+/**
+ * Where claude-code keeps the conversations it has recorded: one directory per
+ * project, one `.jsonl` per session inside it. Squad reads them to offer a
+ * feature that starts from work already done, and reads nothing else of them:
+ * this is another program's private storage, not a place squad writes to.
+ */
+export function resolveRecordedSessionsDir(): string {
+  return join(homedir(), ".claude", "projects");
+}
+
 /** True when `candidate` sits inside `directory`, or is that directory itself. */
 export function isInside(candidate: string, directory: string): boolean {
   const difference = relative(directory, candidate);

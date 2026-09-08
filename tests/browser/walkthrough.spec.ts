@@ -149,6 +149,16 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
     page.getByLabel(`Ici, construction, prêt, ${repositoryRoot.split("/").at(-1)}`),
   ).toBeVisible();
 
+  // The conversations claude-code has recorded, which is where a feature comes
+  // from when it comes from work already done. What is on this machine is
+  // nobody's business here: what is proven is that the panel asks squad and
+  // renders the answer, so the search is given something nothing can match.
+  const recorded = page.getByRole("region", { name: "Reprendre une session" });
+  await expect(recorded.getByLabel("Rechercher une session")).toBeVisible();
+  await recorded.getByLabel("Rechercher une session").fill("zzz-aucune-conversation-zzz");
+  await expect(recorded.getByText("Aucune conversation ne correspond.")).toBeVisible();
+  await recorded.getByLabel("Rechercher une session").fill("");
+
   // Go-as-recommandé, on the feature it drives. It is armed here on a feature
   // whose graph is empty, so squad has nothing to launch and this walk-through
   // opens no session: what is proven is the control, not the drain, which the

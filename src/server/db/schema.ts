@@ -62,6 +62,12 @@ export const features = sqliteTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
+    /**
+     * The recorded claude-code conversation this feature's main session was
+     * resumed from, or null when it was opened blank. Unique: a conversation is
+     * one thread, and two features writing into it would each hold half of it.
+     */
+    resumedSessionId: text("resumed_session_id").unique(),
     /** Whether squad drives this feature on its own. */
     goAsRecommended: integer("go_as_recommended", { mode: "boolean" })
       .notNull()

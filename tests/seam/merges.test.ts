@@ -711,6 +711,12 @@ describe("validating, merging, checking and delivering", () => {
     const alert = await receiver.next();
     expect(alert.text).toContain("https://forge.test/squad/pull/1");
     expect(alert.text).not.toMatch(/n'a pas pu partir/);
+    // Two addresses, and they say two different things: the pull request on the
+    // forge, and the feature in squad. This alert hangs on no ticket, so squad's
+    // own address names the feature and stops there.
+    const feature = await scene.feature();
+    expect(alert.text).toContain(`${squad.url}/projects/${feature.projectId}/features/${feature.id}`);
+    expect(alert.text).not.toContain("/tickets/");
   });
 
   it("sérialise les fusions d'un même projet, une seule à la fois", async () => {

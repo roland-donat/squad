@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { AutonomyHaltReason, Feature, Project } from "../shared/api";
 import { pendingActions, type PendingAction, type PendingReason } from "../shared/pending";
+import { piloting, type PilotingRoute } from "../shared/ui-routes";
 import { openFeature, registerProject, setGoAsRecommended } from "./api";
 import { FeatureGraphView } from "./graph/FeatureGraphView";
-import { navigate, piloting, useRoute, type PilotingRoute } from "./route";
+import { navigate, useRoute } from "./route";
 import { Failure, useSubmission } from "./submission";
 import { MainSessionView } from "./session/MainSessionView";
 import { RecordedSessions } from "./session/RecordedSessions";

@@ -549,12 +549,24 @@ export class Store {
     return this.db.select().from(projects).where(eq(projects.path, root)).get() ?? null;
   }
 
-  requireFeature(featureId: string): Feature {
+  /**
+   * The feature with this id, or null when squad does not have it. Read by what
+   * must not fail on a feature that is gone: an alert points at what it reports
+   * and is raised after the fact, so an address it cannot build is one it does
+   * without, never an error thrown back at a caller that has finished its work.
+   */
+  feature(featureId: string): Feature | null {
     const row = this.db.select().from(features).where(eq(features.id, featureId)).get();
-    if (!row) {
+    if (!row) return null;
+    return toFeature(row, this.readFeatureRepositories([row.id]).get(row.id) ?? []);
+  }
+
+  requireFeature(featureId: string): Feature {
+    const feature = this.feature(featureId);
+    if (!feature) {
       throw new SquadError("feature_not_found", 404, `no feature with id ${featureId}`);
     }
-    return toFeature(row, this.readFeatureRepositories([row.id]).get(row.id) ?? []);
+    return feature;
   }
 
   /**

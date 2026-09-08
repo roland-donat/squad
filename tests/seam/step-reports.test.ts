@@ -189,10 +189,15 @@ describe("ending a step, its test sheet and its alerts", () => {
     // The tool hands the ticket back, so the agent sees what will be checked.
     expect((answer as Ticket).state).toBe("awaiting-validation");
 
-    // The developer is told, wherever they are.
+    // The developer is told, wherever they are, and told where: an alert is read
+    // on a phone, and squad's own address for what it reports is what makes it
+    // worth more than a notification saying something happened.
     const alert = await receiver.next();
     expect(alert.text).toContain("Le store");
     expect(alert.text).toMatch(/fiche de tests/i);
+    expect(alert.text).toContain(
+      `${squad.url}/projects/${ticket.projectId}/features/${featureId}/tickets/${ticket.id}`,
+    );
 
     // And the ticket is listed as waiting on them, which is what the indicator reads.
     expect(pendingActions([await readGraph(featureId)], [])).toEqual([

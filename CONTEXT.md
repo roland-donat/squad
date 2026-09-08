@@ -123,7 +123,9 @@ _Éviter_ : item, case, entrée
 Ce que squad envoie au moment où la progression s'arrête : une notification sur le bureau
 de la machine, et un message vers un webhook pour joindre le développeur ailleurs. Deux
 canaux best effort, jamais bloquants : une alerte qui ne part pas ne doit rien faire
-échouer.
+échouer. Chaque alerte déclare ce dont elle parle, et porte l'adresse de squad pour cette
+feature ou ce ticket : elle se lit sur un téléphone, et son seul geste utile est d'ouvrir
+ce qu'elle rapporte.
 _Éviter_ : notification (le mot désigne un seul des deux canaux)
 
 **En attente de moi** (`PendingAction`) :

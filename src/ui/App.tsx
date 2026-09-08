@@ -299,7 +299,7 @@ function ThemeSwitch({ theme }: { theme: Theme }) {
   // What was just clicked. A ref rather than state, since the submission reads
   // it when it runs and nothing renders from it.
   const chosen = useRef<Theme>(theme);
-  const { busy, error, run } = useSubmission(() => updateSettings({ theme: chosen.current }));
+  const { error, run } = useSubmission(() => updateSettings({ theme: chosen.current }));
 
   return (
     <>
@@ -312,7 +312,6 @@ function ThemeSwitch({ theme }: { theme: Theme }) {
               name="theme"
               value={option}
               checked={option === theme}
-              disabled={busy}
               onChange={() => {
                 chosen.current = option;
                 void run();

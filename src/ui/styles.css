@@ -125,6 +125,14 @@ body {
   display: block;
   height: 2rem;
   width: auto;
+  /*
+   * Explicitly, and it matters: the file carries a `color` presentation
+   * attribute for the contexts where no stylesheet reaches it, and that
+   * attribute is a declaration on the element, so it would win over what the
+   * element inherits from `.brand`. Taking the inheritance back is what makes
+   * the mark follow the theme rather than stay on its standalone blue.
+   */
+  color: inherit;
 }
 
 .app__header p {

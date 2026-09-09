@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { themes, type AutonomyHaltReason, type Feature, type Project, type Theme } from "../shared/api";
 import { pendingActions, type PendingAction, type PendingReason } from "../shared/pending";
+import { ticketsAwaitingDeveloper } from "../shared/state-family";
 import { piloting, type PilotingRoute } from "../shared/ui-routes";
 import { openFeature, registerProject, setGoAsRecommended, updateSettings } from "./api";
 // The lockup itself, not a copy of it in JSX: one drawing serves the header, the
@@ -91,6 +92,11 @@ export function App() {
     ]),
   );
 
+  // Read once and shared: the waiting indicator lists these, and the map paints
+  // the same tickets as waiting on a person. Working the rule out twice would
+  // let the two disagree on the very thing squad wakes someone up for.
+  const waiting = pendingActions(state.graphs, state.questions);
+
   /** Opens what an entry of the indicator points at, wherever it lives. */
   function open(action: PendingAction) {
     const feature = features.find((each) => each.id === action.featureId);
@@ -134,7 +140,7 @@ export function App() {
           up with lives below, since setting it up is not piloting it. */}
       <main className="app__work" hidden={settingsOpen}>
         <WaitingPanel
-          actions={pendingActions(state.graphs, state.questions)}
+          actions={waiting}
           features={features}
           onOpen={open}
         />
@@ -146,6 +152,7 @@ export function App() {
                 de <strong>{openedFeature.title}</strong>
                 {openedFeature.repositories.length > 1 && (
                   <span className="row__meta">
+                    {" · "}
                     {openedFeature.repositories.length} dépôts :{" "}
                     {openedFeature.repositories
                       .map((carried) => repositoryNames.get(carried.projectId))
@@ -176,6 +183,7 @@ export function App() {
               <FeatureGraphView
                 graph={graph}
                 repositoryNames={repositoryNames}
+                awaitingDeveloper={ticketsAwaitingDeveloper(waiting)}
                 selectedId={openedTicket?.id ?? null}
                 onSelect={(ticketId) =>
                   navigate(

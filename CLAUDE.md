@@ -229,6 +229,8 @@ src/ui/theme.ts            # le thème sur la page, et la copie que lit le premi
 src/ui/brand/              # la marque : un seul dessin, pour l'en-tête, le favicon et le README
 src/ui/fonts/              # Open Sans sous-ensemblée, la police de la charte EdgeMind
 src/ui/graph/              # la carte : couches enveloppées, nœuds à glyphe et anneau
+src/ui/graph/viewport.ts   # le pan et le zoom de la carte, et ce qui décide du cadrage
+src/ui/Dialog.tsx          # ce qu'on fait une fois : la mise en route, hors de la coque
 src/ui/question/           # une question d'agent, ses options et sa réponse
 src/ui/settings/           # l'écran de réglages, machine et projets
 src/ui/ticket/             # le panneau d'un nœud du graphe, fiche de tests comprise

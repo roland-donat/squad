@@ -1,16 +1,17 @@
-import { useState } from "react";
+import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from "react";
 import type { FeatureGraph, Ticket, TicketKind, TicketState } from "../../shared/api";
 import { frontier } from "../../shared/graph";
 import { familyOf, type StateFamily } from "../../shared/state-family";
 import { KindGlyph, SettledGlyph } from "./glyphs";
 import { shortRepositoryLabels } from "./repositories";
-import { layOutGraph, nodeHeight, nodeWidth } from "./layout";
+import { layOutGraph, nodeHeight, nodeWidth, type PlacedTicket } from "./layout";
+import { useViewport } from "./viewport";
 
 /**
  * The map of a feature, read-only at the gesture: no node moves, no edge is
  * drawn by hand, and every correction goes back through the main session. It
  * answers "where are we and whose turn is it" at a glance; what a ticket says
- * is read in its panel, one click away.
+ * is read in the drawer, one click away.
  *
  * Nothing here is coded by colour alone. A kind is a filled silhouette, a state
  * family is a ring whose stroke says which one, and the exact state stays in
@@ -45,6 +46,14 @@ const familyLabels: Record<StateFamily, string> = {
   settled: "terminé",
 };
 
+/** Where each arrow key goes, as a unit vector in the map's own coordinates. */
+const directions: Record<string, [number, number]> = {
+  ArrowRight: [1, 0],
+  ArrowLeft: [-1, 0],
+  ArrowDown: [0, 1],
+  ArrowUp: [0, -1],
+};
+
 /**
  * A settled decision reaches the state `merged`, because that is what releases
  * the tickets it held back, but nothing of it was ever merged into a branch:
@@ -63,6 +72,8 @@ export function FeatureGraphView({
   awaitingDeveloper,
   selectedId,
   onSelect,
+  onDeselect,
+  obstructedRight,
 }: {
   graph: FeatureGraph;
   /**
@@ -79,33 +90,109 @@ export function FeatureGraphView({
   awaitingDeveloper: ReadonlySet<string>;
   selectedId: string | null;
   onSelect: (ticketId: string) => void;
+  /** Clears the selection: a press on the background that went nowhere. */
+  onDeselect: () => void;
+  /** How much of the map's right edge the drawer covers, in screen pixels. */
+  obstructedRight: number;
 }) {
+  const layout = layOutGraph(graph);
+  const { viewport, frame, fit, zoomBy, bringIntoView, onPointerDown, onPointerMove, endDrag } =
+    useViewport({
+      contentWidth: layout.width,
+      contentHeight: layout.height,
+      resetKey: graph.featureId,
+      obstructedRight,
+    });
+
   // What the reader is pointing at, which is what its arrows are shown for. The
   // selection stands in when nothing is pointed at, so a ticket opened from the
   // waiting indicator arrives with its own edges already told apart.
   const [pointed, setPointed] = useState<string | null>(null);
+  // The map is one tab stop, not one per node: twenty-seven of them stand
+  // between the keyboard and the drawer, and that number grows with the work.
+  // Inside it, the arrows walk from node to node.
+  const [walkedTo, setWalkedTo] = useState<string | null>(null);
+  const elements = useRef(new Map<string, HTMLButtonElement>());
 
-  if (graph.tickets.length === 0) {
-    return (
-      <p className="empty">
-        Aucun ticket. Le graphe naît quand la session principale écrit le découpage.
-      </p>
-    );
-  }
+  const first = layout.nodes[0]?.ticket.id ?? null;
+  const tabStop = layout.nodes.some((node) => node.ticket.id === walkedTo)
+    ? walkedTo
+    : (selectedId ?? first);
 
-  const layout = layOutGraph(graph);
+  // The drawer covers the right of the map, so it covers the node one just
+  // clicked often enough. Translated back into view, never rescaled: the zoom
+  // belongs to the reader.
+  const placedSelected = layout.nodes.find((node) => node.ticket.id === selectedId);
+  const selectedX = placedSelected?.x ?? null;
+  const selectedY = placedSelected?.y ?? null;
+  useEffect(() => {
+    if (selectedX === null || selectedY === null) return;
+    bringIntoView({ x: selectedX, y: selectedY, width: nodeWidth, height: nodeHeight });
+  }, [bringIntoView, selectedX, selectedY, obstructedRight]);
+
+  // No early return before the viewport is rendered, and this is not a detail:
+  // a feature is opened before its graph is written, so leaving the element out
+  // while there is nothing to draw would attach neither the framing nor the
+  // wheel, and neither would ever be attached afterwards.
+  const written = graph.tickets.length > 0;
   const readyCount = frontier(graph).length;
   const shortNames = shortRepositoryLabels(repositoryNames);
   const focused = pointed ?? selectedId;
 
+  function onKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key === "+" || event.key === "=") {
+      event.preventDefault();
+      zoomBy(1.25);
+      return;
+    }
+    if (event.key === "-") {
+      event.preventDefault();
+      zoomBy(1 / 1.25);
+      return;
+    }
+    if (event.key === "0") {
+      event.preventDefault();
+      fit();
+      return;
+    }
+    const direction = directions[event.key];
+    if (!direction) return;
+    event.preventDefault();
+    const from = layout.nodes.find((node) => node.ticket.id === tabStop) ?? layout.nodes[0];
+    if (!from) return;
+    const next = nearest(layout.nodes, from, direction);
+    if (!next) return;
+    setWalkedTo(next.ticket.id);
+    bringIntoView({ x: next.x, y: next.y, width: nodeWidth, height: nodeHeight });
+    elements.current.get(next.ticket.id)?.focus();
+  }
+
   return (
     <>
-      <Legend readyCount={readyCount} />
-      <div className="graph__viewport">
+      {written && <Legend readyCount={readyCount} onRecentre={fit} />}
+      <div
+        className="graph__viewport"
+        ref={viewport}
+        tabIndex={-1}
+        onKeyDown={onKeyDown}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={(event) => endDrag(event, onDeselect)}
+        onPointerCancel={(event) => endDrag(event, () => {})}
+      >
+        {!written && (
+          <p className="empty empty--map">
+            Aucun ticket. Le graphe naît quand la session principale écrit le découpage.
+          </p>
+        )}
         <div
           className="graph"
           data-focused={focused === null ? undefined : "true"}
-          style={{ width: layout.width, height: layout.height }}
+          style={{
+            width: layout.width,
+            height: layout.height,
+            transform: `translate(${frame.x}px, ${frame.y}px) scale(${frame.scale})`,
+          }}
         >
           <svg
             className="graph__edges"
@@ -152,11 +239,16 @@ export function FeatureGraphView({
                 key={ticket.id}
                 type="button"
                 className="node"
+                ref={(element) => {
+                  if (element) elements.current.set(ticket.id, element);
+                  else elements.current.delete(ticket.id);
+                }}
                 data-kind={ticket.kind}
                 data-family={family}
                 data-state={ticket.state}
                 data-selected={ticket.id === selectedId ? "true" : undefined}
                 aria-current={ticket.id === selectedId}
+                tabIndex={ticket.id === tabStop ? 0 : -1}
                 style={{ left: x, top: y, width: nodeWidth, height: nodeHeight }}
                 // The node shows about forty characters of a title that runs to
                 // eighty-three in the median, so the whole of it has to be
@@ -181,7 +273,10 @@ export function FeatureGraphView({
                 onClick={() => onSelect(ticket.id)}
                 onPointerEnter={() => setPointed(ticket.id)}
                 onPointerLeave={() => setPointed((current) => (current === ticket.id ? null : current))}
-                onFocus={() => setPointed(ticket.id)}
+                onFocus={() => {
+                  setPointed(ticket.id);
+                  setWalkedTo(ticket.id);
+                }}
                 onBlur={() => setPointed((current) => (current === ticket.id ? null : current))}
               >
                 <KindGlyph kind={ticket.kind} />
@@ -207,7 +302,7 @@ export function FeatureGraphView({
  * screen of squad one reads without clicking, and a map whose symbols are a
  * gesture away is a map nobody learns.
  */
-function Legend({ readyCount }: { readyCount: number }) {
+function Legend({ readyCount, onRecentre }: { readyCount: number; onRecentre: () => void }) {
   return (
     <p className="graph__legend">
       <span className="graph__legend-item">flèche : « doit être fusionné avant »</span>
@@ -225,9 +320,40 @@ function Legend({ readyCount }: { readyCount: number }) {
       ))}
       <span className="graph__legend-item graph__legend-item--count">
         <strong>{readyCount}</strong> {readyCount > 1 ? "prêts à partir" : "prêt à partir"}
+        <button type="button" className="link" onClick={onRecentre} title="touche 0">
+          recadrer
+        </button>
       </span>
     </p>
   );
+}
+
+/**
+ * The node an arrow key walks to: the closest one lying in that direction,
+ * counting what it is off to the side twice, so a step right stays a step right
+ * rather than sliding down the block.
+ */
+function nearest(
+  all: PlacedTicket[],
+  from: PlacedTicket,
+  [dx, dy]: [number, number],
+): PlacedTicket | null {
+  let best: PlacedTicket | null = null;
+  let score = Infinity;
+  for (const node of all) {
+    if (node === from) continue;
+    const alongX = node.x - from.x;
+    const alongY = node.y - from.y;
+    const along = alongX * dx + alongY * dy;
+    if (along <= 0) continue;
+    const across = Math.abs(alongX * dy - alongY * dx);
+    const candidate = along + across * 2;
+    if (candidate < score) {
+      score = candidate;
+      best = node;
+    }
+  }
+  return best;
 }
 
 /**

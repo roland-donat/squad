@@ -89,17 +89,21 @@ body {
   font-family: "Open Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 15px;
   line-height: 1.5;
+  overflow: hidden;
 }
 
 /*
- * As wide as the screen allows, up to a limit. The graph is what gains from
- * room, and nothing here is a column of prose read end to end; past this width
- * the little text there is becomes a line nobody can follow back.
+ * A shell, not a document. Full height, and nothing scrolls but the panels
+ * themselves: that is what a control room is, and it is also what frees the
+ * wheel for the map, since there is nothing behind it left to scroll. No
+ * maximum width either, the map taking whatever the screen gives.
  */
 .app {
-  max-width: 1800px;
-  margin: 0 auto;
-  padding: 2.5rem 1.5rem 4rem;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 1.25rem;
+  padding: 1.25rem 1.5rem 1.5rem;
 }
 
 .app__header {
@@ -107,7 +111,6 @@ body {
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
-  margin-bottom: 2rem;
 }
 
 /*
@@ -218,51 +221,160 @@ body {
 }
 
 /*
- * The work, in one row: what waits on me, the graph it waits in, and the thread
- * it is settled in. The indicator is narrow and first because it is read at a
- * glance; the graph takes what is left because it is what one looks at.
+ * The work, in one row filling the shell: what waits on me down the left, the
+ * map it waits in taking everything else, and the drawer laid over the map's
+ * right edge for the one thing being read. The drawer overlays rather than
+ * takes a column of its own, so opening a ticket never resizes the viewport,
+ * and the framing one has just made stays valid.
  */
 .app__work {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 16rem) minmax(0, 3fr) minmax(0, 2fr);
-  gap: 1.5rem;
-  align-items: start;
+  grid-template-columns: minmax(0, 18rem) minmax(0, 1fr);
+  gap: 1.25rem;
+  min-height: 0;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* What squad is set up with: three doors to three dialogs, and nothing else. */
+.rail__setup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding: 0 0.25rem 0.5rem;
+}
+
+/* A screen of its own, settings for now: it scrolls in its own right. */
+.app__screen {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.panel--graph {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* What the map is of, and what drives it, on one line above it. */
+.graph__header,
+.panel--graph .graph__legend {
+  padding-right: var(--obstructed, 0px);
+}
+
+.graph__header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.graph__header h2,
+.graph__header .panel__context {
+  margin: 0;
 }
 
 /*
- * What squad is set up with, under the work: it is opened once. Fitted rather
- * than counted, so a panel keeps a width it can hold its rows in whatever the
- * screen leaves for it.
+ * The drawer: the ticket being read, or the thread of the main session when no
+ * ticket is open. Folded away when the whole chantier is what one wants to
+ * look at, which is the only thing a permanent panel over a map gets wrong.
  */
-.app__setup {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
-  gap: 1.5rem;
-  margin-top: 1.5rem;
-  align-items: start;
+.drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+  z-index: 2;
+  pointer-events: none;
 }
 
-@media (max-width: 1400px) {
-  /* The thread goes under the graph before either of them becomes unreadable. */
-  .app__work {
-    grid-template-columns: minmax(0, 16rem) minmax(0, 1fr);
-  }
+.drawer > * {
+  pointer-events: auto;
+}
 
-  .app__work .panel--session,
-  .app__work .panel--ticket {
-    grid-column: 2;
+.drawer__handle {
+  align-self: flex-end;
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.drawer .panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  box-shadow: 0 12px 40px light-dark(rgb(15 20 32 / 0.16), rgb(0 0 0 / 0.55));
+}
+
+@media (max-width: 1280px) {
+  .app__work {
+    grid-template-columns: minmax(0, 14rem) minmax(0, 1fr);
   }
 }
 
-@media (max-width: 1020px) {
-  .app__work {
-    grid-template-columns: minmax(0, 1fr);
-  }
+/*
+ * Setting squad up, in a native dialog: the modal state, the focus trap, the
+ * backdrop and Escape all come from the browser, and those are exactly what a
+ * hand-built dialog gets wrong.
+ */
+.dialog {
+  width: min(44rem, calc(100vw - 3rem));
+  max-height: calc(100dvh - 4rem);
+  padding: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  overflow-y: auto;
+}
 
-  .app__work .panel--session,
-  .app__work .panel--ticket {
-    grid-column: auto;
-  }
+.dialog::backdrop {
+  background: light-dark(rgb(15 20 32 / 0.4), rgb(0 0 0 / 0.6));
+}
+
+.dialog__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.dialog__header h2 {
+  margin: 0;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+/* A panel opened inside a dialog is already framed by it. */
+.dialog .panel {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.dialog .form {
+  margin-bottom: 0;
 }
 
 .panel {
@@ -423,6 +535,7 @@ button[disabled] {
 
 .graph__legend-item--count {
   margin-left: auto;
+  gap: 0.6rem;
   color: var(--ink);
 }
 
@@ -461,13 +574,43 @@ button[disabled] {
 }
 
 .graph__viewport {
-  overflow: auto;
-  padding: 0.5rem;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  /* The gestures are ours: no browser panning, no text selected by a drag. */
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+
+.graph__viewport:active {
+  cursor: grabbing;
+}
+
+.graph__viewport:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Nothing written yet: said inside the map rather than in place of it. */
+.empty--map {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  padding: 1.5rem;
 }
 
 .graph {
-  position: relative;
-  margin: 0 auto;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
 .graph__edges {

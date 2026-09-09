@@ -1476,6 +1476,48 @@ export class Store {
     return this.requireTicket(ticketId);
   }
 
+  /**
+   * Drops a ticket that will not be built, with the reason on its thread.
+   *
+   * The graph needs this because an agent that finds a node dead has nowhere to
+   * say so: it can write a ticket and settle a decision, and for "this one is a
+   * duplicate", "its branch is empty", "another ticket supersedes it" it had
+   * only the test sheet, which is to say the developer. Measured on a real run:
+   * 12 of 46 points waiting on a person were requests of exactly that kind.
+   *
+   * A dropped ticket holds nothing back, like a merged one: what waited on it
+   * goes on, since a dead node keeping its successors blocked stops the graph
+   * for a reason nobody can act on. It is read as `discarded` and never as
+   * merged, nothing of it having been built.
+   *
+   * Refused on a ticket squad is working on: what runs is stopped first, by
+   * whoever is driving it, so that a worktree is never dropped from under a
+   * session that is writing in it.
+   */
+  discardTicket(featureId: string, ticketId: string, reason: string): Ticket {
+    const ticket = this.requireTicketIn(featureId, ticketId);
+    if (ticket.state === "running" || ticket.state === "merging") {
+      throw new SquadError(
+        "ticket_not_discardable",
+        409,
+        `ticket "${ticket.title}" is ${ticket.state}: stop what squad is doing on it before dropping it`,
+      );
+    }
+    if (ticket.state === "merged" || ticket.state === "discarded") {
+      throw new SquadError(
+        "ticket_not_discardable",
+        409,
+        `ticket "${ticket.title}" is already ${ticket.state}`,
+      );
+    }
+    this.db
+      .update(tickets)
+      .set({ lifecycle: "discarded", conclusion: reason, queuedAt: null })
+      .where(eq(tickets.id, ticket.id))
+      .run();
+    return this.requireTicket(ticket.id);
+  }
+
   reviewTestSheet(input: ReviewTestSheetInput): Ticket {
     const ticket = this.requireTicket(input.ticketId);
     const report = ticket.stepReport;

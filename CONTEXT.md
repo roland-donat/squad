@@ -126,6 +126,16 @@ développeur ne distingue pas une vérification d'une affirmation, et refaire le
 est son seul recours.
 _Éviter_ : couverture (le mot ne nomme que le premier des trois)
 
+**Ticket écarté** (`discarded`) :
+Un ticket qui ne sera pas construit : un doublon, un dont la branche est restée vide, un
+qu'un autre remplace. Il porte sa raison, et **il ne retient plus rien** : ce qu'il
+bloquait repart, un noeud mort qui garde ses successeurs en attente arrêtant le graphe
+pour un motif sur lequel personne ne peut agir. Il se lit `écarté` et jamais `fusionné`,
+rien n'en ayant été construit. Un agent l'écarte lui-même : mesuré sur une exécution
+réelle, 12 des 46 points qui attendaient une personne étaient des demandes de ce genre,
+faute d'un geste pour les faire.
+_Éviter_ : annulé, supprimé, fermé, abandonné
+
 **Fiche de tests** (`TestSheet`) :
 La liste des points qu'un humain doit juger en fin d'étape : les critères d'acceptation
 déclarés `judgement`, augmentés des suggestions libres de l'agent. Ce qu'une commande, un

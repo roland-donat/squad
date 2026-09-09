@@ -73,6 +73,8 @@ const wording: Record<ErrorCode, string> = {
   main_session_not_running: "La session principale de cette feature ne tourne pas.",
   ticket_not_a_decision: "Seul un ticket de décision se tranche de cette façon.",
   decision_already_settled: "Cette décision a déjà été tranchée.",
+  ticket_not_discardable:
+    "Ce ticket ne peut pas être écarté : squad travaille dessus, ou il est déjà clos.",
   ticket_not_launchable:
     "Ce ticket ne peut pas partir : une décision se tranche, et un ticket bloqué attend la fusion de ses bloqueurs.",
   sub_session_already_running: "La sous-session de ce ticket tourne déjà.",

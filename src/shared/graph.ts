@@ -24,6 +24,7 @@ export const ticketLifecycles = [
   "conflict",
   "merged",
   "settled",
+  "discarded",
 ] as const;
 export type TicketLifecycle = (typeof ticketLifecycles)[number];
 
@@ -63,7 +64,17 @@ export function isResumable(state: TicketState | TicketLifecycle): boolean {
  * `settled` and the state it is read as stays `merged`.
  */
 export function holdsNothingBack(lifecycle: TicketLifecycle): boolean {
-  return lifecycle === "merged" || lifecycle === "settled";
+  return lifecycle === "merged" || lifecycle === "settled" || lifecycle === "discarded";
+}
+
+/**
+ * Whether a ticket was dropped rather than done. It holds nothing back, like a
+ * merged one, because a graph where a dead node keeps its successors waiting is
+ * a graph that stops for a reason nobody can act on. What differs is what it is
+ * read as: `discarded`, never `merged`, since nothing of it was ever built.
+ */
+export function wasDiscarded(lifecycle: TicketLifecycle): boolean {
+  return lifecycle === "discarded";
 }
 
 /** An edge stripped of the feature it belongs to: both ends and nothing else. */
@@ -181,6 +192,7 @@ export function resolveTicketState(
   cleared: ReadonlySet<string>,
 ): TicketState {
   const { kind, lifecycle, queuedAt } = record;
+  if (wasDiscarded(lifecycle)) return "discarded";
   if (holdsNothingBack(lifecycle)) return "merged";
   // What squad is doing right now outranks everything else. A ticket only ever
   // ran because its blockers were merged, so the two never disagree; and

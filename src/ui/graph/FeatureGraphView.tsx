@@ -38,6 +38,7 @@ const stateLabels: Record<TicketState, string> = {
   conflict: "en conflit",
   "awaiting-decision": "à trancher",
   merged: "fusionné",
+  discarded: "écarté",
 };
 
 const familyLabels: Record<StateFamily, string> = {

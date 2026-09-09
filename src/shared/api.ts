@@ -27,6 +27,7 @@ export const errorCodes = [
   "ticket_not_a_decision",
   "decision_already_settled",
   "ticket_not_launchable",
+  "ticket_not_discardable",
   "sub_session_already_running",
   "launch_already_requested",
   "no_step_in_progress",
@@ -221,6 +222,7 @@ export const ticketStates = [
   "conflict",
   "awaiting-decision",
   "merged",
+  "discarded",
 ] as const;
 export type TicketState = (typeof ticketStates)[number];
 

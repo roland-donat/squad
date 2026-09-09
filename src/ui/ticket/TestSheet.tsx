@@ -5,7 +5,7 @@ import type {
   StepReport,
   TestSheetPoint,
 } from "../../shared/api";
-import { ApiError, reviewTestSheet } from "../api";
+import { ApiError, reviewTestSheet, settleTestSheet } from "../api";
 
 /**
  * The test sheet of a reported step: what the agent built, what a test covers,
@@ -53,7 +53,10 @@ export function TestSheet({ ticketId, report }: { ticketId: string; report: Step
       ) : waiting.length === 0 ? (
         <ReviewedSheet report={report} />
       ) : report.reviewedAt === null ? (
-        <SheetForm ticketId={ticketId} points={waiting} notes={notesByCriterion(report)} />
+        <>
+          <SettleFirst ticketId={ticketId} points={waiting} />
+          <SheetForm ticketId={ticketId} points={waiting} notes={notesByCriterion(report)} />
+        </>
       ) : (
         <ReviewedSheet report={report} />
       )}
@@ -117,6 +120,45 @@ function notesByCriterion(report: StepReport): Record<string, string> {
     if (entry.verdict === "judgement" && entry.note !== null) notes[entry.criterionId] = entry.note;
   }
   return notes;
+}
+
+/**
+ * Hands the sheet back to squad before going through it. A pass runs on its own
+ * after every report, so this is for a sheet reported before there was one, or
+ * for a second look at points the first pass handed over.
+ */
+function SettleFirst({ ticketId, points }: { ticketId: string; points: TestSheetPoint[] }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const untouched = points.filter((point) => point.settlement === null).length;
+  if (untouched === 0) return null;
+  return (
+    <p className="sheet__settle">
+      <button
+        type="button"
+        className="link"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setError(null);
+          try {
+            await settleTestSheet(ticketId);
+          } catch (failure) {
+            setError(failure instanceof ApiError ? failure.message : "Le serveur est injoignable.");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? "squad s'en charge…" : `Faire dépouiller ces ${untouched} point(s) par squad`}
+      </button>
+      {error && (
+        <span className="error" role="alert">
+          {error}
+        </span>
+      )}
+    </p>
+  );
 }
 
 /** What the developer fills in, one point at a time, then hands back in one go. */

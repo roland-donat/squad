@@ -820,6 +820,16 @@ button[disabled] {
   margin-bottom: 0.5rem;
 }
 
+/* Offered above the form, so handing the sheet back reads as the first move. */
+.sheet__settle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: baseline;
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+}
+
 .sheet__point {
   display: grid;
   gap: 0.4rem;

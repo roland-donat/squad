@@ -135,6 +135,7 @@ export async function startSquadServer(
       questions,
       autonomy,
       resumptions,
+      settlements,
     }),
   );
   const ui = await mountUi(app, options.ui ?? "auto");

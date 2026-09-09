@@ -22,6 +22,7 @@ import type { EventBus } from "./events";
 import { buildMcpHandler } from "./mcp";
 import type { Questions } from "./questions";
 import type { Resumptions } from "./resumptions";
+import type { Settlements } from "./settlements";
 import type { MainSessions } from "./sessions";
 import type { Store } from "./store";
 import type { Merges } from "./merges";
@@ -38,6 +39,7 @@ export interface HttpDependencies {
   questions: Questions;
   autonomy: Autonomy;
   resumptions: Resumptions;
+  settlements: Settlements;
 }
 
 /**
@@ -55,6 +57,7 @@ export function buildApiRouter({
   questions,
   autonomy,
   resumptions,
+  settlements,
 }: HttpDependencies): express.Router {
   const router = express.Router();
   router.use(express.json());
@@ -156,6 +159,13 @@ export function buildApiRouter({
     // reading the answer would otherwise see the state it had a moment before.
     await validations.afterReview(reviewed);
     response.json({ ticket: store.requireTicket(reviewed.id) });
+  });
+
+  router.post(`${apiRoutes.tickets}/:ticketId/settlement`, async (request, response) => {
+    // The pass runs behind the answer, like a sub-session launch does: what
+    // comes back says it was opened, not what it found.
+    const ticket = await settlements.settleOnDemand(request.params.ticketId);
+    response.json({ ticket });
   });
 
   router.post(`${apiRoutes.questions}/:questionId/answer`, (request, response) => {

@@ -137,6 +137,10 @@ issue porte obligatoirement la note de ce qui a été lancé, ou de pourquoi rie
 l'être. **Le repli va vers l'humain** : une passe qui échoue, qui se termine sans rien
 déclarer ou que squad n'a pas pu ouvrir laisse la fiche exactement telle que la
 sous-session l'a écrite.
+La passe part d'elle-même après chaque rapport de fin d'étape, et se demande aussi à la
+main sur une fiche déjà en attente : pour celles rapportées avant qu'elle existe, et pour
+un second regard sur ce qu'un premier passage a rendu. Demandée, elle ignore la borne de
+deux tours, qui n'est là que pour empêcher squad de se contredire tout seul.
 _Éviter_ : relecture, revue, contrôle qualité, filtre
 
 **Point de vérification** (`TestSheetPoint`) :

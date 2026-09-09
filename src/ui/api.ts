@@ -7,6 +7,7 @@ import {
   projectRoute,
   questionAnswerRoute,
   ticketSessionRoute,
+  ticketSettlementRoute,
   ticketTestSheetRoute,
   type AnswerQuestionBody,
   type ApiErrorBody,
@@ -147,6 +148,15 @@ export async function reviewTestSheet(
   body: ReviewTestSheetBody,
 ): Promise<void> {
   await send(ticketTestSheetRoute(ticketId), body);
+}
+
+/**
+ * Asks squad to go through a waiting sheet before the developer does. Nothing
+ * comes back: the pass runs behind the answer and what it settles arrives on the
+ * event stream, like every other state change.
+ */
+export async function settleTestSheet(ticketId: string): Promise<void> {
+  await send(ticketSettlementRoute(ticketId), {});
 }
 
 /**

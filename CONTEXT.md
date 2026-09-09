@@ -132,7 +132,12 @@ session ouverte pour ce seul travail, dans le worktree du ticket, qui lance ce q
 à un point et ne rend que ce qu'aucune commande ne tranche. Elle ne modifie rien, ne
 commite pas et ne fusionne pas ; ce qu'elle trouve cassé repart à la sous-session qui l'a
 construit. Trois issues par point : `holds`, le point tient, `broken`, il ne tient pas,
-`human`, seul un humain peut le dire, et seule la dernière arrive au développeur. Chaque
+`human`, seul un humain peut le dire, et seule la dernière arrive au développeur. **Ce
+qui est cassé repart avant que qui que ce soit ne soit réveillé**, même s'il reste du
+jugement sur la fiche : un critère qu'une commande dément est du travail non fait, et la
+formulation d'un écran qu'on va réécrire ne vaut pas une lecture. La correction rapporte
+une étape à elle, cette étape a sa fiche, et le développeur ne juge qu'une fois, sur du
+travail stabilisé. Chaque
 issue porte obligatoirement la note de ce qui a été lancé, ou de pourquoi rien ne peut
 l'être. **Le repli va vers l'humain** : une passe qui échoue, qui se termine sans rien
 déclarer ou que squad n'a pas pu ouvrir laisse la fiche exactement telle que la

@@ -136,10 +136,13 @@ critères retouchés après coup ne doivent pas changer ce qui a été mis sous 
 développeur. Une fiche non validée interdit la fusion.
 _Éviter_ : checklist, plan de test, recette, QA
 
-**Dépouillement** (`Settlement`) :
-La passe que squad fait sur une fiche de tests avant de réveiller qui que ce soit : une
-session ouverte pour ce seul travail, dans le worktree du ticket, qui lance ce qui répond
-à un point et ne rend que ce qu'aucune commande ne tranche. Elle ne modifie rien, ne
+**Vérification préalable** (`Settlement`) :
+Ce que squad lance lui-même sur une fiche de tests avant de réveiller qui que ce soit :
+une session ouverte pour ce seul travail, dans le worktree du ticket, qui lance ce qui
+répond à un point et ne rend que ce qu'aucune commande ne tranche. Nommée par ce qu'elle
+fait plutôt que par le geste de la faire, parce que le mot apparaît à l'écran : le
+propriétaire du domaine a demandé ce que « dépouiller » voulait dire, et un terme qu'il
+faut définir a manqué son office. Elle ne modifie rien, ne
 commite pas et ne fusionne pas ; ce qu'elle trouve cassé repart à la sous-session qui l'a
 construit. Quatre issues par point : `holds`, le point tient, `broken`, il ne tient pas, `human`,
 seul un humain peut l'**observer**, et `decision`, rien n'est cassé mais une voie est à
@@ -165,15 +168,16 @@ La passe part d'elle-même après chaque rapport de fin d'étape, et se demande 
 main sur une fiche déjà en attente : pour celles rapportées avant qu'elle existe, et pour
 un second regard sur ce qu'un premier passage a rendu. Demandée, elle ignore la borne de
 deux tours, qui n'est là que pour empêcher squad de se contredire tout seul.
-_Éviter_ : relecture, revue, contrôle qualité, filtre
+_Éviter_ : dépouillement, relecture, revue, contrôle qualité, filtre
 
 **Point de vérification** (`TestSheetPoint`) :
 Une ligne de la fiche. Elle vient soit d'un critère d'acceptation que seul un humain peut
 trancher, et elle le nomme, soit d'une suggestion libre de l'agent, et elle n'en nomme
 aucun : un champ déclaré les distingue, jamais leur formulation. Cochée, elle est
 vérifiée ; laissée décochée avec un commentaire, c'est ce commentaire qui repart dans la
-sous-session. Le dépouillement écrit sur elle avant le développeur, dans un champ à part :
-le verdict reste le mot du développeur, l'issue du dépouillement est celui de squad, et
+sous-session. La vérification préalable écrit sur elle avant le développeur, dans un champ
+à part : le verdict reste le mot du développeur, l'issue de la vérification est celui de
+squad, et
 lire les deux dit qui a conclu quoi. Un point qu'une passe a réglé n'est plus demandé au
 développeur, sa preuve est lue à la place.
 _Éviter_ : item, case, entrée
@@ -252,7 +256,7 @@ _Éviter_ : question importante, question bloquante, question critique
 **Plafond de concurrence** (`concurrencyCap`) :
 Le nombre maximal de sessions simultanées, **sous-sessions et sessions de service
 confondues** : la machine ne fait pas la différence entre une session qui construit et
-une session qui dépouille, elles coûtent le même processus et la même suite de tests.
+une session qui vérifie, elles coûtent le même processus et la même suite de tests.
 La **session principale** d'une feature n'en est pas : c'est une conversation qu'on
 ouvre soi-même, inactive l'essentiel du temps, et la compter reviendrait à refuser la
 discussion qu'on cherche à avoir. Déclaré à l'échelle de la machine dans les réglages,
@@ -268,13 +272,13 @@ ordonnance, jamais un agent. Il décide pour les trois sortes de session, et c'e
 tout l'intérêt : deux ordonnanceurs appliqueraient chacun le plafond de leur côté, et
 le total le dépasserait. L'ordre est celui-ci : une résolution de conflit d'abord,
 parce qu'elle retient la chaîne de fusion sérialisée de tout un projet ; un
-dépouillement ensuite, son travail étant fait et une personne attendant derrière ; puis
+vérification préalable ensuite, son travail étant fait et une personne attendant derrière ; puis
 une reprise, le travail étant déjà sur sa branche ; puis un premier lancement. À
 égalité, ce qui attend depuis le plus longtemps part le premier.
 
 **Session de service** (`ServiceSession`) :
 Une session que squad ouvre pour lui-même sur un ticket qu'il ne construit pas : un
-**dépouillement**, ou une **session de résolution**. Nommées ensemble parce qu'elles
+**vérification préalable**, ou une **session de résolution**. Nommées ensemble parce qu'elles
 sont comptées ensemble, dans le même plafond que les sous-sessions. Ce qui est demandé
 et attend une place s'écrit sur le ticket, jamais en mémoire : trois compteurs en
 mémoire sont précisément ce qui a laissé ces sessions passer à travers tous les

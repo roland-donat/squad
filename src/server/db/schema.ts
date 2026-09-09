@@ -337,6 +337,9 @@ export const testSheetPoints = sqliteTable(
     settlement: text("settlement", { enum: settlementOutcomes }),
     /** What it ran and what that answered, or why nothing can answer. */
     settlementNote: text("settlement_note"),
+    /** On a `decision`, the road the pass recommends, and whether it changes scope. */
+    settlementRecommendation: text("settlement_recommendation"),
+    settlementScopeChanging: integer("settlement_scope_changing", { mode: "boolean" }),
   },
   (table) => [
     index("test_sheet_points_report_idx").on(table.reportId),

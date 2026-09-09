@@ -9,6 +9,7 @@ import type {
 import {
   apiRoutes,
   featureGraphRoute,
+  featureRoute,
   mainSessionRoute,
   ticketSessionRoute,
   ticketSettlementRoute,
@@ -78,6 +79,8 @@ describe("the settling pass, between a test sheet and the developer", () => {
     suggestions?: string[];
     /** What the pass answers, by position in the sheet. Absent means it says nothing. */
     settle?: (points: string[], agent: ScriptedAgent) => Promise<void>;
+    /** Whether the feature runs in go-as-recommended. */
+    driven?: boolean;
   }): Promise<{
     featureId: string;
     stream: EventStream;
@@ -133,6 +136,10 @@ describe("the settling pass, between a test sheet and the developer", () => {
       }),
     });
     const { feature } = await openTestFeature(squad, "Le noyau");
+    if (options.driven === true) {
+      const armed = await squad.request("PUT", featureRoute(feature.id), { goAsRecommended: true });
+      expect(armed.status).toBe(200);
+    }
     const stream = await squad.openEventStream();
     expect((await stream.next()).type).toBe("snapshot");
     await squad.request("POST", mainSessionRoute(feature.id), { prompt: "/to-tickets" });
@@ -342,6 +349,71 @@ describe("the settling pass, between a test sheet and the developer", () => {
     });
     expect(answered.status).toBe(200);
     await waitForState(stream, featureId, ticket.id, "merged");
+  });
+
+  it("prend l'arbitrage recommandé sous go-as-recommandé, et ne réveille personne", async () => {
+    const { featureId, stream, ticket, settled } = await start({
+      driven: true,
+      coverage: [{ verdict: "automated" }, { verdict: "automated" }],
+      suggestions: ["L'orthographe de la clé exposée, `kind` ou `type`"],
+      settle: async (points, agent) => {
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: points.map((pointId) => ({
+            pointId,
+            outcome: "decision",
+            note: "Rien n'est cassé : deux orthographes tiennent, il faut en choisir une.",
+            recommendation: "Garder `kind`, aligné sur le reste du document.",
+            scopeChanging: false,
+          })),
+        });
+      },
+    });
+    const receiver = await catchAlerts();
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    await settled;
+    // Un arbitrage n'est pas une vérification : le mode le tranche comme il
+    // répond à une question, et le ticket poursuit sans réveiller personne.
+    const merged = await waitForState(stream, featureId, ticket.id, "merged");
+    expect(reportOf(merged).sheet[0]?.settlement?.outcome).toBe("decision");
+    expect(reportOf(merged).sheet[0]?.settlement?.note).toContain("go-as-recommandé");
+    expect(receiver.received()).toEqual([]);
+  });
+
+  it("laisse un arbitrage de périmètre au développeur, et le ticket attend une décision", async () => {
+    const { featureId, stream, ticket, settled } = await start({
+      driven: true,
+      coverage: [{ verdict: "automated" }, { verdict: "automated" }],
+      suggestions: ["L'orthographe de la clé exposée, `kind` ou `type`"],
+      settle: async (points, agent) => {
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: points.map((pointId) => ({
+            pointId,
+            outcome: "decision",
+            note: "Deux voies, et celle que je recommande élargit ce que le ticket livre.",
+            recommendation: "Traiter aussi le troisième sac d'overrides.",
+            scopeChanging: true,
+          })),
+        });
+      },
+    });
+    const receiver = await catchAlerts();
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    await settled;
+    // Ce qui change ce qui est construit ne se décide jamais sans le
+    // développeur, et le ticket le dit : il attend une décision, pas une
+    // validation.
+    const waiting = await waitForState(stream, featureId, ticket.id, "awaiting-decision");
+    expect(reportOf(waiting).sheet.every((point) => point.verdict === "pending")).toBe(true);
+    expect(pendingActions([await readGraph(featureId)], []).map((action) => action.reason)).toEqual([
+      "decision",
+    ]);
+    expect((await receiver.next()).text).toBeTruthy();
   });
 
   it("laisse la fiche intacte quand la passe ne déclare rien", async () => {

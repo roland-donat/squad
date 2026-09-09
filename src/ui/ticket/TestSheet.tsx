@@ -106,7 +106,8 @@ function Note({ entry }: { entry: CriterionCoverage | TestSheetPoint }) {
 const settlementLabels: Record<SettlementOutcome, string> = {
   holds: "tient",
   broken: "ne tient pas",
-  human: "pour vous",
+  human: "à voir",
+  decision: "à trancher",
 };
 
 /**

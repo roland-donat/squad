@@ -3,6 +3,7 @@ import type {
   Feature,
   FeatureGraph,
   Question,
+  TestSheetPoint,
   Ticket,
 } from "../shared/api";
 import { frontier } from "../shared/graph";
@@ -88,6 +89,26 @@ export class Autonomy {
    * is where the mode stops, whatever it recommends: the perimeter is the one
    * thing squad never settles on its own.
    */
+  /**
+   * What the mode does with an arbitration the settling pass raised on a test
+   * sheet. The same rule as a question, on the same grounds: an arbitration
+   * that does not change what is built is taken with the recommendation, and
+   * one that does stops the mode instead of being decided for the developer.
+   *
+   * Held here rather than beside the sheet because there is one rule about what
+   * squad may decide alone, and it has to read the same wherever it applies.
+   */
+  verdictForDecision(featureId: string, point: TestSheetPoint): QuestionVerdict {
+    const settlement = point.settlement;
+    if (settlement === null || settlement.recommendation === null) return { kind: "wait" };
+    if (!this.driven(featureId)) return { kind: "wait" };
+    if (settlement.scopeChanging) {
+      this.halt(featureId, { reason: "scope-question", detail: point.text });
+      return { kind: "halt" };
+    }
+    return { kind: "answer", answer: settlement.recommendation };
+  }
+
   verdictFor(question: Question): QuestionVerdict {
     if (!this.driven(question.featureId)) return { kind: "wait" };
     if (question.scopeChanging) {

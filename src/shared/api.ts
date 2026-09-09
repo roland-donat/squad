@@ -34,6 +34,7 @@ export const errorCodes = [
   "checked_without_note",
   "sheet_not_settleable",
   "settlement_mismatch",
+  "decision_without_a_road",
   "test_sheet_not_found",
   "test_sheet_already_reviewed",
   "ticket_not_mergeable",
@@ -303,10 +304,18 @@ export interface TestSheetPoint {
  *
  * `holds` and `broken` are verdicts squad may reach on its own, and each turns
  * into the developer's own vocabulary: a point that holds is checked, a point
- * that is broken goes back to the sub-session with the evidence. `human` is the
- * pass saying it looked and could not: only that one reaches the developer.
+ * that is broken goes back to the sub-session with the evidence.
+ *
+ * The last two are what a person is for, and they are not the same thing.
+ * `human` is a **verification** nobody but a person can make: what a screen
+ * looks like, whether a wording reads well. `decision` is an **arbitration**:
+ * nothing is wrong, two roads are open and one has to be chosen. Told apart
+ * because they are not owed the same thing: a verification waits for the
+ * developer however long it takes, while an arbitration that does not change
+ * what is built is taken by squad under go-as-recommended, exactly as it
+ * answers a question an agent asks.
  */
-export const settlementOutcomes = ["holds", "broken", "human"] as const;
+export const settlementOutcomes = ["holds", "broken", "human", "decision"] as const;
 export type SettlementOutcome = (typeof settlementOutcomes)[number];
 
 export interface PointSettlement {
@@ -318,6 +327,17 @@ export interface PointSettlement {
    * doing it again.
    */
   note: string;
+  /**
+   * On a `decision`, the road the pass recommends, in its own words. It is what
+   * squad takes under go-as-recommended, and what the developer reads first
+   * otherwise. Null on every other outcome.
+   */
+  recommendation: string | null;
+  /**
+   * On a `decision`, whether choosing changes what is built rather than how.
+   * Squad never decides one of those for the developer, whatever the mode.
+   */
+  scopeChanging: boolean;
 }
 
 /**

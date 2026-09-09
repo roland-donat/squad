@@ -141,8 +141,17 @@ La passe que squad fait sur une fiche de tests avant de réveiller qui que ce so
 session ouverte pour ce seul travail, dans le worktree du ticket, qui lance ce qui répond
 à un point et ne rend que ce qu'aucune commande ne tranche. Elle ne modifie rien, ne
 commite pas et ne fusionne pas ; ce qu'elle trouve cassé repart à la sous-session qui l'a
-construit. Trois issues par point : `holds`, le point tient, `broken`, il ne tient pas,
-`human`, seul un humain peut le dire, et seule la dernière arrive au développeur. **Ce
+construit. Quatre issues par point : `holds`, le point tient, `broken`, il ne tient pas, `human`,
+seul un humain peut l'**observer**, et `decision`, rien n'est cassé mais une voie est à
+**choisir**. Les deux dernières ne sont pas dues la même chose, et c'est tout l'enjeu de
+les distinguer : une vérification attend le développeur le temps qu'il faudra, un
+arbitrage qui ne change pas ce qui est construit est pris par squad sous
+go-as-recommandé, exactement comme il répond à une question. Un arbitrage nomme
+obligatoirement la voie recommandée, sans quoi personne ne peut le prendre à la place du
+développeur. Le ticket le dit dans son état : il **attend une décision** quand il ne
+reste que des arbitrages, il **attend une validation** dès qu'il reste une observation.
+Squad tranche **avant** de publier le graphe, faute de quoi le mode s'arrêterait sur
+l'arbitrage même qu'il allait prendre. **Ce
 qui est cassé repart avant que qui que ce soit ne soit réveillé**, même s'il reste du
 jugement sur la fiche : un critère qu'une commande dément est du travail non fait, et la
 formulation d'un écran qu'on va réécrire ne vaut pas une lecture. La correction rapporte

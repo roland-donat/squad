@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Feature, Project, RecordedSession } from "../../shared/api";
 import { feature as featureRoute, home } from "../../shared/ui-routes";
 import {
@@ -11,7 +11,7 @@ import {
 import { Brand, Connection, ThemeSwitch } from "../chrome";
 import { navigate } from "../route";
 import { RecordedSessionPicker } from "../session/RecordedSessionPicker";
-import { openFeatureTab } from "../tab";
+import { reserveTab } from "../tab";
 import { Failure, useSubmission } from "../submission";
 import type { SquadState } from "../useSquadState";
 
@@ -66,18 +66,41 @@ export function NewFeatureView({ state }: { state: SquadState }) {
 
   const [defaultBranch, setDefaultBranch] = useState("");
   const [verifyCommand, setVerifyCommand] = useState("");
-  // Taken from the project as soon as one is settled on, and only then: typing
-  // into these must not be undone by a render.
+  // Taken from the project these fields are about, and emptied when there is no
+  // project yet: a repository squad has never seen must not inherit the branch
+  // and the verification command of the one that happened to be listed first.
+  // Read on change of project rather than at every render, so what is being
+  // typed is not undone underneath.
   const [readFrom, setReadFrom] = useState<string | null>(null);
-  if (settingsOf !== null && readFrom !== settingsOf.id) {
-    setReadFrom(settingsOf.id);
-    setDefaultBranch(settingsOf.defaultBranch);
-    setVerifyCommand(settingsOf.verifyCommand ?? "");
+  if (readFrom !== (settingsOf?.id ?? null)) {
+    setReadFrom(settingsOf?.id ?? null);
+    setDefaultBranch(settingsOf?.defaultBranch ?? "");
+    setVerifyCommand(settingsOf?.verifyCommand ?? "");
   }
+
+  /**
+   * The repository this screen handed squad, if it did. Held so that a second
+   * attempt after a failure further along does not register it twice: the
+   * second call would be refused as already registered, which says nothing of
+   * what actually went wrong and leaves reloading as the only way out.
+   */
+  const handed = useRef<{ path: string; project: Project } | null>(null);
 
   const others = projects.filter((project) => project.id !== settingsOf?.id);
 
   const { busy, error, submit } = useSubmission(async () => {
+    // Held open before anything is awaited, while the click that asked for it
+    // still counts: see `reserveTab`.
+    const tab = reserveTab();
+    try {
+      await open(tab);
+    } catch (failure) {
+      tab.giveUp();
+      throw failure;
+    }
+  });
+
+  async function open(tab: ReturnType<typeof reserveTab>): Promise<void> {
     const opened = origin === "recorded" ? await resumeIt() : await openIt();
     // The repository's own settings, applied once squad has a project to apply
     // them to: on the recorded path that is only true after the attachment,
@@ -88,19 +111,15 @@ export function NewFeatureView({ state }: { state: SquadState }) {
     // as asked, which is where a main session that fails to open already leaves
     // things.
     if (prompt.trim() !== "") await startMainSession(opened.feature.id, { prompt });
-    // Back to the list, and the work opened in its own tab: the gesture ends
-    // where the work starts, and the home screen stays what one comes back to.
+    // Back to the list, and the work shown in the tab held for it: the gesture
+    // ends where the work starts, and the home screen stays what one comes
+    // back to.
     navigate(home());
-    openFeatureTab(featureRoute(opened.feature.id));
-  });
+    tab.show(featureRoute(opened.feature.id));
+  }
 
   async function openIt(): Promise<{ project: Project; feature: Feature }> {
-    const project =
-      chosenProject ??
-      // A repository squad has never seen, handed over as part of the gesture
-      // that needs it: sending the developer to the settings screen in the
-      // middle of opening a feature would lose what they had already typed.
-      (await registerProject({ path: newPath }));
+    const project = chosenProject ?? (await handOver(newPath));
     const feature = await openFeature({
       projectId: project.id,
       title,
@@ -117,6 +136,19 @@ export function NewFeatureView({ state }: { state: SquadState }) {
       otherProjectIds: alsoOn,
       goAsRecommended,
     });
+  }
+
+  /**
+   * A repository squad has never seen, handed over as part of the gesture that
+   * needs it: sending the developer to the settings screen in the middle of
+   * opening a feature would lose what they had already typed. Handed over once,
+   * whatever happens next.
+   */
+  async function handOver(path: string): Promise<Project> {
+    if (handed.current?.path === path) return handed.current.project;
+    const project = await registerProject({ path });
+    handed.current = { path, project };
+    return project;
   }
 
   async function applySettings(project: Project): Promise<void> {

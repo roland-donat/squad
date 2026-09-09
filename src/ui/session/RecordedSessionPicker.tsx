@@ -67,6 +67,12 @@ export function RecordedSessionPicker({
         <input
           value={search}
           onChange={(event) => setSearch(event.target.value)}
+          // The picker lives inside the form that opens a feature, so Enter here
+          // would submit it: refining a search and pressing Enter, which is what
+          // one does in a search box, would open a feature nobody asked for.
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.preventDefault();
+          }}
           placeholder="un dépôt, une branche, un titre, un premier message"
         />
       </label>

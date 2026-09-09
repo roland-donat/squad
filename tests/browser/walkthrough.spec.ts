@@ -12,13 +12,18 @@ const nameOf = (path: string): string => path.split("/").at(-1) ?? "";
 /**
  * Entering a feature opens a tab of its own, so the walk-through catches the
  * page the click created rather than following one that never moved.
+ *
+ * Waited on by its address rather than by its load: opening a feature holds the
+ * tab open blank first, while the click that asked for it still counts, and
+ * points it at the feature once there is one. A blank page has finished loading
+ * the moment it exists, so that is not what says the tab is showing anything.
  */
 async function enter(page: Page, name: RegExp): Promise<Page> {
   const [opened] = await Promise.all([
     page.context().waitForEvent("page"),
     page.getByRole("button", { name }).click(),
   ]);
-  await opened.waitForLoadState();
+  await opened.waitForURL(/\/features\/[^/]/);
   return opened;
 }
 
@@ -219,6 +224,16 @@ test("opens a feature from the home screen and reads the graph an agent wrote", 
   // the repository to hang the feature on, once as one it may also touch.
   await page.getByRole("checkbox", { name: nameOf(repositoryRoot) }).check();
   const across = await enter(page, /^Ouvrir la feature$/);
+
+  // The settings fields are about the repository they are shown for, and about
+  // no other: this feature hangs on a repository squad had never seen, so it
+  // must not have inherited the verification command of the one listed first.
+  const { projects: afterSecond } = (await (await request.get("/api/projects")).json()) as {
+    projects: Project[];
+  };
+  expect(afterSecond.find((each) => nameOf(each.path) === nameOf(second))?.verifyCommand).toBe(
+    null,
+  );
 
   const withBoth = await request.get("/api/features");
   const { features: carried } = (await withBoth.json()) as { features: Feature[] };

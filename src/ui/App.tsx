@@ -43,16 +43,21 @@ export function App() {
   // swapped for the first feature to hand, which with one tab per feature would
   // land the reader in a piece of work that is not the one they were called to.
   const [lost, setLost] = useState<string | null>(null);
+  // One effect and not two: the second used to clear what the first had just
+  // written, whenever both ran on the same commit. Going back to a feature that
+  // has since been deleted does exactly that, and landed on the home screen
+  // with no explanation, which is the one thing this exists to prevent.
   useEffect(() => {
-    if (!state.loaded || route.screen !== "feature" || opened !== null) return;
-    setLost("La feature demandée n'existe plus : squad ne la connaît pas.");
-    navigate(home(), { replace: true });
-  }, [state.loaded, route.screen, opened]);
-  // Cleared as soon as one goes somewhere on purpose, so it says what just
-  // happened rather than sitting on the home screen for the rest of the day.
-  useEffect(() => {
+    if (!state.loaded) return;
+    if (route.screen === "feature" && opened === null) {
+      setLost("La feature demandée n'existe plus : squad ne la connaît pas.");
+      navigate(home(), { replace: true });
+      return;
+    }
+    // Cleared as soon as one goes somewhere on purpose, so it says what just
+    // happened rather than sitting on the home screen for the rest of the day.
     if (route.screen !== "home") setLost(null);
-  }, [route.screen]);
+  }, [state.loaded, route.screen, opened]);
 
   // The address is corrected, never suffered: an address squad still reads but
   // no longer writes is put back into the shape squad writes today. At every

@@ -78,7 +78,10 @@ export function useViewport({
     // rather than beside it: framing on the whole box would centre the map half
     // underneath them.
     const available = box.width - obstruction.current;
-    const availableHeight = box.height - obstructionBottom.current;
+    // Floored, the drawer being allowed a share of the window while this is a
+    // share of the map: a drawer taller than the map left would otherwise frame
+    // it on a negative height, which is to say entirely underneath the drawer.
+    const availableHeight = Math.max(2 * margin + 1, box.height - obstructionBottom.current);
     const scale = Math.min(
       fitCeiling,
       Math.max(
@@ -115,11 +118,12 @@ export function useViewport({
       return;
     }
     fit();
-    // The obstructions among the dependencies: opening or closing a drawer
-    // changes how much of the viewport is actually visible, so a map nobody has
-    // placed has to be framed again on what is left. A map somebody has placed
-    // is not touched, which is the whole rule.
-  }, [fit, resetKey, contentWidth, contentHeight, obstructedRight, obstructedBottom]);
+    // Whether a drawer is there, not how wide it is: opening or closing one
+    // changes what is visible and a map nobody has placed is framed again on
+    // what is left, but pulling its edge must not reframe the map at every
+    // pointer move, which would make it jump for the whole gesture. A map
+    // somebody has placed is not touched at all, which is the whole rule.
+  }, [fit, resetKey, contentWidth, contentHeight, obstructedRight > 0, obstructedBottom > 0]);
 
   const zoomTo = useCallback((scale: number, anchorX: number, anchorY: number) => {
     setFrame((from) => {

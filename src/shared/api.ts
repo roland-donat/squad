@@ -862,3 +862,12 @@ export function ticketSessionRoute(ticketId: string): string {
 export function ticketTestSheetRoute(ticketId: string): string {
   return `${apiRoutes.tickets}/${ticketId}/test-sheet`;
 }
+
+/**
+ * Where the developer asks squad to go through a waiting sheet before they do.
+ * The pass runs on its own after every report; this is how one is asked for on
+ * a sheet reported before there was a pass, or asked for a second time.
+ */
+export function ticketSettlementRoute(ticketId: string): string {
+  return `${apiRoutes.tickets}/${ticketId}/settlement`;
+}

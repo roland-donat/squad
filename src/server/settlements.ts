@@ -1,6 +1,7 @@
 import type { Feature, Ticket } from "../shared/api";
 import { settlingBriefing, settlingInstruction } from "./agents/briefing";
 import type { AgentLauncher, AgentSession } from "./agents/launcher";
+import { SquadError } from "./errors";
 import type { EventBus } from "./events";
 import type { Store } from "./store";
 import { appendToThread, drainSession, type ThreadLine } from "./threads";
@@ -37,6 +38,8 @@ export interface SettlementDependencies {
  */
 export class Settlements {
   private readonly running = new Set<AgentSession>();
+  /** The tickets a pass is on, so one is never opened twice over the same sheet. */
+  private readonly inFlight = new Set<string>();
   private stopping = false;
 
   constructor(private readonly dependencies: SettlementDependencies) {}
@@ -59,14 +62,68 @@ export class Settlements {
    * developer reads.
    */
   settle(ticket: Ticket, feature: Feature): void {
+    const bounded = this.dependencies.store.reportedSteps(ticket.id) <= Settlements.rounds;
+    this.start(ticket, feature, bounded);
+  }
+
+  /**
+   * A pass the developer asked for, on a sheet already waiting on them.
+   *
+   * Two things separate it from the one that follows a report. It ignores the
+   * round bound, which is there to stop squad arguing with itself and has
+   * nothing to say when a person is the one asking. And it answers, rather than
+   * running behind: what it refuses, it refuses in front of whoever clicked.
+   */
+  async settleOnDemand(ticketId: string): Promise<Ticket> {
+    const { store } = this.dependencies;
+    const ticket = store.requireTicket(ticketId);
+    const report = ticket.stepReport;
+    const waiting = (report?.sheet ?? []).some((point) => point.verdict === "pending");
+    if (report === null || report.reviewedAt !== null || !waiting) {
+      throw new SquadError(
+        "sheet_not_settleable",
+        409,
+        `ticket "${ticket.title}" has no test sheet waiting to be settled`,
+      );
+    }
+    if (ticket.worktree === null) {
+      throw new SquadError(
+        "sheet_not_settleable",
+        409,
+        `ticket "${ticket.title}" has no worktree left: a pass has nowhere to run what it would run`,
+      );
+    }
+    if (this.inFlight.has(ticket.id)) {
+      throw new SquadError(
+        "sheet_not_settleable",
+        409,
+        `a pass is already going through the test sheet of "${ticket.title}"`,
+      );
+    }
+    const feature = this.dependencies.store.feature(ticket.featureId);
+    if (feature === null) {
+      throw new SquadError("feature_not_found", 404, `no feature with id ${ticket.featureId}`);
+    }
+    this.start(ticket, feature, true);
+    return store.requireTicket(ticket.id);
+  }
+
+  /**
+   * The pass itself, running behind whoever asked for it. Whatever happens the
+   * ticket is handed on exactly once: a pass that throws is a pass that said
+   * nothing, and a sheet nobody answered is a sheet the developer reads.
+   */
+  private start(ticket: Ticket, feature: Feature, allowed: boolean): void {
+    if (this.inFlight.has(ticket.id)) return;
+    this.inFlight.add(ticket.id);
     void (async () => {
       try {
-        if (this.dependencies.store.reportedSteps(ticket.id) <= Settlements.rounds) {
-          await this.run(ticket, feature);
-        }
+        if (allowed) await this.run(ticket, feature);
       } catch {
         // Nothing to add: the sheet is as the sub-session left it, and the line
         // below wakes whoever has to read it.
+      } finally {
+        this.inFlight.delete(ticket.id);
       }
       if (this.stopping) return;
       await this.dependencies.validations.afterSettling(this.reread(ticket));

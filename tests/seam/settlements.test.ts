@@ -1,10 +1,17 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { FeatureGraph, StepReport, ThreadEntry, Ticket } from "../../src/shared/api";
+import type {
+  ApiErrorBody,
+  FeatureGraph,
+  StepReport,
+  ThreadEntry,
+  Ticket,
+} from "../../src/shared/api";
 import {
   apiRoutes,
   featureGraphRoute,
   mainSessionRoute,
   ticketSessionRoute,
+  ticketSettlementRoute,
   ticketTestSheetRoute,
 } from "../../src/shared/api";
 import { pendingActions } from "../../src/shared/pending";
@@ -317,6 +324,47 @@ describe("the settling pass, between a test sheet and the developer", () => {
     expect(pendingActions([await readGraph(featureId)], []).map((action) => action.reason)).toEqual([
       "validation",
     ]);
+  });
+
+  it("dépouille une fiche déjà en attente quand le développeur le demande", async () => {
+    // The pass says nothing on its own: the sheet reaches the developer whole,
+    // which is the state every sheet reported before this pass existed is in.
+    let asked = false;
+    const { featureId, stream, ticket, settled } = await start({
+      coverage: [{ verdict: "automated" }, { verdict: "automated" }],
+      settle: async (points, agent) => {
+        if (!asked) return;
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: points.map((pointId) => ({
+            pointId,
+            outcome: "holds",
+            note: "Lancé après coup, à la demande : les onze migrations passent.",
+          })),
+        });
+      },
+    });
+    const receiver = await catchAlerts();
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    await settled;
+    const waiting = await waitForState(stream, featureId, ticket.id, "awaiting-validation");
+    expect(reportOf(waiting).sheet.every((point) => point.verdict === "pending")).toBe(true);
+    expect((await receiver.next()).text).toMatch(/fiche de tests/i);
+
+    // Asked for by hand, the pass goes through the same sheet and empties it.
+    asked = true;
+    const answer = await squad.request("POST", ticketSettlementRoute(ticket.id), {});
+    expect(answer.status).toBe(200);
+    const merged = await waitForState(stream, featureId, ticket.id, "merged");
+    expect(reportOf(merged).sheet.map((point) => point.settlement?.outcome)).toEqual(["holds"]);
+
+    // And a sheet nobody is waiting on any more is refused, rather than opening
+    // a session with nothing to read.
+    const again = await squad.request("POST", ticketSettlementRoute(ticket.id), {});
+    expect(again.status).toBe(409);
+    expect(((await again.json()) as ApiErrorBody).error.code).toBe("sheet_not_settleable");
   });
 
   it("cesse de dépouiller après deux tours et rend la fiche au développeur", async () => {

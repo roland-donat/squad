@@ -13,9 +13,16 @@ const run = promisify(execFile);
  */
 const created = new Set<string>();
 
-/** Creates a real git repository in a temporary directory, with one commit. */
-export async function createTemporaryRepository(): Promise<string> {
-  const path = await mkdtemp(join(tmpdir(), "squad-repo-"));
+/**
+ * Creates a real git repository in a temporary directory, with one commit.
+ *
+ * `under` puts it in a directory of the scenario's own rather than straight in
+ * the system's temporary one. A scenario that walks to it needs that: the
+ * temporary directory of a machine that has run this suite holds hundreds of
+ * entries, and a listing is capped.
+ */
+export async function createTemporaryRepository(under?: string): Promise<string> {
+  const path = await mkdtemp(join(under ?? tmpdir(), "squad-repo-"));
   created.add(path);
   await run("git", ["init", "--initial-branch", "main"], { cwd: path });
   await run("git", ["config", "user.email", "squad@example.test"], { cwd: path });
@@ -145,6 +152,15 @@ export async function addOrigin(repository: string): Promise<string> {
   await run("git", ["init", "--bare", "--initial-branch", "main"], { cwd: remote });
   await run("git", ["remote", "add", "origin", remote], { cwd: repository });
   return remote;
+}
+
+/**
+ * Points a repository's `origin` at an address of any shape, a forge URL among
+ * them. `addOrigin` above makes a real remote to push to; this one is for when
+ * what matters is how the address is written and not whether it answers.
+ */
+export async function setOrigin(repository: string, url: string): Promise<void> {
+  await run("git", ["remote", "add", "origin", url], { cwd: repository });
 }
 
 /** The subjects of a branch's commits, newest first: what a merge really did. */

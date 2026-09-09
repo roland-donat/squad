@@ -79,6 +79,13 @@ feature après chaque fusion. `PUT` sur `/api/features/<id>` pour ce qui est pro
 concurrence s'applique. Rien n'est lu dans l'environnement, de sorte que ce qui est
 en vigueur se relit par la même surface que le reste.
 
+Ce qui n'est **pas** un réglage vit dans le navigateur et n'est jamais envoyé au
+serveur : la largeur du panneau de ticket, la hauteur du tiroir, et le dernier
+répertoire atteint en parcourant. Squad n'en lit aucun, et les deux premiers
+diffèrent légitimement d'une fenêtre à l'autre. Ce sont des commodités, pas des
+réglages, et c'est ce qui les distingue du thème, que le serveur lit pour
+peindre la page avant que React ne monte.
+
 Le thème fait exception sur un point, et un seul : sa commande est dans l'en-tête
 plutôt que sur l'écran de réglages, parce qu'on s'aperçoit qu'un thème ne va pas
 en regardant autre chose, et que devoir naviguer pour le corriger est toute la
@@ -209,6 +216,7 @@ src/shared/state-family.ts # les onze états d'un ticket, ramenés aux cinq que 
 src/server/                # serveur : base, store, git, événements, routes HTTP, outils MCP
 src/server/db/             # schéma drizzle et ouverture de la base
 src/server/agents/         # lanceur d'agent : l'interface étroite et son repli
+src/server/directories.ts  # la marche dans les répertoires de la machine, en lecture seule
 src/server/alerts.ts       # bureau et webhook, avec l'adresse de ce qu'ils rapportent
 src/server/questions.ts    # ce qu'un agent demande, et l'attente que ça ouvre
 src/server/recorded-sessions.ts # les conversations claude-code, lues et jamais interprétées
@@ -229,6 +237,8 @@ src/ui/route.ts            # l'adresse : ce qui est regardé, tenu dans l'URL
 src/ui/tab.ts              # l'onglet d'une feature, nommé d'après elle
 src/ui/geometry.ts         # les tailles de panneau, tenues par le navigateur seul
 src/ui/home/               # l'accueil et la création d'une feature
+src/ui/repository/         # choisir un dépôt en le parcourant, servi par squad
+src/ui/Dialog.tsx          # le dialogue natif : état modal, piège à focus et Échap
 src/ui/feature/            # l'écran de travail : attente, carte, ticket, tiroir du fil
 src/ui/theme.ts            # le thème sur la page, et la copie que lit le premier rendu
 src/ui/brand/              # la marque : un seul dessin, pour l'en-tête, le favicon et le README

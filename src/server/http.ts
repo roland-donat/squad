@@ -17,6 +17,7 @@ import {
   type SquadEvent,
 } from "../shared/api";
 import type { Autonomy } from "./autonomy";
+import { listDirectory } from "./directories";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
 import { buildMcpHandler } from "./mcp";
@@ -39,6 +40,8 @@ export interface HttpDependencies {
   questions: Questions;
   autonomy: Autonomy;
   resumptions: Resumptions;
+  /** Where a walk through the directories starts when it is given nothing. */
+  homeDir: string;
   settlements: Settlements;
   /** What hands out a place under the caps: a cap raised is a place freed. */
   dispatch: { schedule(): void };
@@ -59,6 +62,7 @@ export function buildApiRouter({
   questions,
   autonomy,
   resumptions,
+  homeDir,
   settlements,
   dispatch,
 }: HttpDependencies): express.Router {
@@ -177,6 +181,17 @@ export function buildApiRouter({
     // asked for comes back to it as the result of its own tool call.
     const question = questions.answer(request.params.questionId, body.answer);
     response.json({ question });
+  });
+
+  router.get(apiRoutes.directories, async (request, response) => {
+    const path = request.query["path"];
+    if (path !== undefined && typeof path !== "string") {
+      throw new SquadError("invalid_request", 400, "path must be a single value");
+    }
+    // Read on request rather than pushed on the event stream, for the same
+    // reason the recorded conversations are: this is the filesystem, it changes
+    // without squad hearing about it, and squad holds nothing of it.
+    response.json(await listDirectory(path, homeDir));
   });
 
   router.get(apiRoutes.recordedSessions, async (request, response) => {

@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { basename } from "node:path";
 import { and, asc, eq, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import { defaultConcurrencyCaps, defaultGenerationDepthCap } from "../shared/api";
 import type {
@@ -59,7 +58,12 @@ import {
   tickets,
 } from "./db/schema";
 import { SquadError } from "./errors";
-import { branchExists, resolveDefaultBranch, resolveRepositoryRoot } from "./git";
+import {
+  branchExists,
+  repositoryName,
+  resolveDefaultBranch,
+  resolveRepositoryRoot,
+} from "./git";
 import { isInside } from "./paths";
 import type { ScheduledFeature, ScheduledService } from "./scheduler";
 
@@ -296,7 +300,11 @@ export class Store {
 
     const project: Project = {
       id: randomUUID(),
-      name: input.name ?? basename(root),
+      // The name the repository carries on its forge, and the directory's only
+      // when it carries none: `repositoryName` answers for the whole repository,
+      // so the same one registered from its root or from a directory inside it
+      // is the same project under the same name.
+      name: input.name ?? (await repositoryName(root)),
       path: root,
       defaultBranch,
       featureConcurrencyCap: input.featureConcurrencyCap ?? defaultConcurrencyCaps.feature,

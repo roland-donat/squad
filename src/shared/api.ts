@@ -478,6 +478,53 @@ export interface ThreadEntry {
 }
 
 /**
+ * One entry of a directory listing: a directory, and never anything else.
+ *
+ * A file is not offered because a project is a repository, and nothing about a
+ * file could be chosen here. Entries whose name starts with a dot are left out
+ * as well: `.git` at the top of every repository would be the noisiest of them,
+ * and choosing one has never been the point.
+ */
+export interface DirectoryEntry {
+  name: string;
+  /** Absolute, so choosing it needs nothing but this. */
+  path: string;
+  /**
+   * Whether a repository sits here, read off the presence of `.git`. A file
+   * counts as much as a directory: that is what a worktree leaves behind.
+   */
+  isRepository: boolean;
+}
+
+/**
+ * One step of the walk: the directory reached, the way back up, and what it
+ * holds. Nothing recursive, and no file content: squad reads the shape of the
+ * filesystem here and nothing of what is in it.
+ */
+export interface DirectoryListing {
+  /** The directory itself, absolute and free of symlinks. */
+  path: string;
+  /** Where up leads, or null at the root of the filesystem. */
+  parent: string | null;
+  isRepository: boolean;
+  /**
+   * What a project registered here would be called, or null outside a
+   * repository: the name it carries on its forge when it has an `origin`, the
+   * directory's own otherwise. Proposed and never imposed, the field taking it
+   * only until someone types over it.
+   */
+  suggestedName: string | null;
+  /** Its directories, by name, up to what one step hands back. */
+  entries: DirectoryEntry[];
+  /**
+   * How many were found, which is more than `entries` holds on a directory that
+   * runs to thousands. Said rather than kept quiet: a listing silently cut at
+   * five hundred tells the reader they have seen the directory.
+   */
+  total: number;
+}
+
+/**
  * A conversation claude-code has already recorded, as squad reads it to offer a
  * feature that starts from work already done rather than from an empty thread.
  * Everything here identifies the session; nothing here is what was said in it,
@@ -834,6 +881,13 @@ export const apiRoutes = {
    */
   recordedSessions: "/api/recorded-sessions",
   /**
+   * The directories of this machine, walked one step at a time so a repository
+   * can be chosen rather than typed. Read on request like the conversations
+   * above, and for a stronger reason: this is the filesystem, which changes
+   * without squad hearing about it and which squad holds nothing of.
+   */
+  directories: "/api/directories",
+  /**
    * Squad's MCP endpoint, the only contract between the agents and squad
    * (ADR 0002). It lives under /api like the rest of the server surface, so the
    * rule "anything the API did not claim is the interface" keeps holding.
@@ -871,6 +925,16 @@ export type AttachRecordedSessionBody = z.infer<typeof attachRecordedSessionBody
 /** Where the developer answers a question, which unblocks the agent that asked. */
 export function questionAnswerRoute(questionId: string): string {
   return `${apiRoutes.questions}/${questionId}/answer`;
+}
+
+/**
+ * Where one step of the walk is read. Without a path it is the home directory,
+ * which is where a walk with nothing to go on starts.
+ */
+export function directoriesRoute(path?: string): string {
+  return path === undefined
+    ? apiRoutes.directories
+    : `${apiRoutes.directories}?path=${encodeURIComponent(path)}`;
 }
 
 /** Where a recorded session becomes a feature squad drives. */

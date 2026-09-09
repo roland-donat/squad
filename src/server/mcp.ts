@@ -176,7 +176,7 @@ const settleSheetShape = {
         outcome: z
           .enum(settlementOutcomes)
           .describe(
-            "`holds` when you ran something and the point is true. `broken` when you ran something and it is false: the ticket goes back to the sub-session with what you found. `human` when no command, script or browser can settle it: wording, ergonomics, what a screen looks like, a domain arbitration, an intent to confirm. Hand over when unsure.",
+            "`holds` when you ran something and the point is true. `broken` when you ran something and it is false: the ticket goes back to the sub-session with what you found. `human` when only a person can **observe** it: what a screen looks like, whether a wording reads well. `decision` when nothing is wrong and a road has to be **chosen**: name the one you recommend, and say whether choosing changes what is built. Tell the last two apart, they are not owed the same thing: a verification waits for the developer, an arbitration is taken by squad under go-as-recommended. A point the sub-session called a matter of judgement is not out of your reach: if a command answers it, run it and say so.",
           ),
         note: z
           .string()
@@ -184,6 +184,20 @@ const settleSheetShape = {
           .min(1)
           .describe(
             "What you ran and what it answered, or why nothing can answer. Required whatever the outcome: it is the whole of what the developer reads instead of doing the work again.",
+          ),
+        recommendation: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe(
+            "On a `decision`, and there only: the road you recommend, in one sentence. Required, because it is what squad takes under go-as-recommended and what the developer reads first otherwise.",
+          ),
+        scopeChanging: z
+          .boolean()
+          .optional()
+          .describe(
+            "On a `decision`: true when choosing changes what is built, the perimeter, what the ticket delivers. False when it changes only how. Squad never decides one that changes what is built, whatever the mode.",
           ),
       }),
     )
@@ -210,6 +224,11 @@ const readGraphShape = {
 
 export interface McpDependencies {
   store: Store;
+  /**
+   * What the mode takes on a sheet the pass has just answered, declared by what
+   * is needed of it: the ticket as it stands once squad has decided what it may.
+   */
+  decisions: { take(ticket: Ticket): Ticket };
   bus: EventBus;
   /**
    * Where a question goes and where its answer comes back from. Declared by
@@ -269,6 +288,7 @@ function buildMcpServer({
   validations,
   dispatch,
   merges,
+  decisions,
 }: McpDependencies): McpServer {
   const server = new McpServer({ name: "squad", version: "0.1.0" });
 
@@ -371,7 +391,10 @@ function buildMcpServer({
     },
     async (input) =>
       answer(() => {
-        const ticket = store.settleSheet(input);
+        // Decided before the graph goes out: the mode stops on a feature with
+        // nothing left to run, so publishing a sheet whose only open point is an
+        // arbitration would halt it on the decision it was about to take.
+        const ticket = decisions.take(store.settleSheet(input));
         bus.publish({ type: "graph-changed", graph: store.featureGraph(ticket.featureId) });
         return ticket;
       }),

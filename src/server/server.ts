@@ -128,7 +128,8 @@ export async function startSquadServer(
     settlements: settling,
     featureOf: (ticket) => store.feature(ticket.featureId),
   });
-  const settlements = new Settlements({ store, bus, launcher, mcpUrl, validations, dispatch: handing });
+  const settlements = new Settlements({ store, bus, launcher, mcpUrl, validations,
+    autonomy, dispatch: handing });
   const dispatch = new Dispatch({
     store,
     open: {

@@ -136,7 +136,14 @@ export interface SettleSheetInput {
   /** The feature the ticket belongs to: a pass only settles its own graph. */
   featureId: string;
   ticketId: string;
-  points: Array<{ pointId: string; outcome: SettlementOutcome; note: string }>;
+  points: Array<{
+    pointId: string;
+    outcome: SettlementOutcome;
+    note: string;
+    /** Required on a `decision`, meaningless elsewhere. */
+    recommendation?: string;
+    scopeChanging?: boolean;
+  }>;
 }
 
 /** What the developer says of a test sheet once they have been through it. */
@@ -748,7 +755,11 @@ export class Store {
         acceptanceCriteria: criteria.get(row.id) ?? [],
         externalId: row.externalId,
         conclusion: row.conclusion,
-        state: resolveTicketState(row, blockers.get(row.id) ?? [], cleared),
+        state: resolveTicketState(
+          { ...row, sheetWaits: sheetWaitsOf(reports.get(row.id) ?? null) },
+          blockers.get(row.id) ?? [],
+          cleared,
+        ),
         worktree: toWorktree(row.branch, row.worktreePath),
         sessionId: row.sessionId,
         queuedAt: row.queuedAt,
@@ -1332,11 +1343,18 @@ export class Store {
    * pending and is the only kind that reaches a human. The note is kept whatever
    * the outcome, so what the pass ran is readable next to what it concluded.
    *
-   * Two things are refused rather than interpreted. A pass that answers some
-   * points and not others, because a sheet half settled would silently drop what
-   * it skipped. And a point born of an acceptance criterion the sub-session
-   * itself declared `judgement`: one agent does not get to certify what another
-   * declared beyond its reach, and it is exactly the promise the ticket made.
+   * A pass that answers some points and not others is refused: a sheet half
+   * settled would silently drop what it skipped.
+   *
+   * **A criterion the sub-session declared `judgement` is not out of reach.**
+   * That guard existed and was removed, on measurement: of 46 points waiting on
+   * one developer, 8 were criteria like "the validation suite stays green" or
+   * "the pin carries the fix", which a command answers in seconds and which the
+   * pass was forbidden to touch. Declaring `judgement` costs a sub-session
+   * nothing, so it hedges; running something costs the pass a command, and it
+   * has to say which one. What survives is the evidence: the coverage entry
+   * still reads `judgement` next to a point squad checked off, so a claim
+   * overturned is visible rather than erased.
    */
   settleSheet(input: SettleSheetInput): Ticket {
     const ticket = this.requireTicketIn(input.featureId, input.ticketId);
@@ -1358,31 +1376,30 @@ export class Store {
         `the pass must answer each of the ${expected.size} point(s) of this test sheet, and no other`,
       );
     }
-    const judgement = new Set(
-      report.coverage
-        .filter((entry) => entry.verdict === "judgement")
-        .map((entry) => entry.criterionId),
-    );
     const byId = new Map(report.sheet.map((point) => [point.id, point]));
-    const certified = input.points.filter((entry) => {
-      if (entry.outcome !== "holds") return false;
-      const criterionId = byId.get(entry.pointId)?.criterionId ?? null;
-      return criterionId !== null && judgement.has(criterionId);
-    });
-    if (certified.length > 0) {
+    // A decision the pass does not recommend is a decision nobody can take for
+    // the developer, and go-as-recommended would have nothing to apply: the
+    // whole difference with a verification is that a road is named.
+    const unadvised = input.points.filter(
+      (entry) => entry.outcome === "decision" && (entry.recommendation ?? "").trim() === "",
+    );
+    if (unadvised.length > 0) {
       throw new SquadError(
-        "criterion_needs_a_person",
+        "decision_without_a_road",
         400,
-        `the sub-session declared these criteria beyond a command's reach, so the pass may hand them over or show them broken, never check them off: ${certified
+        `an arbitration has to name the road you recommend: ${unadvised
           .map((entry) => `"${byId.get(entry.pointId)?.text ?? entry.pointId}"`)
           .join("; ")}`,
       );
     }
 
+    // A decision stays on the sheet for now: what becomes of it is the mode's to
+    // say, and the mode is read outside storage.
     const verdicts: Record<SettlementOutcome, SheetVerdict> = {
       holds: "passed",
       broken: "failed",
       human: "pending",
+      decision: "pending",
     };
     this.db.transaction((tx) => {
       for (const entry of input.points) {
@@ -1391,6 +1408,8 @@ export class Store {
             verdict: verdicts[entry.outcome],
             settlement: entry.outcome,
             settlementNote: entry.note,
+            settlementRecommendation: entry.recommendation?.trim() || null,
+            settlementScopeChanging: entry.outcome === "decision" ? entry.scopeChanging === true : null,
           })
           .where(eq(testSheetPoints.id, entry.pointId))
           .run();
@@ -1398,7 +1417,7 @@ export class Store {
       // A sheet with nothing left pending has been gone through, by squad rather
       // than by the developer: dating it here is what stops the interface from
       // asking them to fill in a form nobody is waiting on.
-      if (input.points.every((entry) => entry.outcome !== "human")) {
+      if (input.points.every((entry) => verdicts[entry.outcome] !== "pending")) {
         tx.update(stepReports)
           .set({ reviewedAt: new Date().toISOString() })
           .where(eq(stepReports.id, report.id))
@@ -1406,6 +1425,47 @@ export class Store {
       }
     });
     return this.requireTicket(ticket.id);
+  }
+
+  /**
+   * Writes down the arbitrations squad took itself, with what it chose.
+   *
+   * The point leaves the sheet like any other answered one, and its note keeps
+   * both halves: what the pass recommended, and that the mode took it. A
+   * developer reading the report afterwards sees a decision made in their
+   * absence, and by whom, which is the least a mode that decides owes them.
+   */
+  takeDecisions(
+    ticketId: string,
+    decisions: ReadonlyArray<{ pointId: string; answer: string }>,
+  ): Ticket {
+    const ticket = this.requireTicket(ticketId);
+    const report = ticket.stepReport;
+    if (report === null || decisions.length === 0) return ticket;
+    const byId = new Map(report.sheet.map((point) => [point.id, point]));
+    const taken = new Set(decisions.map((decision) => decision.pointId));
+    this.db.transaction((tx) => {
+      for (const decision of decisions) {
+        const note = byId.get(decision.pointId)?.settlement?.note ?? "";
+        tx.update(testSheetPoints)
+          .set({
+            verdict: "passed",
+            settlementNote: `${note}\n\nSquad a tranché sous go-as-recommandé : ${decision.answer}`,
+          })
+          .where(eq(testSheetPoints.id, decision.pointId))
+          .run();
+      }
+      const left = report.sheet.filter(
+        (point) => point.verdict === "pending" && !taken.has(point.id),
+      );
+      if (left.length === 0) {
+        tx.update(stepReports)
+          .set({ reviewedAt: new Date().toISOString() })
+          .where(eq(stepReports.id, report.id))
+          .run();
+      }
+    });
+    return this.requireTicket(ticketId);
   }
 
   reviewTestSheet(input: ReviewTestSheetInput): Ticket {
@@ -1776,7 +1836,12 @@ export class Store {
         settlement:
           row.settlement === null || row.settlementNote === null
             ? null
-            : { outcome: row.settlement, note: row.settlementNote },
+            : {
+                outcome: row.settlement,
+                note: row.settlementNote,
+                recommendation: row.settlementRecommendation,
+                scopeChanging: row.settlementScopeChanging === true,
+              },
       });
       sheets.set(row.reportId, list);
     }
@@ -1885,6 +1950,19 @@ function toHalt(row: {
  * The two columns read back as the one thing they are. They are written
  * together and only together, so either both are there or neither is.
  */
+/**
+ * What a report's sheet is waiting for, if anything: a verification only a
+ * person can make, or an arbitration. Both at once reads as a validation, the
+ * heavier of the two, since the developer has to come anyway.
+ */
+function sheetWaitsOf(report: StepReport | null): "none" | "validation" | "decision" {
+  const pending = (report?.sheet ?? []).filter((point) => point.verdict === "pending");
+  if (pending.length === 0) return "none";
+  return pending.every((point) => point.settlement?.outcome === "decision")
+    ? "decision"
+    : "validation";
+}
+
 function toWorktree(branch: string | null, path: string | null): Worktree | null {
   return branch === null || path === null ? null : { branch, path };
 }

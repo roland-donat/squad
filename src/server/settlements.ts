@@ -1,10 +1,11 @@
-import type { Feature, Ticket } from "../shared/api";
+import type { Feature, TestSheetPoint, Ticket } from "../shared/api";
 import { settlingBriefing, settlingInstruction } from "./agents/briefing";
 import type { AgentLauncher, AgentSession } from "./agents/launcher";
 import { SquadError } from "./errors";
+import type { QuestionVerdict } from "./autonomy";
 import type { EventBus } from "./events";
-import type { Store } from "./store";
 import { publishGraph } from "./events";
+import type { Store } from "./store";
 import { appendToThread, drainSession, type ThreadLine } from "./threads";
 
 export interface SettlementDependencies {
@@ -12,6 +13,11 @@ export interface SettlementDependencies {
   bus: EventBus;
   launcher: AgentLauncher;
   mcpUrl(): string;
+  /**
+   * What the mode does with an arbitration the pass raised, declared by what is
+   * needed of it: take the recommended road, or leave it to the developer.
+   */
+  autonomy: { verdictForDecision(featureId: string, point: TestSheetPoint): QuestionVerdict };
   /** Declared by what is needed of it: what the pass leaves is what follows. */
   validations: { afterSettling(ticket: Ticket): Promise<void> };
   /**
@@ -228,6 +234,41 @@ export class Settlements {
             : `the settling session left ${left.length} point(s) for the developer`,
       detail: ending.detail ?? null,
     });
+  }
+
+  /**
+   * The arbitrations the mode may take, taken. What the pass hands over as a
+   * `decision` names a road; go-as-recommended takes it exactly as it answers a
+   * question, and for the same reason: the developer left it running so that
+   * what does not change what is built does not wait for them. A decision that
+   * changes the perimeter stops the mode instead, and stays on the sheet.
+   *
+   * **Called before the settled sheet is published, never after.** The mode
+   * reads the graph on every change and stops on a feature with nothing left to
+   * run: publishing a sheet whose only open point is an arbitration makes it
+   * halt on the very decision it was about to take, and a halted mode then
+   * decides nothing. Deciding first, publishing once, is what keeps the two in
+   * the right order.
+   */
+  take(ticket: Ticket): Ticket {
+    const { store, autonomy } = this.dependencies;
+    const current = this.reread(ticket);
+    const open = (current.stepReport?.sheet ?? []).filter(
+      (point) => point.verdict === "pending" && point.settlement?.outcome === "decision",
+    );
+    const taken: Array<{ pointId: string; answer: string }> = [];
+    for (const point of open) {
+      const verdict = autonomy.verdictForDecision(current.featureId, point);
+      if (verdict.kind === "answer") taken.push({ pointId: point.id, answer: verdict.answer });
+    }
+    if (taken.length === 0) return current;
+    const decided = store.takeDecisions(current.id, taken);
+    this.append(decided, decided.sessionId ?? "", {
+      kind: "notice",
+      text: `squad took ${taken.length} arbitration(s) of this sheet under go-as-recommended`,
+      detail: taken.map((decision) => decision.answer).join("\n"),
+    });
+    return decided;
   }
 
   /** The ticket as the database now holds it, sheet included. */

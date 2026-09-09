@@ -152,6 +152,16 @@ export interface TicketRecord {
   serviceJob: ServiceJob | null;
   /** Set once that session is actually open, and null while it waits. */
   serviceStartedAt: string | null;
+  /**
+   * What the test sheet is waiting for, when it waits at all.
+   *
+   * Told apart because a person is not owed the same thing by each: a
+   * `validation` is something only they can observe (what a screen looks like,
+   * whether a wording reads well) and it waits however long it takes, while a
+   * `decision` is an arbitration squad takes itself under go-as-recommended.
+   * A sheet holding both waits as a validation, the heavier of the two.
+   */
+  sheetWaits: "none" | "validation" | "decision";
 }
 
 /**
@@ -198,7 +208,9 @@ export function resolveTicketState(
   if (record.serviceJob === "settling") {
     return record.serviceStartedAt === null ? "settling-queued" : "settling";
   }
-  if (lifecycle === "awaiting-validation") return "awaiting-validation";
+  if (lifecycle === "awaiting-validation") {
+    return record.sheetWaits === "decision" ? "awaiting-decision" : "awaiting-validation";
+  }
   if (lifecycle === "failed" || lifecycle === "interrupted" || lifecycle === "conflict") {
     return lifecycle;
   }

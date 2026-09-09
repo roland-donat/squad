@@ -220,7 +220,16 @@ export function buildApiRouter({
   // that serves the interface, so a session has one address for all of squad.
   router.all(
     apiRoutes.mcp,
-    buildMcpHandler({ store, bus, questions, autonomy, validations, dispatch, merges }),
+    buildMcpHandler({
+      store,
+      bus,
+      questions,
+      autonomy,
+      validations,
+      dispatch,
+      merges,
+      decisions: settlements,
+    }),
   );
 
   router.get(apiRoutes.events, (request, response) => {

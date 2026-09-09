@@ -62,6 +62,13 @@
   --attention: light-dark(#b0550f, #ef7b26);
   /* The same warmth, laid flat behind it: a ground, never a text colour. */
   --attention-soft: light-dark(#fbeadd, #37220f);
+  /*
+   * What came through. Not a charter colour: the charter has no green, and this
+   * is the one thing the map has to say that neither EMBlue nor EMOrange can,
+   * since both are already taken by "in flight" and "waiting on you". Measured
+   * against the two grounds, 6.5:1 on white and 8.3:1 on the dark surface.
+   */
+  --done: light-dark(#186b42, #4ec98a);
   --radius: 10px;
 }
 
@@ -757,7 +764,8 @@ button[disabled] {
 }
 
 .graph__legend-ring[data-family="settled"] {
-  opacity: 0.55;
+  outline: 2px solid var(--done);
+  opacity: 0.7;
 }
 
 .graph__viewport {
@@ -926,9 +934,9 @@ button[disabled] {
 /*
  * The five families, by ring. Blocked has none and sinks into the ground, the
  * frontier and what is in flight take a solid ring, what waits on a person
- * takes a dashed one in the single warm colour of the interface, and what is
- * settled fades. In greyscale the four rings are still told apart: absent,
- * solid, solid on a tinted ground, dashed.
+ * takes a dashed one in the single warm colour of the interface, and what came
+ * through takes a green one, lightened. In greyscale the five are still told
+ * apart: absent, solid, solid on a tinted ground, dashed, solid and pale.
  */
 .node[data-family="blocked"] {
   background: var(--surface-sunken);
@@ -948,8 +956,16 @@ button[disabled] {
   outline: 2px dashed var(--attention);
 }
 
+/*
+ * What came through keeps its ring rather than only fading: on a map read at a
+ * glance, a merged ticket is the one piece of good news, and an outline says it
+ * where a fade only says "past". The fade stays alongside, so the four rings are
+ * still told apart in greyscale: absent, solid dark, solid on a tinted ground,
+ * dashed, and this one solid but lightened.
+ */
 .node[data-family="settled"] {
-  opacity: 0.55;
+  outline: 2px solid var(--done);
+  opacity: 0.7;
 }
 
 /*

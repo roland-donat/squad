@@ -241,17 +241,37 @@ c'est construit. Une question structurante reste bloquante même en go-as-recomm
 _Éviter_ : question importante, question bloquante, question critique
 
 **Plafond de concurrence** (`concurrencyCap`) :
-Le nombre maximal de sous-sessions simultanées. Déclaré à l'échelle de la machine dans
-les réglages, et par feature sur le projet qui la porte, le plus restrictif l'emportant.
-Un lancement demandé alors que les plafonds sont pleins n'est pas refusé : il est
-accepté et attend (état `queued`), puis part dès qu'une place se libère. Le refuser
-rendrait le développeur responsable de revenir cliquer.
+Le nombre maximal de sessions simultanées, **sous-sessions et sessions de service
+confondues** : la machine ne fait pas la différence entre une session qui construit et
+une session qui dépouille, elles coûtent le même processus et la même suite de tests.
+La **session principale** d'une feature n'en est pas : c'est une conversation qu'on
+ouvre soi-même, inactive l'essentiel du temps, et la compter reviendrait à refuser la
+discussion qu'on cherche à avoir. Déclaré à l'échelle de la machine dans les réglages,
+et par feature sur le projet qui la porte, le plus restrictif l'emportant. Ce qui est
+demandé alors que les plafonds sont pleins n'est pas refusé : c'est accepté et ça
+attend, puis ça part dès qu'une place se libère. Le refuser rendrait le développeur
+responsable de revenir cliquer.
 
 **Ordonnanceur** (`nextLaunches`) :
-Ce qui décide des lancements à effectuer : une fonction de l'état des graphes et des
-plafonds, sans effet de bord ni appel de modèle. Squad ordonnance, jamais un agent.
-Une reprise passe avant un premier lancement, le travail étant déjà sur sa branche ;
-à égalité, le lancement qui attend depuis le plus longtemps part le premier.
+Ce qui décide de ce que squad ouvre : une fonction de l'état des graphes, des sessions
+de service demandées et des plafonds, sans effet de bord ni appel de modèle. Squad
+ordonnance, jamais un agent. Il décide pour les trois sortes de session, et c'est
+tout l'intérêt : deux ordonnanceurs appliqueraient chacun le plafond de leur côté, et
+le total le dépasserait. L'ordre est celui-ci : une résolution de conflit d'abord,
+parce qu'elle retient la chaîne de fusion sérialisée de tout un projet ; un
+dépouillement ensuite, son travail étant fait et une personne attendant derrière ; puis
+une reprise, le travail étant déjà sur sa branche ; puis un premier lancement. À
+égalité, ce qui attend depuis le plus longtemps part le premier.
+
+**Session de service** (`ServiceSession`) :
+Une session que squad ouvre pour lui-même sur un ticket qu'il ne construit pas : un
+**dépouillement**, ou une **session de résolution**. Nommées ensemble parce qu'elles
+sont comptées ensemble, dans le même plafond que les sous-sessions. Ce qui est demandé
+et attend une place s'écrit sur le ticket, jamais en mémoire : trois compteurs en
+mémoire sont précisément ce qui a laissé ces sessions passer à travers tous les
+plafonds, et dix fiches en attente pouvaient ouvrir dix sessions d'un coup. Un ticket
+n'en porte qu'une à la fois.
+_Éviter_ : session annexe, session technique, tâche de fond
 
 **Plafond de profondeur** (`generationDepthCap`) :
 Le nombre maximal de générations successives de tickets engendrés automatiquement par

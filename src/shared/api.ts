@@ -212,6 +212,9 @@ export const ticketStates = [
   "queued",
   "running",
   "awaiting-validation",
+  // Squad's own pass on the sheet, and the wait for a place to run it in.
+  "settling",
+  "settling-queued",
   "merging",
   "failed",
   "interrupted",

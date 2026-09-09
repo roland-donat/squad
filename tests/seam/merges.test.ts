@@ -530,6 +530,59 @@ describe("validating, merging, checking and delivering", () => {
     );
   });
 
+  it("compte la session de résolution dans le plafond, comme les autres", async () => {
+    const second = gate();
+    const resolving = gate();
+    const held = gate();
+    const scene = await start({
+      tickets: [
+        { title: "Le store", criteria: ["La base s'ouvre"] },
+        { title: "L'API", criteria: ["Les routes répondent"] },
+        { title: "Le troisième", criteria: ["Il attend son tour"] },
+      ],
+      subSession: async (agent, title) => {
+        const message = await agent.awaitMessage();
+        // The resolution session, held open: what is being watched is the place
+        // it takes while it runs.
+        if (message.startsWith("Merge the branch")) {
+          resolving.open();
+          await held.passed;
+          return;
+        }
+        const directory = agent.request.workingDirectory;
+        if (title !== "Le troisième") {
+          await commitFile(directory, "partage.ts", `${title}\n`, `feat: ${title}`);
+        }
+        if (title === "L'API") await second.passed;
+        await reportCovered(agent, `Fait pour ${title}.`);
+      },
+    });
+
+    // Both branch before either merges, which is what makes the second one
+    // conflict; the cap comes down once the resolution session is open.
+    await scene.launch("Le store");
+    await scene.launch("L'API");
+    await scene.reaches("Le store", "merged");
+    second.open();
+    await resolving.passed;
+
+    // One place for the whole machine, and the resolution session is holding it.
+    expect(
+      (await squad.request("PUT", apiRoutes.settings, { machineConcurrencyCap: 1 })).status,
+    ).toBe(200);
+
+    // Asked for while the resolution holds the only place: accepted, and
+    // waiting, exactly like a launch behind a sub-session.
+    await scene.launch("Le troisième");
+    expect((await scene.ticket("Le troisième")).state).toBe("queued");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect((await scene.ticket("Le troisième")).state).toBe("queued");
+
+    // The place comes back when the session ends, and what was behind it takes it.
+    held.open();
+    await scene.reaches("Le troisième", "merged");
+  });
+
   it("passe le ticket en conflit et alerte quand la résolution n'aboutit pas", async () => {
     const second = gate();
     const worktrees = new Map<string, string>();

@@ -30,6 +30,8 @@ const stateLabels: Record<TicketState, string> = {
   queued: "attend une place",
   running: "en cours",
   "awaiting-validation": "à vérifier",
+  settling: "en dépouillement",
+  "settling-queued": "dépouillement en attente",
   merging: "en fusion",
   failed: "arrêté",
   interrupted: "interrompu",

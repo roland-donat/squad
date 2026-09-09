@@ -234,7 +234,8 @@ export interface McpDependencies {
    * it rather than by who provides it: a settled decision releases the tickets
    * it blocked, and one of them may be a launch already waiting for it.
    */
-  subSessions: { schedule(): void };
+  /** What hands out a place: a ticket written may be one to open at once. */
+  dispatch: { schedule(): void };
   /**
    * Likewise: a settled decision may be the last node of its graph to come to
    * rest, and a feature that has come back whole is one to send off.
@@ -266,7 +267,7 @@ function buildMcpServer({
   questions,
   autonomy,
   validations,
-  subSessions,
+  dispatch,
   merges,
 }: McpDependencies): McpServer {
   const server = new McpServer({ name: "squad", version: "0.1.0" });
@@ -391,7 +392,7 @@ function buildMcpServer({
         // A blocker that clears is a launch that may now be admissible: a ticket
         // whose launch was asked for before a decision was posted in front of it
         // has been waiting on this answer, not on a place.
-        subSessions.schedule();
+        dispatch.schedule();
         // And a decision settled after everything else has merged is the last
         // node of its graph coming to rest: nothing else would ever look again.
         merges.deliver(ticket.featureId);

@@ -60,8 +60,8 @@ pnpm db:generate      # génère une migration après modification du schéma
 recrée une table (contrainte `check` modifiée) et lui ajoute des colonnes,
 `drizzle-kit` copie l'ancienne table en sélectionnant les colonnes nouvelles,
 qui n'y existent pas encore : la migration échoue au démarrage sur une base
-existante, et jamais sur une base neuve. C'est le cas de `drizzle/0004` et de
-`drizzle/0011`, corrigés à la main. Une suite verte ne l'attrape pas : la vérifier sur une base écrite par
+existante, et jamais sur une base neuve. C'est le cas de `drizzle/0004`, de
+`drizzle/0011` et de `drizzle/0015`, corrigés à la main. Une suite verte ne l'attrape pas : la vérifier sur une base écrite par
 la version précédente.
 
 Réglages par variable d'environnement : `SQUAD_PORT` (7300 par défaut) et
@@ -215,6 +215,7 @@ src/server/recorded-sessions.ts # les conversations claude-code, lues et jamais 
 src/server/resumptions.ts  # une conversation enregistrée devient une feature
 src/server/autonomy.ts     # go-as-recommandé : ce qui part seul, et ce qui l'arrête
 src/server/scheduler.ts    # ce qui part maintenant : fonction pure du graphe et des plafonds
+src/server/dispatch.ts     # la boucle qui ouvre ce que l'ordonnanceur a choisi, les trois sortes
 src/server/validations.ts  # ce qui suit une fiche : fusionner, corriger, ou attendre
 src/server/settlements.ts  # la passe qui vide une fiche de ce qu'une commande tranche
 src/server/merges.ts       # la chaîne de fusion, sérialisée par projet, jusqu'à la livraison

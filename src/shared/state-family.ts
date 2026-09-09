@@ -55,7 +55,14 @@ export function familyOf(ticket: Ticket, awaitingDeveloper: ReadonlySet<string>)
     case "running":
     case "merging":
     case "awaiting-validation":
+    // Squad's own pass on the sheet is work in flight like any other, and the
+    // one thing it must not read as is a ticket waiting on a person: the pass
+    // is what decides whether anything is left for one.
+    case "settling":
       return "running";
+    // Asked for and waiting for a place, exactly like a queued launch.
+    case "settling-queued":
+      return "ready";
     // Stopped, in conflict or waiting for a decision: the waiting list holds
     // every one of them, so this only guards the drawing against a state that
     // escaped it rather than against a real case.

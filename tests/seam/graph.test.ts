@@ -49,6 +49,7 @@ describe("the graph an agent writes through the MCP tools", () => {
       "ask_question",
       "carry_repository",
       "create_ticket",
+      "discard_ticket",
       "read_graph",
       "report_step",
       "settle_decision",
@@ -126,6 +127,28 @@ describe("the graph an agent writes through the MCP tools", () => {
     ]);
     // The frontier is what can be launched now: the blocker alone.
     expect(frontier(graph).map((ticket) => ticket.id)).toEqual([foundation.id]);
+  });
+
+  it("écarte un ticket mort et rend leur route à ceux qu'il bloquait", async () => {
+    const dead = (await createTicket({ title: "Doublon" })) as Ticket;
+    const waiting = (await createTicket({ title: "La suite", blockedBy: [dead.id] })) as Ticket;
+    expect(stateOf(await readGraphFromApi(), waiting.id)).toBe("blocked");
+
+    const dropped = (await tools.call("discard_ticket", {
+      featureId: feature.id,
+      ticketId: dead.id,
+      reason: "Doublon de « La suite » : rien à construire ici, tout est dans l'autre.",
+    })) as Ticket;
+
+    // Un noeud mort qui retient ses successeurs arrête le graphe pour une raison
+    // sur laquelle personne ne peut agir : il ne retient plus rien. Et il se lit
+    // écarté, jamais fusionné, puisque rien n'en a été construit.
+    expect(dropped.state).toBe("discarded");
+    expect(dropped.conclusion).toContain("Doublon");
+    const graph = await readGraphFromApi();
+    expect(stateOf(graph, dead.id)).toBe("discarded");
+    expect(stateOf(graph, waiting.id)).toBe("ready");
+    expect(frontier(graph).map((ticket) => ticket.id)).toEqual([waiting.id]);
   });
 
   it("lets a ticket declare what it blocks, which is how a fix lands in front of pending work", async () => {

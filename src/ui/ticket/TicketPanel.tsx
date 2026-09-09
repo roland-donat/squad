@@ -46,6 +46,8 @@ const stateExplanations: Record<TicketState, string> = {
   conflict:
     "En conflit : la fusion de sa branche dans la branche de feature s'est heurtée aux mêmes lignes, et la session de résolution n'en est pas venue à bout. Le reprendre rouvre sa sous-session là où elle en était.",
   "awaiting-decision": "À trancher : cela se fait dans la session principale, pas ici.",
+  discarded:
+    "Écarté : ce ticket ne sera pas construit, et la raison est écrite sur son fil. Il ne retient plus rien : ce qu'il bloquait est reparti.",
   merged: "Fusionné.",
 };
 

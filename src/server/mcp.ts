@@ -26,6 +26,7 @@ export const squadMcpServerName = "squad";
 
 export const squadTools = {
   createTicket: "create_ticket",
+  discardTicket: "discard_ticket",
   carryRepository: "carry_repository",
   reportStep: "report_step",
   settleSheet: "settle_sheet",
@@ -161,6 +162,18 @@ const reportStepShape = {
     .trim()
     .min(1)
     .describe("What you recommend doing next, in one or two sentences."),
+};
+
+const discardTicketShape = {
+  featureId: z.string().min(1).describe("The feature the ticket belongs to."),
+  ticketId: z.string().min(1).describe("The ticket to drop."),
+  reason: z
+    .string()
+    .trim()
+    .min(1)
+    .describe(
+      "Why it will not be built, in one or two sentences, naming what supersedes it when something does. It is written on the ticket and is the whole of what anyone reading the graph later will have.",
+    ),
 };
 
 const settleSheetShape = {
@@ -310,6 +323,22 @@ function buildMcpServer({
         // it: the ticket is written either way.
         autonomy.ticketCreated(ticket);
         bus.publish({ type: "graph-changed", graph: store.featureGraph(input.featureId) });
+        return ticket;
+      }),
+  );
+
+  server.registerTool(
+    squadTools.discardTicket,
+    {
+      title: "Drop a ticket",
+      description:
+        "Drops a ticket that will not be built: a duplicate, one whose branch stayed empty, one another ticket supersedes. What waited on it goes on, exactly as if it had merged, since a dead node holding its successors back stops the graph for a reason nobody can act on. It is read as dropped and never as done, nothing of it having been built. Use it instead of asking the developer to do it for you: what you leave on a test sheet reaches them as work, and dropping a node is yours to do.",
+      inputSchema: discardTicketShape,
+    },
+    async (input) =>
+      answer(() => {
+        const ticket = store.discardTicket(input.featureId, input.ticketId, input.reason);
+        bus.publish({ type: "graph-changed", graph: store.featureGraph(ticket.featureId) });
         return ticket;
       }),
   );

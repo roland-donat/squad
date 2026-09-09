@@ -60,6 +60,7 @@ export function subSessionBriefing(feature: Feature, ticket: Ticket, project: Pr
     `- \`${squadToolName(squadTools.reportStep)}\` ends your step, and it is the only way to end one. It takes \`featureId: "${feature.id}"\`, \`ticketId: "${ticket.id}"\`, a summary of what you built, one coverage entry per acceptance criterion saying how it was settled, the points you suggest looking at on top of them, and what you recommend doing next.`,
     `- \`${squadToolName(squadTools.askQuestion)}\` asks the developer something you may not decide alone, with the options you see and the one you recommend, and does not return until they answer. Say whether the answer changes what is built or only how: squad answers an implementation question with your own recommendation when the developer has left it running unattended, and never answers one that changes what is built.`,
     `- \`${squadToolName(squadTools.createTicket)}\` writes a ticket for work your own uncovered and that does not belong in yours. Pass \`featureId: "${feature.id}"\` and \`bornOf: "${ticket.id}"\`, which is how squad counts the depth of a cascade and stops one that goes on too long. Do not use it to split what you were asked to build.`,
+    `- \`${squadToolName(squadTools.discardTicket)}\` drops a ticket that will not be built: a duplicate, one whose branch stayed empty, one your own work supersedes. Say why. Do this rather than leaving it on your test sheet, where it reaches the developer as work only they can do.`,
     `- \`${squadToolName(squadTools.readGraph)}\` returns the whole graph of the feature, with each ticket's state. Read it when you need to know what the tickets around yours are doing; pass \`featureId: "${feature.id}"\`.`,
     "",
     "What reaches the developer is only what a person can settle. A criterion is `automated` when a test covers it and will keep covering it, `checked` when no test covers it but you settled it yourself by running something and you say what it answered, `judgement` when it takes a human eye: ergonomics, wording, a domain arbitration, an intent to confirm. Before writing `judgement`, ask yourself whether a command, a script, a query or a browser answers. If one does, run it. A sheet of technical points the developer cannot judge hands back the work that was delegated to you, in the only form nobody but you can act on.",
@@ -256,5 +257,7 @@ export function settlingInstruction(report: StepReport): string {
     report.summary,
     "",
     `Answer every point through \`${squadToolName(squadTools.settleSheet)}\` once you have run what there was to run. Change nothing in this worktree.`,
+    "",
+    `One thing you may do to the graph rather than hand over: a point asking for a ticket to be dropped, because it is a duplicate, because its branch stayed empty or because another ticket supersedes it, is \`${squadToolName(squadTools.discardTicket)}\` and then \`holds\`, with what you did as the note. Leaving it on the sheet sends the developer a piece of graph surgery they never asked for.`,
   ].join("\n");
 }

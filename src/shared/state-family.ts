@@ -41,6 +41,10 @@ export function familyOf(ticket: Ticket, awaitingDeveloper: ReadonlySet<string>)
   if (awaitingDeveloper.has(ticket.id)) return "awaiting-developer";
   switch (ticket.state) {
     case "merged":
+    // Dropped rather than done, and painted with what is over rather than with
+    // what waits: nobody owes it anything, and the map says which of the two it
+    // was in the node's label and in the panel.
+    case "discarded":
       return "settled";
     case "blocked":
       return "blocked";

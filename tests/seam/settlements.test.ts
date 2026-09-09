@@ -242,7 +242,7 @@ describe("the settling pass, between a test sheet and the developer", () => {
   });
 
   it("renvoie le ticket en correction quand la passe montre un point cassé", async () => {
-    const { featureId, ticket, settled } = await start({
+    const { ticket, settled } = await start({
       coverage: [{ verdict: "automated" }, { verdict: "automated" }],
       settle: async (points, agent) => {
         await agent.call("settle_sheet", {
@@ -267,14 +267,14 @@ describe("the settling pass, between a test sheet and the developer", () => {
         (entry) => entry.kind === "pilot" && entry.text.includes("la migration 0004 échoue"),
       );
     });
-    const graph = await readGraph(featureId);
-    const current = graph.tickets.find((each) => each.id === ticket.id) as Ticket;
-    expect(reportOf(current).sheet.every((point) => point.verdict === "failed")).toBe(true);
+    // Rien n'est affirmé du rapport lui-même : la sous-session corrige et
+    // rapporte une étape neuve, qui porte sa propre fiche. Ce qui compte ici est
+    // que la correction soit partie, et que personne n'ait été réveillé.
     expect(receiver.received()).toEqual([]);
   });
 
   it("renvoie en correction avant de réveiller, même s'il reste du jugement", async () => {
-    const { featureId, ticket, settled } = await start({
+    const { ticket, settled } = await start({
       coverage: [{ verdict: "automated" }, { verdict: "automated" }],
       suggestions: ["Ouvrir une base écrite par la version précédente", "Relire le libellé du bouton"],
       settle: async (points, agent) => {
@@ -304,10 +304,10 @@ describe("the settling pass, between a test sheet and the developer", () => {
         (entry) => entry.kind === "pilot" && entry.text.includes("la migration 0004 échoue"),
       );
     });
+    // La correction est partie et personne n'a été réveillé : c'est tout ce que
+    // ce scénario avance. L'état du ticket, lui, suit la sous-session qui
+    // rapporte déjà l'étape suivante.
     expect(receiver.received()).toEqual([]);
-    const graph = await readGraph(featureId);
-    const current = graph.tickets.find((each) => each.id === ticket.id) as Ticket;
-    expect(current.state).toBe("running");
   });
 
   it("ne remonte au développeur que ce que la passe lui laisse", async () => {
@@ -414,6 +414,38 @@ describe("the settling pass, between a test sheet and the developer", () => {
       "decision",
     ]);
     expect((await receiver.next()).text).toBeTruthy();
+  });
+
+  it("laisse partir une passe qui a répondu mais ne se termine pas d'elle-même", async () => {
+    // Une session en entrée continue n'a aucune raison de s'arrêter quand elle a
+    // fini de parler : elle attend le message suivant, qui ne vient jamais. Une
+    // sous-session est gardée en vie exprès, une session ouverte pour un seul
+    // travail n'a plus rien à se voir demander. Constaté sur une exécution
+    // réelle : trois passes inertes pendant une heure, onze en attente derrière.
+    const jamais = gate();
+    const { featureId, stream, ticket } = await start({
+      coverage: [{ verdict: "automated" }, { verdict: "automated" }],
+      settle: async (points, agent) => {
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: points.map((pointId) => ({
+            pointId,
+            outcome: "holds",
+            note: "Lancé : les onze migrations passent sur une base de la version précédente.",
+          })),
+        });
+        await jamais.passed;
+      },
+    });
+    const receiver = await catchAlerts();
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    // Squad ne l'attend pas : il la relâche dès qu'elle a répondu, et la suite
+    // s'enchaîne comme si elle s'était terminée toute seule.
+    const merged = await waitForState(stream, featureId, ticket.id, "merged");
+    expect(reportOf(merged).sheet.every((point) => point.verdict === "passed")).toBe(true);
+    expect(receiver.received()).toEqual([]);
   });
 
   it("laisse la fiche intacte quand la passe ne déclare rien", async () => {

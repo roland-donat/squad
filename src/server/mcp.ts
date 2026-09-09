@@ -241,7 +241,7 @@ export interface McpDependencies {
    * What the mode takes on a sheet the pass has just answered, declared by what
    * is needed of it: the ticket as it stands once squad has decided what it may.
    */
-  decisions: { take(ticket: Ticket): Ticket };
+  decisions: { settled(ticket: Ticket): Ticket };
   bus: EventBus;
   /**
    * Where a question goes and where its answer comes back from. Declared by
@@ -423,7 +423,7 @@ function buildMcpServer({
         // Decided before the graph goes out: the mode stops on a feature with
         // nothing left to run, so publishing a sheet whose only open point is an
         // arbitration would halt it on the decision it was about to take.
-        const ticket = decisions.take(store.settleSheet(input));
+        const ticket = decisions.settled(store.settleSheet(input));
         bus.publish({ type: "graph-changed", graph: store.featureGraph(ticket.featureId) });
         return ticket;
       }),

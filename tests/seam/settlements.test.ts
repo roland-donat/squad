@@ -15,7 +15,6 @@ import {
   ticketTestSheetRoute,
 } from "../../src/shared/api";
 import { pendingActions } from "../../src/shared/pending";
-import { type ToolOutcome } from "../support/mcp";
 import { createScriptedLauncher, type ScriptedAgent } from "../support/scripted-launcher";
 import {
   openTestFeature,
@@ -434,19 +433,21 @@ describe("the settling pass, between a test sheet and the developer", () => {
     expect(reportOf(current).sheet.every((point) => point.settlement === null)).toBe(true);
   });
 
-  it("refuse à la passe de cocher un critère que la sous-session a confié à un humain", async () => {
-    let refusal: ToolOutcome | undefined;
+  it("coche un critère que la sous-session avait confié à un humain, preuve à l'appui", async () => {
+    // Une sous-session qui se couvre écrit `judgement` sur ce qu'une commande
+    // tranche : mesuré sur une instance réelle, 8 des 46 points en attente
+    // étaient de cet ordre. Sa déclaration est un mot, pas un verdict.
     const { featureId, stream, ticket, settled } = await start({
       coverage: [{ verdict: "automated" }, { verdict: "judgement" }],
       suggestions: [],
       settle: async (points, agent) => {
-        refusal = await agent.attempt("settle_sheet", {
+        await agent.call("settle_sheet", {
           featureId: agent.request.featureId,
           ticketId: agent.request.ticketId,
           points: points.map((pointId) => ({
             pointId,
             outcome: "holds",
-            note: "J'ai lancé la suite, elle est verte.",
+            note: "Lancé sur une base écrite par 0.4 : les onze migrations passent, 312 lignes conservées.",
           })),
         });
       },
@@ -455,13 +456,16 @@ describe("the settling pass, between a test sheet and the developer", () => {
 
     await squad.request("POST", ticketSessionRoute(ticket.id), {});
     await settled;
-    const waiting = await waitForState(stream, featureId, ticket.id, "awaiting-validation");
+    const merged = await waitForState(stream, featureId, ticket.id, "merged");
 
-    expect(refusal?.refused).toBe(true);
-    expect(refusal?.text).toContain("Les migrations s'appliquent");
-    // Refused means untouched: the criterion the sub-session put beyond a
-    // command's reach reaches the developer, which is the promise the ticket made.
-    expect(reportOf(waiting).sheet.every((point) => point.verdict === "pending")).toBe(true);
-    expect((await receiver.next()).text).toMatch(/fiche de tests/i);
+    // Rien ne reste pour le développeur, et ce qui a été renversé se lit : le
+    // critère porte toujours `judgement` à côté d'un point que squad a coché.
+    const report = reportOf(merged);
+    expect(report.sheet.map((point) => [point.verdict, point.settlement?.outcome])).toEqual([
+      ["passed", "holds"],
+    ]);
+    expect(report.coverage[1]?.verdict).toBe("judgement");
+    expect(report.sheet[0]?.settlement?.note).toContain("onze migrations");
+    expect(receiver.received()).toEqual([]);
   });
 });

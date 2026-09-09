@@ -84,8 +84,6 @@ const wording: Record<ErrorCode, string> = {
   sheet_not_settleable: "Cette fiche n'attend pas d'être dépouillée.",
   settlement_mismatch:
     "Le dépouillement doit répondre à chaque point de la fiche, et à ceux-là seuls.",
-  criterion_needs_a_person:
-    "Un point venu d'un critère que la sous-session a déclaré du ressort d'un humain ne peut pas être réglé sans lui.",
   test_sheet_not_found: "Ce ticket n'a pas encore de fiche de tests.",
   test_sheet_already_reviewed: "Cette fiche de tests a déjà été passée en revue.",
   not_found: "Cette route n'existe pas.",

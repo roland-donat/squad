@@ -1332,11 +1332,18 @@ export class Store {
    * pending and is the only kind that reaches a human. The note is kept whatever
    * the outcome, so what the pass ran is readable next to what it concluded.
    *
-   * Two things are refused rather than interpreted. A pass that answers some
-   * points and not others, because a sheet half settled would silently drop what
-   * it skipped. And a point born of an acceptance criterion the sub-session
-   * itself declared `judgement`: one agent does not get to certify what another
-   * declared beyond its reach, and it is exactly the promise the ticket made.
+   * A pass that answers some points and not others is refused: a sheet half
+   * settled would silently drop what it skipped.
+   *
+   * **A criterion the sub-session declared `judgement` is not out of reach.**
+   * That guard existed and was removed, on measurement: of 46 points waiting on
+   * one developer, 8 were criteria like "the validation suite stays green" or
+   * "the pin carries the fix", which a command answers in seconds and which the
+   * pass was forbidden to touch. Declaring `judgement` costs a sub-session
+   * nothing, so it hedges; running something costs the pass a command, and it
+   * has to say which one. What survives is the evidence: the coverage entry
+   * still reads `judgement` next to a point squad checked off, so a claim
+   * overturned is visible rather than erased.
    */
   settleSheet(input: SettleSheetInput): Ticket {
     const ticket = this.requireTicketIn(input.featureId, input.ticketId);
@@ -1358,27 +1365,6 @@ export class Store {
         `the pass must answer each of the ${expected.size} point(s) of this test sheet, and no other`,
       );
     }
-    const judgement = new Set(
-      report.coverage
-        .filter((entry) => entry.verdict === "judgement")
-        .map((entry) => entry.criterionId),
-    );
-    const byId = new Map(report.sheet.map((point) => [point.id, point]));
-    const certified = input.points.filter((entry) => {
-      if (entry.outcome !== "holds") return false;
-      const criterionId = byId.get(entry.pointId)?.criterionId ?? null;
-      return criterionId !== null && judgement.has(criterionId);
-    });
-    if (certified.length > 0) {
-      throw new SquadError(
-        "criterion_needs_a_person",
-        400,
-        `the sub-session declared these criteria beyond a command's reach, so the pass may hand them over or show them broken, never check them off: ${certified
-          .map((entry) => `"${byId.get(entry.pointId)?.text ?? entry.pointId}"`)
-          .join("; ")}`,
-      );
-    }
-
     const verdicts: Record<SettlementOutcome, SheetVerdict> = {
       holds: "passed",
       broken: "failed",

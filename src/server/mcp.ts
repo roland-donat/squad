@@ -176,7 +176,7 @@ const settleSheetShape = {
         outcome: z
           .enum(settlementOutcomes)
           .describe(
-            "`holds` when you ran something and the point is true. `broken` when you ran something and it is false: the ticket goes back to the sub-session with what you found. `human` when no command, script or browser can settle it: wording, ergonomics, what a screen looks like, a domain arbitration, an intent to confirm. Hand over when unsure.",
+            "`holds` when you ran something and the point is true. `broken` when you ran something and it is false: the ticket goes back to the sub-session with what you found. `human` when no command, script or browser can settle it: wording, ergonomics, what a screen looks like, a domain arbitration, an intent to confirm. Hand over when unsure. A point the sub-session called a matter of judgement is not out of your reach: if a command answers it, run it and say so.",
           ),
         note: z
           .string()

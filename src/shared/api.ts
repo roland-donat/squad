@@ -34,7 +34,6 @@ export const errorCodes = [
   "checked_without_note",
   "sheet_not_settleable",
   "settlement_mismatch",
-  "criterion_needs_a_person",
   "test_sheet_not_found",
   "test_sheet_already_reviewed",
   "ticket_not_mergeable",

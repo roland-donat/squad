@@ -247,7 +247,7 @@ export function settlingInstruction(report: StepReport): string {
         `- [${point.id}] ${point.text}${point.criterionId === null ? " (suggestion de l'agent)" : " (critère d'acceptation)"}`,
     );
   return [
-    "Settle this test sheet. Here is what the sub-session left, one line per point, with the id to answer under:",
+    "Settle this test sheet. Here is what the sub-session left, one line per point, with the id to answer under. What it called a criterion is what the ticket promised, and calling it a matter of judgement was its word, not a verdict: if a command answers one, run it.",
     "",
     ...points,
     "",

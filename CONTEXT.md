@@ -33,6 +33,16 @@ L'ensemble des tickets dont tous les bloqueurs sont fusionnés. C'est ce que squ
 peut lancer à l'instant présent.
 _Éviter_ : file d'attente, backlog, tickets prêts, prochaine vague
 
+**Famille d'état** (`StateFamily`) :
+Le regroupement des onze états d'un ticket en cinq, qui est ce qu'une carte peut
+distinguer d'un coup d'œil : bloqué, prêt à partir, en cours, **attend une personne**,
+terminé. Elle répond à « à qui est le tour », et rien d'autre ; l'état exact reste lu
+sur le ticket. La famille « attend une personne » n'est pas déduite de l'état : elle
+désigne exactement les **actions en attente**, faute de quoi la carte peindrait comme
+attendant quelqu'un un ticket que squad va fusionner seul, et comme en cours celui dont
+une question bloque l'agent.
+_Éviter_ : statut, catégorie d'état, couleur
+
 **Feature** (`Feature`) :
 Un chantier, du spec jusqu'à la fusion dans les branches par défaut. Une feature
 possède un graphe et une session principale, et porte un ou plusieurs **dépôts

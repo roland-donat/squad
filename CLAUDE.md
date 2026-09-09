@@ -205,6 +205,7 @@ commit restent en anglais.
 
 ```
 src/shared/                # contrat API partagé serveur et interface, sans dépendance node
+src/shared/state-family.ts # les onze états d'un ticket, ramenés aux cinq que peint la carte
 src/server/                # serveur : base, store, git, événements, routes HTTP, outils MCP
 src/server/db/             # schéma drizzle et ouverture de la base
 src/server/agents/         # lanceur d'agent : l'interface étroite et son repli
@@ -227,7 +228,7 @@ src/ui/route.ts            # l'adresse : ce qui est regardé, tenu dans l'URL
 src/ui/theme.ts            # le thème sur la page, et la copie que lit le premier rendu
 src/ui/brand/              # la marque : un seul dessin, pour l'en-tête, le favicon et le README
 src/ui/fonts/              # Open Sans sous-ensemblée, la police de la charte EdgeMind
-src/ui/graph/              # disposition en couches et rendu du graphe
+src/ui/graph/              # la carte : couches enveloppées, nœuds à glyphe et anneau
 src/ui/question/           # une question d'agent, ses options et sa réponse
 src/ui/settings/           # l'écran de réglages, machine et projets
 src/ui/ticket/             # le panneau d'un nœud du graphe, fiche de tests comprise

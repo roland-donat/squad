@@ -397,20 +397,72 @@ button[disabled] {
 }
 
 /*
- * The graph. Nothing here is placed by hand: the layout module derives every
- * coordinate from the edges. Kind and state are written on each node as well as
- * coloured, so the graph keeps its meaning in greyscale.
+ * The map of a feature. Nothing here is placed by hand: the layout module
+ * derives every coordinate from the edges alone, the viewport included, so the
+ * same feature reads the same on two screens and no node moves when the window
+ * does. A kind is a filled silhouette, a state family is a ring: the map keeps
+ * its meaning in greyscale, and colour only ever says again what a shape has
+ * already said.
  */
 
 .graph__legend {
-  margin: 0 0 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 1.1rem;
+  margin: 0 0 1rem;
   color: var(--ink-soft);
-  font-size: 0.88rem;
+  font-size: 0.82rem;
+}
+
+.graph__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.graph__legend-item--count {
+  margin-left: auto;
+  color: var(--ink);
+}
+
+/*
+ * The five rings side by side, on an empty square: the legend is permanent
+ * because this is the one screen of squad one reads without clicking, and a
+ * map whose symbols are a gesture away is a map nobody learns.
+ */
+.graph__legend-ring {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.graph__legend-ring[data-family="blocked"] {
+  background: var(--surface-sunken);
+}
+
+.graph__legend-ring[data-family="ready"] {
+  outline: 2px solid var(--accent);
+}
+
+.graph__legend-ring[data-family="running"] {
+  outline: 2px solid var(--accent);
+  background: var(--accent-soft);
+}
+
+.graph__legend-ring[data-family="awaiting-developer"] {
+  outline: 2px dashed var(--attention);
+}
+
+.graph__legend-ring[data-family="settled"] {
+  opacity: 0.55;
 }
 
 .graph__viewport {
   overflow: auto;
-  padding: 0.25rem;
+  padding: 0.5rem;
 }
 
 .graph {
@@ -425,29 +477,53 @@ button[disabled] {
   pointer-events: none;
 }
 
+/*
+ * Faint by default and told apart on demand. Wrapping a layer into a block puts
+ * nodes under an edge that has nothing to do with them, and no routing needs
+ * writing for that: one never reads every arrow at once, one reads the arrows of
+ * a node, and pointing at it is what isolates them.
+ */
 .graph__edge {
   fill: none;
   stroke: var(--ink-soft);
   stroke-width: 1.5;
+  opacity: 0.45;
+  transition:
+    opacity 150ms ease,
+    stroke 150ms ease,
+    stroke-width 150ms ease;
 }
 
+.graph[data-focused] .graph__edge {
+  opacity: 0.12;
+}
+
+.graph[data-focused] .graph__edge[data-emphasis] {
+  opacity: 1;
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+
+/* The arrow head takes the colour of its own line, so an emphasised edge is emphasised end to end. */
 .graph__edges marker path {
   fill: var(--ink-soft);
+  fill: context-stroke;
 }
 
 /*
  * A node is a button: it opens the ticket, and nothing else. The button
  * defaults are undone here rather than avoided, so the node keeps being
- * reachable from the keyboard and announced as an action.
+ * reachable from the keyboard and announced as an action. Its height is fixed,
+ * which is also what puts the arrows back where they belong: they leave at
+ * `y + height`, and a node that grew with its title used to send them out from
+ * inside itself.
  */
 .node {
   position: absolute;
   display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  align-items: stretch;
-  gap: 0.5rem;
-  padding: 0.7rem 0.8rem;
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding: 0.5rem 0.6rem;
   text-align: left;
   font: inherit;
   color: inherit;
@@ -455,20 +531,62 @@ button[disabled] {
   border: 1px solid var(--line);
   border-left-width: 5px;
   border-radius: var(--radius);
+  overflow: hidden;
+  /* A ticket written mid-course rewraps its layer, so every node of the block
+     moves: the eye follows a move it can see, and loses a graph that jumps. */
+  transition:
+    left 200ms ease,
+    top 200ms ease;
 }
 
-.node[data-selected] {
-  box-shadow: 0 0 0 3px var(--accent);
+.node__glyph {
+  flex: none;
+  margin-top: 0.15rem;
+  fill: currentColor;
 }
 
-/* Kind: a border style as well as a colour, readable without either. */
+.node__title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+/*
+ * Which repository builds it, on a feature carrying several. Three letters and
+ * a tooltip: the node is 176 px wide and the name is not what one comes to the
+ * map for.
+ */
+.node__repository {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.4rem;
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.node:has(.node__repository) .node__title {
+  padding-right: 1.8rem;
+}
+
+/*
+ * Kind, by silhouette. The stripe keeps saying it a second time, by style and
+ * by a neutral colour: EMOrange marks what waits on the developer and nothing
+ * else, so a decision ticket nobody is waiting on has no business being warm.
+ */
 .node[data-kind="build"] {
-  border-left-color: var(--accent);
+  border-left-color: var(--ink-soft);
 }
 
 .node[data-kind="decision"] {
   border-left-style: dashed;
-  border-left-color: var(--attention);
+  border-left-color: var(--ink-soft);
 }
 
 .node[data-kind="fix"] {
@@ -476,103 +594,109 @@ button[disabled] {
 }
 
 /*
- * The frontier: what can be launched now, in relief against the rest. Three
- * sides rather than the shorthand, so a ticket on the frontier keeps the left
- * stripe that says what kind it is.
+ * The five families, by ring. Blocked has none and sinks into the ground, the
+ * frontier and what is in flight take a solid ring, what waits on a person
+ * takes a dashed one in the single warm colour of the interface, and what is
+ * settled fades. In greyscale the four rings are still told apart: absent,
+ * solid, solid on a tinted ground, dashed.
  */
-.node[data-state="ready"] {
-  border-top-color: var(--accent);
-  border-right-color: var(--accent);
-  border-bottom-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
-.node[data-state="blocked"] {
+.node[data-family="blocked"] {
   background: var(--surface-sunken);
   color: var(--ink-soft);
 }
 
-.node[data-state="merged"] {
-  opacity: 0.7;
+.node[data-family="ready"] {
+  outline: 2px solid var(--accent);
 }
 
-/*
- * Asked for and waiting for a place: it belongs to the frontier still, so it
- * keeps its relief, dimmed to say that nothing is happening on it yet.
- */
-.node[data-state="queued"] {
-  border-top-color: var(--accent);
-  border-right-color: var(--accent);
-  border-bottom-color: var(--accent);
-  border-style: dashed;
-  border-left-style: solid;
-}
-
-.node[data-state="queued"] .chip--state {
-  border-color: var(--accent);
-  color: var(--accent);
-  font-weight: 600;
-}
-
-/* In flight: the one node that is changing while it is being looked at. */
-.node[data-state="running"] {
-  border-top-color: var(--accent);
-  border-right-color: var(--accent);
-  border-bottom-color: var(--accent);
+.node[data-family="running"] {
+  outline: 2px solid var(--accent);
   background: var(--accent-soft);
 }
 
-.node[data-state="running"] .chip--state {
-  border-color: var(--accent);
-  color: var(--accent);
-  font-weight: 600;
+.node[data-family="awaiting-developer"] {
+  outline: 2px dashed var(--attention);
+}
+
+.node[data-family="settled"] {
+  opacity: 0.55;
 }
 
 /*
- * Stopped, and asking for a decision: what failed, what was cut off and what is
- * stuck on a conflict all wait for the developer to choose an angle, so they
- * read the same way.
+ * What stopped, what was cut off and what is stuck on a conflict all wait for
+ * the developer, so they wear that family's ring; the red says again, inside
+ * the family, that this one is not going well. The exact state is a tooltip, a
+ * label and a click away.
  */
 .node[data-state="failed"],
 .node[data-state="interrupted"],
 .node[data-state="conflict"] {
-  border-top-color: var(--danger);
-  border-right-color: var(--danger);
-  border-bottom-color: var(--danger);
+  outline-color: var(--danger);
 }
 
-.node[data-state="failed"] .chip--state,
-.node[data-state="interrupted"] .chip--state,
-.node[data-state="conflict"] .chip--state {
-  border-color: var(--danger);
+.node[data-state="failed"] .node__glyph,
+.node[data-state="interrupted"] .node__glyph,
+.node[data-state="conflict"] .node__glyph {
   color: var(--danger);
-  font-weight: 600;
 }
 
 /*
- * Squad's own work on a validated step: nobody is waiting for anything, and
- * nothing is asked of the reader. It fades towards the merged look it is on its
- * way to, so a graph draining reads as a graph settling down.
+ * In flight: the one node that changes while it is being looked at. Movement
+ * rather than a shade, because movement is what survives being shrunk to a
+ * third of its size, where ready and running would otherwise look alike.
  */
-.node[data-state="merging"] {
-  opacity: 0.85;
-  border-style: dashed;
-  border-left-style: solid;
+.node__pulse {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.45rem;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: node-pulse 1.6s ease-in-out infinite;
 }
 
-.node__title {
-  margin: 0;
-  font-weight: 600;
-  line-height: 1.3;
+@keyframes node-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(0.65);
+  }
 }
 
-.node__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin: 0;
+.node__settled {
+  position: absolute;
+  right: 0.45rem;
+  bottom: 0.4rem;
+  color: var(--ink-soft);
 }
 
+/*
+ * Two concentric rings and they mean two things: the outer one is the family,
+ * the inner halo is the selection. Pushing the family ring outwards is what
+ * keeps them from being drawn on top of each other.
+ */
+.node[data-selected] {
+  box-shadow: 0 0 0 3px var(--accent);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .node,
+  .graph__edge {
+    transition: none;
+  }
+
+  .node__pulse {
+    animation: none;
+  }
+}
+
+/* Shared with the panels: a small round label that names something without shouting. */
 .chip {
   font-size: 0.72rem;
   letter-spacing: 0.04em;
@@ -581,47 +705,6 @@ button[disabled] {
   border-radius: 999px;
   border: 1px solid var(--line);
   color: var(--ink-soft);
-}
-
-.node[data-state="ready"] .chip--state {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 600;
-}
-
-/*
- * A reported step waits for a person too, but for a reading rather than for a
- * choice. Same colour as a decision, and that is the point: the colour names
- * the developer's turn, not which kind of turn it is.
- */
-.node[data-state="awaiting-validation"] {
-  border-top-color: var(--attention);
-  border-right-color: var(--attention);
-  border-bottom-color: var(--attention);
-  box-shadow: 0 0 0 3px var(--surface-sunken);
-}
-
-.node[data-state="awaiting-validation"] .chip--state {
-  border-color: var(--attention);
-  color: var(--attention);
-  font-weight: 600;
-}
-
-/*
- * A decision waits for a person, so it is neither in relief like the frontier
- * nor greyed out like something blocked: it is the one node asking to be read.
- */
-.node[data-state="awaiting-decision"] {
-  border-top-color: var(--attention);
-  border-right-color: var(--attention);
-  border-bottom-color: var(--attention);
-}
-
-.node[data-state="awaiting-decision"] .chip--state {
-  border-color: var(--attention);
-  color: var(--attention);
-  font-weight: 600;
 }
 
 /*

@@ -60,6 +60,8 @@
    * Darkened on the light ground, where EMOrange itself reads at 2.8:1.
    */
   --attention: light-dark(#b0550f, #ef7b26);
+  /* The same warmth, laid flat behind it: a ground, never a text colour. */
+  --attention-soft: light-dark(#fbeadd, #37220f);
   --radius: 10px;
 }
 
@@ -138,10 +140,58 @@ body {
   color: inherit;
 }
 
-.app__header p {
+/*
+ * The mark leads home from every screen but the home screen itself, where it
+ * leads nowhere and is drawn as the plain mark it is.
+ */
+.brand__link {
+  display: flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  border-radius: var(--radius);
+}
+
+.brand__link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/*
+ * What this screen is about, in the header: with one tab per feature, four
+ * squad tabs are told apart by their subject and by nothing else.
+ */
+.app__subject {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 32rem;
+}
+
+.app__tagline,
+.app__repositories {
   margin: 0;
   color: var(--ink-soft);
+  font-size: 0.85rem;
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * The feature's header is dense on purpose: every line it takes is a line the
+ * map does not get, and the map is what this tab is for.
+ */
+.app__header--feature {
+  gap: 0.6rem;
+  row-gap: 0.35rem;
 }
 
 /*
@@ -235,7 +285,19 @@ body {
   min-height: 0;
 }
 
+/* Without a rail, the map takes the whole row rather than leaving a hole. */
+.app__work--narrow {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/*
+ * Every child of the row is placed by hand, none auto: the thread drawer shares
+ * the map's cell, and an automatically placed map would be pushed out of a cell
+ * the drawer had already claimed rather than laid underneath it.
+ */
 .rail {
+  grid-column: 1;
+  grid-row: 1;
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -243,13 +305,20 @@ body {
   overflow-y: auto;
 }
 
-/* What squad is set up with: three doors to three dialogs, and nothing else. */
-.rail__setup {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.4rem;
-  padding: 0 0.25rem 0.5rem;
+/*
+ * Under a certain width the rail steps out of the row and onto the map, opened
+ * by a button in the header. Three zones and a drawer do not fit side by side
+ * on a laptop, and stacking them would give up the fixed height the shell is
+ * built on.
+ */
+.rail--over {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: min(20rem, 80vw);
+  box-shadow: 0 12px 40px light-dark(rgb(15 20 32 / 0.16), rgb(0 0 0 / 0.55));
 }
 
 /* A screen of its own, settings for now: it scrolls in its own right. */
@@ -258,7 +327,10 @@ body {
   overflow-y: auto;
 }
 
+/* The last column, so the map takes it whether the rail is in the row or over it. */
 .panel--graph {
+  grid-column: -2;
+  grid-row: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -284,19 +356,16 @@ body {
 }
 
 /*
- * The drawer: the ticket being read, or the thread of the main session when no
- * ticket is open. Folded away when the whole chantier is what one wants to
- * look at, which is the only thing a permanent panel over a map gets wrong.
+ * Two drawers, both laid over the map rather than taking a column and a row
+ * from it: the ticket along the right for as long as a node is selected, and
+ * the feature's own thread along the bottom. Overlaying is what ADR 0006 asks
+ * for, opening one must not resize the viewport, or the framing the reader has
+ * just made would be undone by the very click that needed it. What they cover
+ * is handed to the map, which translates a node back out from underneath.
  */
 .drawer {
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.5rem;
   z-index: 2;
   pointer-events: none;
 }
@@ -305,16 +374,59 @@ body {
   pointer-events: auto;
 }
 
+/* The ticket: present exactly while a node is selected, and no wider than asked. */
+.drawer--ticket {
+  top: 0;
+  right: 0;
+  bottom: var(--obstructed-bottom, 0px);
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/*
+ * The thread: along the bottom of the map, and of the map only. Placed in the
+ * map's own grid cell rather than positioned by hand, so it never covers the
+ * waiting column beside it and needs no rail width written down twice. The last
+ * column, so it lands on the map whether the rail is in the row or over it.
+ */
+.drawer--thread {
+  position: relative;
+  grid-column: -2;
+  grid-row: 1;
+  align-self: end;
+  margin-right: var(--obstructed, 0px);
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.drawer--thread .panel {
+  width: 100%;
+}
+
+.drawer__bar {
+  margin: 0;
+  display: flex;
+}
+
 .drawer__handle {
-  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   font: inherit;
   font-size: 0.78rem;
-  padding: 0.25rem 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.3rem 0.8rem;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-bottom: 0;
+  border-radius: var(--radius) var(--radius) 0 0;
   background: var(--surface);
   color: var(--ink-soft);
   cursor: pointer;
+}
+
+.drawer--open .drawer__handle {
+  color: var(--accent);
 }
 
 .drawer .panel {
@@ -324,33 +436,71 @@ body {
   box-shadow: 0 12px 40px light-dark(rgb(15 20 32 / 0.16), rgb(0 0 0 / 0.55));
 }
 
-@media (max-width: 1280px) {
-  .app__work {
-    grid-template-columns: minmax(0, 14rem) minmax(0, 1fr);
-  }
-}
-
 /*
- * Setting squad up, in a native dialog: the modal state, the focus trap, the
- * backdrop and Escape all come from the browser, and those are exactly what a
- * hand-built dialog gets wrong.
+ * The edge one pulls to give a drawer its size. Wider than it looks, because a
+ * one-pixel target is a target one misses, and it carries the cursor that says
+ * it can be pulled.
  */
-.dialog {
-  width: min(44rem, calc(100vw - 3rem));
-  max-height: calc(100dvh - 4rem);
-  padding: 1.25rem;
+.grip {
+  position: absolute;
+  z-index: 1;
+  background: transparent;
+}
+
+.grip--width {
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 9px;
+  cursor: col-resize;
+}
+
+.grip--height {
+  left: 0;
+  right: 0;
+  top: -4px;
+  height: 9px;
+  cursor: row-resize;
+}
+
+.grip:hover,
+.grip:focus-visible {
+  background: var(--accent-soft);
+}
+
+/* How many things wait, said as a number beside what they wait on. */
+.count {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
   border: 1px solid var(--line);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  text-transform: none;
+}
+
+/* EMOrange marks what waits on a person, here as it does on the map. */
+.count--waiting {
+  border-color: var(--attention);
+  background: var(--attention-soft);
+  color: var(--attention);
+}
+
+/* What just happened and could not be honoured: a dead link, mostly. */
+.notice {
+  margin: 0 0 1.25rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--attention);
   border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--ink);
-  overflow-y: auto;
+  background: var(--attention-soft);
+  color: var(--attention);
 }
 
-.dialog::backdrop {
-  background: light-dark(rgb(15 20 32 / 0.4), rgb(0 0 0 / 0.6));
-}
-
-.dialog__header {
+/* The home screen: a title on the left, the one gesture on the right. */
+.home__head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -358,7 +508,12 @@ body {
   margin-bottom: 1rem;
 }
 
-.dialog__header h2 {
+.home__head h2 {
+  margin: 0;
+}
+
+.home__summary {
+  display: inline;
   margin: 0;
   font-size: 1rem;
   text-transform: uppercase;
@@ -366,15 +521,47 @@ body {
   color: var(--accent);
 }
 
-/* A panel opened inside a dialog is already framed by it. */
-.dialog .panel {
-  border: 0;
-  padding: 0;
-  background: transparent;
+.app__screen > .panel + .panel,
+.app__screen > .panel + details.panel {
+  margin-top: 1.25rem;
 }
 
-.dialog .form {
+details.panel summary {
+  cursor: pointer;
+}
+
+/* A row that is a whole feature has room to breathe. */
+.row--feature {
+  padding-block: 0.6rem;
+}
+
+/* Picking a conversation: a list that has to stay inside the form around it. */
+.picker {
+  display: grid;
+  gap: 0.5rem;
+  max-height: 22rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+/* A form that is the whole screen, rather than a corner of a panel. */
+.form--wide {
+  max-width: 46rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.25rem;
   margin-bottom: 0;
+}
+
+@media (max-width: 1280px) {
+  .app__work {
+    grid-template-columns: minmax(0, 14rem) minmax(0, 1fr);
+  }
+
+  .app__work--narrow {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .panel {

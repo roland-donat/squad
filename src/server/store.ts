@@ -420,7 +420,9 @@ export class Store {
       projectId: project.id,
       title: input.title,
       resumedSessionId: input.resumedSessionId ?? null,
-      goAsRecommended: false,
+      // As the caller declared it, so a feature is born under the mode it was
+      // opened with rather than under one it is put into a moment later.
+      goAsRecommended: input.goAsRecommended,
       autonomyHaltReason: null,
       autonomyHaltDetail: null,
       autonomyHaltedAt: null,

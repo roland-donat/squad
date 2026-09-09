@@ -10,6 +10,7 @@ import {
   ticketSettlementRoute,
   ticketTestSheetRoute,
   type AnswerQuestionBody,
+  type AttachRecordedSessionBody,
   type ApiErrorBody,
   type ErrorCode,
   type Feature,
@@ -213,11 +214,15 @@ export async function listRecordedSessions(
 
 /**
  * Turns a recorded conversation into a feature: its repository is registered if
- * squad did not know it, and its main session is that conversation resumed.
+ * squad did not know it, and its main session is that conversation resumed. The
+ * project comes back as well as the feature, since this is where the caller
+ * learns which repository it just handed squad.
  */
-export async function attachRecordedSession(sessionId: string): Promise<Feature> {
-  const { feature } = await send<{ feature: Feature }>(attachRecordedSessionRoute(sessionId), {});
-  return feature;
+export async function attachRecordedSession(
+  sessionId: string,
+  body: AttachRecordedSessionBody,
+): Promise<{ project: Project; feature: Feature }> {
+  return send<{ project: Project; feature: Feature }>(attachRecordedSessionRoute(sessionId), body);
 }
 
 async function read<T>(route: string): Promise<T> {

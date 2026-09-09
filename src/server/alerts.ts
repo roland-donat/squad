@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import type { AutonomyHaltReason } from "../shared/api";
-import { piloting, routePath } from "../shared/ui-routes";
+import { feature as featureRoute, routePath } from "../shared/ui-routes";
 import type { Store } from "./store";
 
 /**
@@ -155,14 +155,17 @@ export class Alerts {
    * worth saying even when there is nothing left to open.
    */
   private linkTo(at: AlertTarget): string | null {
-    const feature = this.store.feature(at.featureId);
-    if (feature === null) return null;
+    const alerted = this.store.feature(at.featureId);
+    if (alerted === null) return null;
     return this.uiUrl(
       routePath(
-        piloting({
-          projectId: feature.projectId,
-          featureId: feature.id,
+        featureRoute(alerted.id, {
           ticketId: at.ticketId,
+          // An alert about the feature itself, a question its main session
+          // asked among them, lands with the thread open: that thread is where
+          // the feature is spoken to, and an alert whose one useful gesture is
+          // answering must open on the place the answer is typed.
+          threadOpen: at.ticketId === null,
         }),
       ),
     );

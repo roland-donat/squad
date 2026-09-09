@@ -606,6 +606,14 @@ export const openFeatureBody = z.object({
   title: z.string().trim().min(1),
   /** Other registered projects this feature may build tickets in. */
   otherProjectIds: z.array(z.string().trim().min(1)).default([]),
+  /**
+   * Whether squad drives this feature on its own from the moment it exists.
+   * Declared here rather than set by a second request: how much of a piece of
+   * work one is willing to be away from is decided when the work is opened, and
+   * a feature that exists for a moment under a mode nobody chose is a feature
+   * squad could act on before being told to.
+   */
+  goAsRecommended: z.boolean().default(false),
 });
 export type OpenFeatureBody = z.infer<typeof openFeatureBody>;
 
@@ -828,6 +836,13 @@ export function featureRoute(featureId: string): string {
  */
 export const attachRecordedSessionBody = z.object({
   title: z.string().trim().min(1).optional(),
+  /**
+   * The same two settings an opened feature declares, for the same reason: a
+   * feature born of a conversation is a feature like any other, and the screen
+   * that opens one asks for both whichever door it came through.
+   */
+  otherProjectIds: z.array(z.string().trim().min(1)).default([]),
+  goAsRecommended: z.boolean().default(false),
 });
 export type AttachRecordedSessionBody = z.infer<typeof attachRecordedSessionBody>;
 

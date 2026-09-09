@@ -225,12 +225,15 @@ src/server/pull-request.ts # la description d'une pull request, écrite depuis l
 src/server/fix-ticket.ts   # le ticket qu'écrit une vérification d'intégration rouge
 src/ui/                    # interface React servie par le serveur
 src/ui/route.ts            # l'adresse : ce qui est regardé, tenu dans l'URL
+src/ui/tab.ts              # l'onglet d'une feature, nommé d'après elle
+src/ui/geometry.ts         # les tailles de panneau, tenues par le navigateur seul
+src/ui/home/               # l'accueil et la création d'une feature
+src/ui/feature/            # l'écran de travail : attente, carte, ticket, tiroir du fil
 src/ui/theme.ts            # le thème sur la page, et la copie que lit le premier rendu
 src/ui/brand/              # la marque : un seul dessin, pour l'en-tête, le favicon et le README
 src/ui/fonts/              # Open Sans sous-ensemblée, la police de la charte EdgeMind
 src/ui/graph/              # la carte : couches enveloppées, nœuds à glyphe et anneau
 src/ui/graph/viewport.ts   # le pan et le zoom de la carte, et ce qui décide du cadrage
-src/ui/Dialog.tsx          # ce qu'on fait une fois : la mise en route, hors de la coque
 src/ui/question/           # une question d'agent, ses options et sa réponse
 src/ui/settings/           # l'écran de réglages, machine et projets
 src/ui/ticket/             # le panneau d'un nœud du graphe, fiche de tests comprise
@@ -257,21 +260,33 @@ chemin sont **écrits sur la ligne** du dépôt porté et du ticket, pas recalcu
 depuis leur titre : un ticket renommé demain doit retrouver le worktree qu'il a
 ouvert aujourd'hui.
 
-### La sélection vit dans l'adresse
+### Quatre écrans, et un onglet par feature
 
-Le projet regardé, la feature ouverte et le ticket ouvert sont dans l'URL,
-`/projects/<projet>/features/<feature>/tickets/<ticket>`, et l'écran de réglages
-sous `/settings`. Trois propriétés en découlent, qu'aucun état de composant ne
-donne : un rechargement retrouve ce qui était regardé, deux onglets suivent deux
-projets à la fois, et ce qui attend une action peut être désigné par un lien.
-Les segments sont en anglais comme les routes de l'API, une adresse étant un
-identifiant technique.
+L'accueil (`/`) liste les features à plat, tous dépôts confondus, avec ce qui
+attend sur chacune. La création (`/features/new`) ouvre un chantier, de rien ou
+d'une conversation claude-code déjà menée. Une feature a **son propre onglet**,
+`/features/<feature>` et `/features/<feature>/tickets/<ticket>`, ouvert par un
+`window.open` nommé de sorte qu'y entrer deux fois ramène l'onglet plutôt que
+d'en ouvrir un second. Les réglages restent sous `/settings`. Voir l'ADR 0007.
 
-L'adresse est corrigée, jamais subie : ce qui est montré sans être nommé (le
-premier projet, à l'ouverture) se fait nommer, et ce qui est nommé sans exister
-(une feature supprimée, un lien venu d'une autre base) cesse d'être revendiqué.
-La correction attend le premier instantané du flux d'événements, sans quoi elle
-effacerait un lien avant que squad ait dit ce qu'il détient.
+Le projet n'est **pas** un niveau de navigation : une feature porte plusieurs
+dépôts, donc la ranger sous l'un d'eux serait une approximation. Les segments
+sont en anglais comme les routes de l'API, une adresse étant un identifiant
+technique.
+
+L'ouverture du tiroir de la session principale est dans l'adresse, en paramètre
+de requête (`?thread=open`) : le tiroir est orthogonal au ticket ouvert, les
+deux peuvent l'être en même temps, et une alerte sur une question de la session
+principale doit pointer un endroit où cette question se répond.
+
+L'adresse est corrigée, jamais subie. Une adresse de l'ancienne forme,
+`/projects/<projet>/features/<feature>`, est **toujours lue** : des alertes en
+portent et se cliquent des jours plus tard. Elle est réécrite dans la forme
+actuelle une fois la page chargée, et depuis l'adresse vivante, jamais depuis une
+route tenue dans un rendu, sans quoi un déplacement en cours serait défait. Une
+feature que squad ne connaît pas renvoie à l'accueil **en le disant** : avec un
+onglet par chantier, le repli silencieux sur la première feature venue ferait
+atterrir sur un travail qui n'est pas celui qu'une alerte désignait.
 
 Le serveur écrit ces adresses autant que l'interface les lit, d'où leur place
 dans `src/shared/ui-routes.ts` : une alerte porte l'adresse de la feature ou du

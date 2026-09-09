@@ -207,9 +207,7 @@ describe("ending a step, its test sheet and its alerts", () => {
     const alert = await receiver.next();
     expect(alert.text).toContain("Le store");
     expect(alert.text).toMatch(/fiche de tests/i);
-    expect(alert.text).toContain(
-      `${squad.url}/projects/${ticket.projectId}/features/${featureId}/tickets/${ticket.id}`,
-    );
+    expect(alert.text).toContain(`${squad.url}/features/${featureId}/tickets/${ticket.id}`);
 
     // And the ticket is listed as waiting on them, which is what the indicator reads.
     expect(pendingActions([await readGraph(featureId)], [])).toEqual([

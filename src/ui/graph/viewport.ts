@@ -44,13 +44,16 @@ export function useViewport({
   contentWidth,
   contentHeight,
   resetKey,
-  /** How much of the viewport's right edge the drawer covers, in screen pixels. */
+  /** How much of the viewport's right edge the ticket drawer covers, in screen pixels. */
   obstructedRight,
+  /** How much of its bottom edge the thread drawer covers, likewise. */
+  obstructedBottom,
 }: {
   contentWidth: number;
   contentHeight: number;
   resetKey: string;
   obstructedRight: number;
+  obstructedBottom: number;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const [frame, setFrame] = useState<Frame>({ scale: 1, x: 0, y: 0 });
@@ -62,6 +65,8 @@ export function useViewport({
   content.current = { width: contentWidth, height: contentHeight };
   const obstruction = useRef(obstructedRight);
   obstruction.current = obstructedRight;
+  const obstructionBottom = useRef(obstructedBottom);
+  obstructionBottom.current = obstructedBottom;
   const touched = useRef(false);
 
   const fit = useCallback(() => {
@@ -69,21 +74,25 @@ export function useViewport({
     const box = viewport.current?.getBoundingClientRect();
     const { width, height } = content.current;
     if (!box || width === 0 || height === 0) return;
-    // What is actually visible, the drawer being laid over the right of the
-    // viewport rather than beside it: framing on the whole width would centre
-    // the map half underneath it.
+    // What is actually visible, the drawers being laid over the viewport
+    // rather than beside it: framing on the whole box would centre the map half
+    // underneath them.
     const available = box.width - obstruction.current;
+    // Floored, the drawer being allowed a share of the window while this is a
+    // share of the map: a drawer taller than the map left would otherwise frame
+    // it on a negative height, which is to say entirely underneath the drawer.
+    const availableHeight = Math.max(2 * margin + 1, box.height - obstructionBottom.current);
     const scale = Math.min(
       fitCeiling,
       Math.max(
         fitFloor,
-        Math.min((available - 2 * margin) / width, (box.height - 2 * margin) / height),
+        Math.min((available - 2 * margin) / width, (availableHeight - 2 * margin) / height),
       ),
     );
     setFrame({
       scale,
       x: Math.max(margin, (available - width * scale) / 2),
-      y: Math.max(margin, (box.height - height * scale) / 2),
+      y: Math.max(margin, (availableHeight - height * scale) / 2),
     });
   }, []);
 
@@ -109,7 +118,12 @@ export function useViewport({
       return;
     }
     fit();
-  }, [fit, resetKey, contentWidth, contentHeight]);
+    // Whether a drawer is there, not how wide it is: opening or closing one
+    // changes what is visible and a map nobody has placed is framed again on
+    // what is left, but pulling its edge must not reframe the map at every
+    // pointer move, which would make it jump for the whole gesture. A map
+    // somebody has placed is not touched at all, which is the whole rule.
+  }, [fit, resetKey, contentWidth, contentHeight, obstructedRight > 0, obstructedBottom > 0]);
 
   const zoomTo = useCallback((scale: number, anchorX: number, anchorY: number) => {
     setFrame((from) => {
@@ -129,7 +143,8 @@ export function useViewport({
       const box = viewport.current?.getBoundingClientRect();
       if (!box) return;
       const visible = box.width - obstruction.current;
-      zoomTo(current.current.scale * factor, visible / 2, box.height / 2);
+      const visibleHeight = box.height - obstructionBottom.current;
+      zoomTo(current.current.scale * factor, visible / 2, visibleHeight / 2);
     },
     [zoomTo],
   );
@@ -223,10 +238,11 @@ export function useViewport({
       const right = left + box.width * from.scale;
       const bottom = top + box.height * from.scale;
       const visibleRight = viewportBox.width - obstruction.current - margin;
+      const visibleBottom = viewportBox.height - obstructionBottom.current - margin;
       let { x, y } = from;
       if (right > visibleRight) x -= right - visibleRight;
       if (left + (x - from.x) < margin) x += margin - (left + (x - from.x));
-      if (bottom > viewportBox.height - margin) y -= bottom - (viewportBox.height - margin);
+      if (bottom > visibleBottom) y -= bottom - visibleBottom;
       if (top + (y - from.y) < margin) y += margin - (top + (y - from.y));
       return x === from.x && y === from.y ? from : { ...from, x, y };
     });

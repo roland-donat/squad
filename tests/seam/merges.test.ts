@@ -779,9 +779,10 @@ describe("validating, merging, checking and delivering", () => {
     expect(alert.text).not.toMatch(/n'a pas pu partir/);
     // Two addresses, and they say two different things: the pull request on the
     // forge, and the feature in squad. This alert hangs on no ticket, so squad's
-    // own address names the feature and stops there.
+    // own address names the feature and opens its thread, which is where a
+    // feature is spoken to.
     const feature = await scene.feature();
-    expect(alert.text).toContain(`${squad.url}/projects/${feature.projectId}/features/${feature.id}`);
+    expect(alert.text).toContain(`${squad.url}/features/${feature.id}?thread=open`);
     expect(alert.text).not.toContain("/tickets/");
   });
 

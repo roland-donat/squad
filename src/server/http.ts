@@ -189,7 +189,11 @@ export function buildApiRouter({
 
   router.post(`${apiRoutes.recordedSessions}/:sessionId/attach`, async (request, response) => {
     const body = parse(attachRecordedSessionBody, request.body);
-    const attached = await resumptions.attach(request.params.sessionId, body.title);
+    const attached = await resumptions.attach(request.params.sessionId, {
+      ...(body.title === undefined ? {} : { title: body.title }),
+      otherProjectIds: body.otherProjectIds,
+      goAsRecommended: body.goAsRecommended,
+    });
     // Accepted, not done: the feature is opened and its session is resumed, and
     // what that session says arrives on the event stream like everything else.
     response.status(201).json(attached);

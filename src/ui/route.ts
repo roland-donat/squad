@@ -16,9 +16,39 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
+/** The address as the browser holds it, path and query together. */
+function currentAddress(): string {
+  return `${window.location.pathname}${window.location.search}`;
+}
+
 /** The route on screen, which follows the address whoever changed it. */
 export function useRoute(): Route {
-  return parseRoute(useSyncExternalStore(subscribe, () => window.location.pathname));
+  const address = useSyncExternalStore(subscribe, currentAddress);
+  const [pathname, search] = splitAddress(address);
+  return parseRoute(pathname, search);
+}
+
+function splitAddress(address: string): [string, string] {
+  const mark = address.indexOf("?");
+  return mark === -1 ? [address, ""] : [address.slice(0, mark), address.slice(mark)];
+}
+
+/**
+ * Puts the address into the shape squad writes today, without going anywhere:
+ * `/projects/<p>/features/<f>` still names a feature, and is still read, but it
+ * is not what squad writes any more, and leaving it in the location bar would
+ * let it be bookmarked again.
+ *
+ * Read off the live address rather than off a parsed route held in a render:
+ * the two differ for as long as a move is in flight, and rewriting from a stale
+ * one would undo that move. Nothing is announced, since what the address names
+ * is unchanged: only how it spells it.
+ */
+export function normaliseAddress(): void {
+  const address = currentAddress();
+  const [pathname, search] = splitAddress(address);
+  const canonical = routePath(parseRoute(pathname, search));
+  if (canonical !== address) window.history.replaceState(null, "", canonical);
 }
 
 /**
@@ -28,7 +58,7 @@ export function useRoute(): Route {
  */
 export function navigate(route: Route, options: { replace?: boolean } = {}): void {
   const path = routePath(route);
-  if (path === window.location.pathname) return;
+  if (path === currentAddress()) return;
   if (options.replace === true) window.history.replaceState(null, "", path);
   else window.history.pushState(null, "", path);
   for (const listener of [...listeners]) listener();

@@ -1,5 +1,5 @@
 import type { Feature, Ticket } from "../shared/api";
-import { sheetIsWaiting, sheetWasValidated } from "../shared/validation";
+import { failedPoints, sheetIsWaiting, sheetWasValidated } from "../shared/validation";
 import { alertFor, type Alerts } from "./alerts";
 
 /**
@@ -58,11 +58,24 @@ export class Validations {
 
   /**
    * A sheet the settling pass has just been through. The three ways out are the
-   * developer's own, reached without them: a point left for a human wakes them
-   * with that point alone, a point shown broken goes back to the sub-session
-   * with its evidence, and a sheet that holds throughout merges.
+   * developer's own, reached without them: a point shown broken goes back to
+   * the sub-session with its evidence, a point left for a human wakes them with
+   * that point alone, and a sheet that holds throughout merges.
+   *
+   * **What is broken goes back first, even when the sheet still holds points
+   * for a person.** A criterion a command proves false is work that is not
+   * done, and the wording of a screen that is about to be rewritten is not
+   * worth a reading: the correction reports a step of its own, that step has a
+   * sheet of its own, and the developer judges once, on work that has settled.
+   * Measured on the ten sheets that opened this: five of them held both, and
+   * the order below is 15 points of judgement the developer does not spend on
+   * work already known to be changing.
    */
   async afterSettling(ticket: Ticket): Promise<void> {
+    if (failedPoints(ticket.stepReport).length > 0) {
+      await this.dependencies.subSessions.correct(ticket);
+      return;
+    }
     if (sheetIsWaiting(ticket.stepReport)) {
       this.dependencies.alerts.raise(alertFor.testSheetWaiting(ticket));
       return;

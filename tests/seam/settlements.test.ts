@@ -267,6 +267,43 @@ describe("the settling pass, between a test sheet and the developer", () => {
     expect(receiver.received()).toEqual([]);
   });
 
+  it("renvoie en correction avant de réveiller, même s'il reste du jugement", async () => {
+    const { featureId, ticket, settled } = await start({
+      coverage: [{ verdict: "automated" }, { verdict: "automated" }],
+      suggestions: ["Ouvrir une base écrite par la version précédente", "Relire le libellé du bouton"],
+      settle: async (points, agent) => {
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: points.map((pointId, index) => ({
+            pointId,
+            outcome: index === 0 ? "broken" : "human",
+            note:
+              index === 0
+                ? "Lancé : la migration 0004 échoue sur une colonne absente."
+                : "Aucune commande ne dit si un libellé se lit bien.",
+          })),
+        });
+      },
+    });
+    const receiver = await catchAlerts();
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    await settled;
+    // Ce qui est prouvé faux repart tout de suite : juger la formulation d'un
+    // écran qu'on sait devoir réécrire ne vaut pas d'être réveillé.
+    await until("the correction to reach the sub-session", async () => {
+      const thread = await readTicketThread(ticket.id);
+      return thread.some(
+        (entry) => entry.kind === "pilot" && entry.text.includes("la migration 0004 échoue"),
+      );
+    });
+    expect(receiver.received()).toEqual([]);
+    const graph = await readGraph(featureId);
+    const current = graph.tickets.find((each) => each.id === ticket.id) as Ticket;
+    expect(current.state).toBe("running");
+  });
+
   it("ne remonte au développeur que ce que la passe lui laisse", async () => {
     const { featureId, stream, ticket, settled } = await start({
       coverage: [{ verdict: "automated" }, { verdict: "automated" }],

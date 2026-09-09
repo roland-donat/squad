@@ -113,11 +113,19 @@ test("opens a feature from the home screen and reads the graph an agent wrote", 
   await expect(work.getByLabel("Quelle disposition, décision, bloqué")).toBeVisible();
   await expect(work.locator(".graph__edge")).toHaveCount(2);
 
-  // The drawer folds away, and the address is what says so: this is what an
-  // alert about a question of the main session links to.
-  await work.getByRole("button", { name: /Session principale/ }).click();
+  // The drawer squad opened on an empty graph folds away by itself now that
+  // there is a graph to look at, and the address is what says so.
   await expect(work).not.toHaveURL(/thread=open/);
   await expect(thread).toBeHidden();
+
+  // Placing it is what takes it out of squad's hands, and the address carries
+  // that too: this is what an alert about a question of the main session links
+  // to, and it is not folded away under whoever followed it.
+  await work.getByRole("button", { name: /Session principale/ }).click();
+  await expect(work).toHaveURL(/thread=open/);
+  await expect(thread).toBeVisible();
+  await work.getByRole("button", { name: /Session principale/ }).click();
+  await expect(work).not.toHaveURL(/thread=open/);
 
   // The map is navigated rather than scrolled: the wheel zooms, and the key
   // that recentres puts it back exactly where the framing had left it.

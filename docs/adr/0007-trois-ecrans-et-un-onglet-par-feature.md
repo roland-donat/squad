@@ -72,11 +72,17 @@ viewport, sans quoi le cadrage qu'on vient de faire serait défait par le clic m
 qui en avait besoin. Ce qu'ils masquent est déclaré à la carte, qui ramène un nœud
 couvert par une translation, sans toucher à l'échelle.
 
-Le tiroir du fil est ouvert tant que le graphe est vide, fermé ensuite : une feature
-sans graphe n'a que son fil pour objet. Il **ne s'ouvre jamais tout seul** quand une
-question arrive ; l'agent bloqué lève déjà une alerte et figure déjà dans la liste
-d'attente, et déplacer la moitié de l'écran sous quelqu'un qui lit un rapport
-d'étape ne gagnerait rien.
+Le tiroir du fil **suit le graphe tant que personne ne l'a placé** : ouvert tant que
+le graphe est vide, une feature sans graphe n'ayant que son fil pour objet, et refermé
+quand le découpage arrive, cette raison ayant disparu. C'est la règle du cadrage de la
+carte (ADR 0006), pour le même motif : squad peut déplacer ce que personne n'a placé,
+jamais ce que quelqu'un a placé. D'où la restriction, **squad ne referme que ce qu'il a
+ouvert** : une adresse qui demandait le fil, une alerte sur une question de la session
+principale entre autres, n'est jamais repliée sous celui qui l'a suivie.
+
+Il **ne s'ouvre jamais tout seul** quand une question arrive ; l'agent bloqué lève déjà
+une alerte et figure déjà dans la liste d'attente, et déplacer la moitié de l'écran sous
+quelqu'un qui lit un rapport d'étape ne gagnerait rien.
 
 Son ouverture vit dans l'adresse, en paramètre de requête (`?thread=open`) et non en
 segment de chemin : le tiroir est orthogonal au ticket ouvert, les deux peuvent

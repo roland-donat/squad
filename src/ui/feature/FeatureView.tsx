@@ -62,29 +62,52 @@ export function FeatureView({
   // second tab on the same graph.
   useEffect(() => claimTabName(feature.id), [feature.id]);
 
-  const go = (selection: { ticketId?: string | null; threadOpen?: boolean }) =>
+  /**
+   * What squad opened by itself, per feature and per tab, and may therefore
+   * close by itself.
+   *
+   * The drawer follows the graph while nobody has placed it: a feature whose
+   * graph is empty is a feature whose whole business is its thread, since that
+   * is where the spec is pasted and the breakdown asked for, and once the
+   * breakdown exists that reason is gone. Same rule as the map's framing in ADR
+   * 0006, and for the same reason: squad may move what nobody has placed, never
+   * what someone has.
+   *
+   * Which is why the closing is allowed only on a drawer squad opened. An
+   * address that asked for the thread, an alert about a question of the main
+   * session among them, is never folded away under the person who followed it.
+   */
+  const auto = useRef<{ feature: string | null; opened: boolean }>({
+    feature: null,
+    opened: false,
+  });
+
+  const go = (selection: { ticketId?: string | null; threadOpen?: boolean }) => {
+    // Placing the drawer is what takes it out of squad's hands.
+    if (selection.threadOpen !== undefined) auto.current.opened = false;
     navigate(
       featureRoute(feature.id, {
         ticketId: selection.ticketId === undefined ? route.ticketId : selection.ticketId,
         threadOpen: selection.threadOpen === undefined ? route.threadOpen : selection.threadOpen,
       }),
     );
+  };
 
-  // The drawer is open while there is nothing else to look at, and closed once
-  // there is. A feature whose graph is empty is a feature whose whole business
-  // is its thread: the spec is pasted there and the breakdown asked for there.
-  // Applied once per feature and per tab, so closing it is not undone at the
-  // next render, and the address stays what says where the drawer stands.
-  const defaulted = useRef<string | null>(null);
+  const written = graph.tickets.length > 0;
   useEffect(() => {
-    if (!state.loaded || defaulted.current === feature.id) return;
-    defaulted.current = feature.id;
-    if (graph.tickets.length === 0 && !route.threadOpen) {
-      navigate(featureRoute(feature.id, { ticketId: route.ticketId, threadOpen: true }), {
-        replace: true,
-      });
+    if (!state.loaded) return;
+    const here = featureRoute(feature.id, { ticketId: route.ticketId, threadOpen: !written });
+    if (auto.current.feature !== feature.id) {
+      auto.current = { feature: feature.id, opened: !written && !route.threadOpen };
+      if (auto.current.opened) navigate(here, { replace: true });
+      return;
     }
-  }, [state.loaded, feature.id, graph.tickets.length, route.ticketId, route.threadOpen]);
+    // The breakdown has arrived under a drawer squad opened on its absence.
+    if (written && auto.current.opened && route.threadOpen) {
+      auto.current.opened = false;
+      navigate(here, { replace: true });
+    }
+  }, [state.loaded, feature.id, written, route.ticketId, route.threadOpen]);
 
   /** Opens what an entry of the waiting list points at, wherever it lives. */
   function open(action: PendingAction) {

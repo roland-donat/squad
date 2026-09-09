@@ -13,8 +13,14 @@ export interface AgentLauncher {
   open(request: OpenAgentSession): Promise<AgentSession>;
 }
 
-/** Whether the session drives a whole feature or a single ticket. */
-export type AgentSessionRole = "main" | "sub";
+/**
+ * What squad opened this session for. `main` drives a whole feature and `sub`
+ * builds one ticket; the other two are opened for a single job and end with it,
+ * and neither becomes the ticket's sub-session. Declared rather than left to be
+ * guessed from the first message: what a session is for decides what it may do.
+ */
+export const agentSessionRoles = ["main", "sub", "settling", "resolving"] as const;
+export type AgentSessionRole = (typeof agentSessionRoles)[number];
 
 export interface OpenAgentSession {
   role: AgentSessionRole;

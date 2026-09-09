@@ -122,6 +122,10 @@ describe("validating, merging, checking and delivering", () => {
           }
           return;
         }
+        // A settling pass this scenario does not script: it ends without
+        // answering, so the sheet reaches the developer untouched, which is
+        // what these scenarios are about.
+        if (agent.request.role === "settling") return;
         const title = titles.get(agent.request.ticketId ?? "") ?? "";
         await options.subSession(agent, title);
       }),
@@ -771,6 +775,10 @@ describe("validating, merging, checking and delivering", () => {
           titles.set(created.id, created.title);
           return;
         }
+        // A settling pass this scenario does not script: it ends without
+        // answering, so the sheet reaches the developer untouched, which is
+        // what these scenarios are about.
+        if (agent.request.role === "settling") return;
         await agent.awaitMessage();
         const title = titles.get(agent.request.ticketId ?? "") ?? "";
         await commitFile(

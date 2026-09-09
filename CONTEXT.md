@@ -126,12 +126,28 @@ critères retouchés après coup ne doivent pas changer ce qui a été mis sous 
 développeur. Une fiche non validée interdit la fusion.
 _Éviter_ : checklist, plan de test, recette, QA
 
+**Dépouillement** (`Settlement`) :
+La passe que squad fait sur une fiche de tests avant de réveiller qui que ce soit : une
+session ouverte pour ce seul travail, dans le worktree du ticket, qui lance ce qui répond
+à un point et ne rend que ce qu'aucune commande ne tranche. Elle ne modifie rien, ne
+commite pas et ne fusionne pas ; ce qu'elle trouve cassé repart à la sous-session qui l'a
+construit. Trois issues par point : `holds`, le point tient, `broken`, il ne tient pas,
+`human`, seul un humain peut le dire, et seule la dernière arrive au développeur. Chaque
+issue porte obligatoirement la note de ce qui a été lancé, ou de pourquoi rien ne peut
+l'être. **Le repli va vers l'humain** : une passe qui échoue, qui se termine sans rien
+déclarer ou que squad n'a pas pu ouvrir laisse la fiche exactement telle que la
+sous-session l'a écrite.
+_Éviter_ : relecture, revue, contrôle qualité, filtre
+
 **Point de vérification** (`TestSheetPoint`) :
 Une ligne de la fiche. Elle vient soit d'un critère d'acceptation que seul un humain peut
 trancher, et elle le nomme, soit d'une suggestion libre de l'agent, et elle n'en nomme
 aucun : un champ déclaré les distingue, jamais leur formulation. Cochée, elle est
 vérifiée ; laissée décochée avec un commentaire, c'est ce commentaire qui repart dans la
-sous-session.
+sous-session. Le dépouillement écrit sur elle avant le développeur, dans un champ à part :
+le verdict reste le mot du développeur, l'issue du dépouillement est celui de squad, et
+lire les deux dit qui a conclu quoi. Un point qu'une passe a réglé n'est plus demandé au
+développeur, sa preuve est lue à la place.
 _Éviter_ : item, case, entrée
 
 **Alerte** (`Alert`) :

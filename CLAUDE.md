@@ -215,6 +215,7 @@ src/server/resumptions.ts  # une conversation enregistrée devient une feature
 src/server/autonomy.ts     # go-as-recommandé : ce qui part seul, et ce qui l'arrête
 src/server/scheduler.ts    # ce qui part maintenant : fonction pure du graphe et des plafonds
 src/server/validations.ts  # ce qui suit une fiche : fusionner, corriger, ou attendre
+src/server/settlements.ts  # la passe qui vide une fiche de ce qu'une commande tranche
 src/server/merges.ts       # la chaîne de fusion, sérialisée par projet, jusqu'à la livraison
 src/server/integration.ts  # la commande de vérification du projet, sur la branche de feature
 src/server/forge.ts        # la ligne de commande `gh` : pousser, ouvrir, faire fusionner

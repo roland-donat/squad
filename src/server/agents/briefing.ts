@@ -150,13 +150,23 @@ export function resumeInstruction(angle: LaunchAngle, why: string): string {
  * wording up.
  */
 export function correctionInstruction(ticket: Ticket, report: StepReport): string {
-  const rejected = failedPoints(report).map((point) =>
-    point.comment === null
+  // Who says a point failed decides how it reads: the developer left a comment,
+  // squad's settling pass left what it ran and what that answered. Naming the
+  // author matters, since one is an opinion to honour and the other a command
+  // to reproduce.
+  const rejected = failedPoints(report).map((point) => {
+    if (point.settlement !== null) {
+      return `- ${point.text}\n  Squad ran it and it did not hold: ${point.settlement.note}`;
+    }
+    return point.comment === null
       ? `- ${point.text}`
-      : `- ${point.text}\n  The developer said: ${point.comment}`,
-  );
+      : `- ${point.text}\n  The developer said: ${point.comment}`;
+  });
+  const settledOnly = failedPoints(report).every((point) => point.settlement !== null);
   return [
-    "The developer went through the test sheet of this step and left points unchecked. Correct them here, on this branch, in this worktree.",
+    settledOnly
+      ? "Squad went through the test sheet of this step before waking anyone, and points did not hold. Correct them here, on this branch, in this worktree."
+      : "The developer went through the test sheet of this step and left points unchecked. Correct them here, on this branch, in this worktree.",
     "",
     rejected.length === 0 ? "No point was named." : "What did not pass:",
     ...rejected,
@@ -197,5 +207,54 @@ export function conflictResolutionInstruction(featureBranch: string): string {
     "Work in this worktree only. Do not switch branches, do not touch any other checkout, and do not push anything.",
     "",
     "If the conflict cannot be settled without deciding something the ticket does not answer, leave the merge unfinished rather than guessing: squad will put the ticket in front of the developer.",
+  ].join("\n");
+}
+
+/**
+ * What a settling session is told. It is opened for one job, in the ticket's own
+ * worktree, and it is not the ticket's sub-session: it built nothing, it owes no
+ * report, and it must not commit.
+ *
+ * Its whole purpose is to spare the developer what a command can answer. The
+ * measure that opened this work: on ten sheets, 40 of 48 waiting points were
+ * free suggestions, and passing two of those sheets by hand left nothing at all
+ * for a person.
+ */
+export function settlingBriefing(feature: Feature, ticket: Ticket): string {
+  return [
+    `You are a test sheet settling session opened by squad on the ticket "${ticket.title}", whose ticket id is ${ticket.id}, on the feature "${feature.title}", whose feature id is ${feature.id}.`,
+    "",
+    "A sub-session finished this ticket and left a test sheet: what it believes a person has to look at. Before squad wakes anyone, you go through that sheet and empty it of everything a command can answer. What survives you is what the developer reads, and nothing else reaches them.",
+    "",
+    `You are in the ticket's own worktree, on its own branch. Read it, run whatever answers a point: the test suite, a single test, a script, a query, a git command, a browser. **Change nothing.** Do not edit files, do not commit, do not merge, do not push. What has to be corrected goes back to the sub-session that built it, not to you.`,
+    "",
+    `- \`${squadToolName(squadTools.settleSheet)}\` is how you answer, and the only way: one entry per point, exactly once each. \`holds\` when you checked it and it is true, \`broken\` when you checked it and it is false, \`human\` when no command can settle it. Pass \`featureId: "${feature.id}"\` and \`ticketId: "${ticket.id}"\`.`,
+    "",
+    "Every entry carries a note, whatever the outcome, and the note is the whole of your value: what you ran and what it answered, or why nothing can answer. A settlement without it is an assertion, and an assertion spares nobody anything.",
+    "",
+    "Hand over rather than certify when a point is about wording, ergonomics, what a screen looks like, a domain arbitration or an intent to confirm. Those are the developer's, whatever you could run around them. Hand over too when you are not sure: the fall-back is towards the person, never away from them.",
+    "",
+    "Squad reads no prose. A sheet you do not answer through the tool reaches the developer exactly as the sub-session left it, so a session that gives up costs nothing but the time it took.",
+  ].join("\n");
+}
+
+/** The one job the settling session is opened for, as its first message. */
+export function settlingInstruction(report: StepReport): string {
+  const points = report.sheet
+    .filter((point) => point.verdict === "pending")
+    .map(
+      (point) =>
+        `- [${point.id}] ${point.text}${point.criterionId === null ? " (suggestion de l'agent)" : " (critère d'acceptation)"}`,
+    );
+  return [
+    "Settle this test sheet. Here is what the sub-session left, one line per point, with the id to answer under:",
+    "",
+    ...points,
+    "",
+    "What it says of its own step, for context:",
+    "",
+    report.summary,
+    "",
+    `Answer every point through \`${squadToolName(squadTools.settleSheet)}\` once you have run what there was to run. Change nothing in this worktree.`,
   ].join("\n");
 }

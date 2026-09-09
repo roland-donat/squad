@@ -32,6 +32,9 @@ export const errorCodes = [
   "no_step_in_progress",
   "coverage_mismatch",
   "checked_without_note",
+  "sheet_not_settleable",
+  "settlement_mismatch",
+  "criterion_needs_a_person",
   "test_sheet_not_found",
   "test_sheet_already_reviewed",
   "ticket_not_mergeable",
@@ -285,6 +288,34 @@ export interface TestSheetPoint {
   verdict: SheetVerdict;
   /** What the developer said about this point, once they went through it. */
   comment: string | null;
+  /**
+   * What squad's settling pass found on this point, before anyone was woken.
+   * Null while no pass has been through, which is also what a sheet looks like
+   * when the pass failed: the fall-back is towards the developer, never away.
+   */
+  settlement: PointSettlement | null;
+}
+
+/**
+ * How a settling pass answered one point of a test sheet.
+ *
+ * `holds` and `broken` are verdicts squad may reach on its own, and each turns
+ * into the developer's own vocabulary: a point that holds is checked, a point
+ * that is broken goes back to the sub-session with the evidence. `human` is the
+ * pass saying it looked and could not: only that one reaches the developer.
+ */
+export const settlementOutcomes = ["holds", "broken", "human"] as const;
+export type SettlementOutcome = (typeof settlementOutcomes)[number];
+
+export interface PointSettlement {
+  outcome: SettlementOutcome;
+  /**
+   * What was run and what it answered, or why nothing can answer. Required
+   * whatever the outcome: a settlement without it is an assertion, and the whole
+   * value of the pass is that the developer can read what it did instead of
+   * doing it again.
+   */
+  note: string;
 }
 
 /**

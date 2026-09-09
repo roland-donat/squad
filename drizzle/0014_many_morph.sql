@@ -1,0 +1,1 @@
+ALTER TABLE `tickets` ADD `merge_head` text;

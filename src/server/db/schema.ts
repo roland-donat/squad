@@ -164,6 +164,17 @@ export const tickets = sqliteTable(
     branch: text("branch"),
     worktreePath: text("worktree_path"),
     /**
+     * The commit the ticket branch was on when squad set out to merge it.
+     *
+     * Written before the merge and kept afterwards, because it is the only
+     * thing that answers "did this work land" once the branch is gone. A merge
+     * cut short by a restart is retried at the next start, and a resolution
+     * session that carried it through itself leaves nothing to merge: without
+     * this, squad reads git's "not something we can merge" as a failure and
+     * marks a ticket failed whose work is on the feature branch.
+     */
+    mergeHead: text("merge_head"),
+    /**
      * The sub-session that ran this ticket. Kept after a failure or an
      * interruption, because relaunching resumes this session rather than
      * opening a blank one.

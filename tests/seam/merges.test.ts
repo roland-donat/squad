@@ -16,6 +16,8 @@ import {
   commitFile,
   commitSubjects,
   currentBranch,
+  deleteBranchIn,
+  detach,
   fileOnBranch,
   listBranches,
   mergeInto,
@@ -463,6 +465,66 @@ describe("validating, merging, checking and delivering", () => {
     expect(resolutions).toHaveLength(1);
     expect(merged.sessionId).not.toBeNull();
     const featureBranch = onlyRepository(await scene.feature()).worktree?.branch ?? "";
+    expect(await fileOnBranch(scene.repository, featureBranch, "partage.ts")).toBe(
+      "les deux côtés\n",
+    );
+  });
+
+  it("constate au redémarrage la fusion qu'une résolution avait déjà faite, plutôt que d'échouer dessus", async () => {
+    const second = gate();
+    const held = gate();
+    let featurePath = "";
+    const scene = await start({
+      tickets: [
+        { title: "Le store", criteria: ["La base s'ouvre"] },
+        { title: "L'API", criteria: ["Les routes répondent"] },
+      ],
+      subSession: async (agent, title) => {
+        const message = await agent.awaitMessage();
+        const directory = agent.request.workingDirectory;
+        if (message.startsWith("Merge the branch")) {
+          const branch = message.split("`")[1] ?? "";
+          expect(await mergeInto(directory, branch)).toBe(false);
+          await resolveConflictWith(directory, "les deux côtés\n");
+          // Then it goes further than it was asked, as one did on a real run:
+          // it reads squad's own failing command in the notice, replays it into
+          // the feature branch, and deletes the ticket branch behind it.
+          // Nothing confines it, and that is a decision (ADR 0004).
+          const ticketBranch = await currentBranch(directory);
+          expect(await mergeInto(featurePath, ticketBranch)).toBe(true);
+          await detach(directory);
+          await deleteBranchIn(featurePath, ticketBranch);
+          // Still in flight when squad goes down: no ending is recorded, so the
+          // ticket is left saying `merging` and the next start takes it back.
+          await held.passed;
+          return;
+        }
+        await commitFile(directory, "partage.ts", `${title}\n`, `feat: ${title}`);
+        if (title === "L'API") await second.passed;
+        await reportCovered(agent, `Fait pour ${title}.`);
+      },
+    });
+
+    await scene.launch("Le store");
+    await scene.launch("L'API");
+    await scene.reaches("Le store", "merged");
+    featurePath = onlyRepository(await scene.feature()).worktree?.path ?? "";
+    second.open();
+
+    const featureBranch = onlyRepository(await scene.feature()).worktree?.branch ?? "";
+    await expect
+      .poll(async () => fileOnBranch(scene.repository, featureBranch, "partage.ts"), {
+        timeout: 10_000,
+      })
+      .toBe("les deux côtés\n");
+
+    // Squad restarts on a ticket left saying `merging`, whose branch is gone and
+    // whose work is in. Git answers "not something we can merge", which is not a
+    // failure: a graph that says failed on merged work is worse than no graph.
+    held.open();
+    await squad.restart();
+    const merged = await scene.reaches("L'API", "merged");
+    expect(merged.worktree).toBeNull();
     expect(await fileOnBranch(scene.repository, featureBranch, "partage.ts")).toBe(
       "les deux côtés\n",
     );

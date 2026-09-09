@@ -8,7 +8,16 @@ import { alertFor, type Alerts } from "./alerts";
 import { publishGraph, type EventBus } from "./events";
 import { fixTicketFor } from "./fix-ticket";
 import { openPullRequest, requestAutoMerge } from "./forge";
-import { deleteBranch, hasRemote, mergeBranch, pushBranch, removeWorktree } from "./git";
+import {
+  branchExists,
+  branchHead,
+  deleteBranch,
+  hasRemote,
+  isMergedInto,
+  mergeBranch,
+  pushBranch,
+  removeWorktree,
+} from "./git";
 import { runVerification, type IntegrationCheck } from "./integration";
 import { pullRequestBody } from "./pull-request";
 import type { Store } from "./store";
@@ -211,6 +220,11 @@ export class Merges {
     }
     const branch = ticket.worktree.branch;
     const message = `Merge ticket "${ticket.title}" into ${featureWorktree.branch}`;
+    // Read while the branch is certainly there, and written down before the
+    // merge rather than after: what answers "did this land" when the branch is
+    // gone has to survive the run that was going to merge it.
+    const head = await branchHead(featureWorktree.path, branch);
+    if (head !== null) this.dependencies.store.recordMergeHead(ticket.id, head);
 
     let outcome = await mergeBranch(featureWorktree.path, branch, message);
     if (!outcome.merged && outcome.conflicted) {
@@ -225,6 +239,9 @@ export class Merges {
       // exactly what the next start reads as a merge to run again.
       if (this.stopping) return false;
       outcome = await mergeBranch(featureWorktree.path, branch, message);
+    }
+    if (!outcome.merged && (await this.alreadyIn(merge, head))) {
+      outcome = { merged: true };
     }
     if (!outcome.merged) {
       this.stopMerging(ticket, outcome.detail, outcome.conflicted);
@@ -250,19 +267,53 @@ export class Merges {
     return true;
   }
 
+  /**
+   * Whether the work is on the feature branch already, whoever put it there.
+   *
+   * Asked before concluding that a merge failed, because two things put it
+   * there without squad knowing. A resolution session is not confined
+   * (ADR 0004) and one of them carried the merge through itself, deleting the
+   * branch behind it. And a merge cut short by a restart is retried at the next
+   * start, on a branch the first run had already merged and cleaned up. Both
+   * leave git saying "not something we can merge", which is not a failure but a
+   * merge that already happened: reading it as one marks a ticket failed whose
+   * work is in, and a graph that says false is worse than no graph.
+   */
+  private async alreadyIn(merge: Merge, head: string | null): Promise<boolean> {
+    const known = head ?? this.dependencies.store.mergeHeadOf(merge.ticket.id);
+    if (known === null) return false;
+    if (!(await isMergedInto(merge.featureWorktree.path, known))) return false;
+    this.note(merge.ticket, {
+      kind: "notice",
+      text: "the work is on the feature branch already",
+      detail: `${merge.featureWorktree.branch} contains ${known}: squad had nothing left to merge, and says merged rather than failed`,
+    });
+    return true;
+  }
+
   /** Throws away what carried the work, and says so rather than failing. */
   private async cleanUp(
     merge: Merge,
     worktreePath: string,
     branch: string,
   ): Promise<string | null> {
+    const left: string[] = [];
     try {
       await removeWorktree(merge.project.path, worktreePath);
-      await deleteBranch(merge.featureWorktree.path, branch);
-      return null;
     } catch (failure) {
-      return failure instanceof Error ? failure.message : String(failure);
+      left.push(failure instanceof Error ? failure.message : String(failure));
     }
+    // Asked rather than assumed: a resolution session that finished the merge
+    // itself may have deleted the branch already, and saying it is still there
+    // would send the developer looking for something that is gone.
+    if (await branchExists(merge.project.path, branch)) {
+      try {
+        await deleteBranch(merge.featureWorktree.path, branch);
+      } catch (failure) {
+        left.push(failure instanceof Error ? failure.message : String(failure));
+      }
+    }
+    return left.length === 0 ? null : left.join("; ");
   }
 
   /** Where a merge stops, on the state that says why, with a word to whoever asked. */

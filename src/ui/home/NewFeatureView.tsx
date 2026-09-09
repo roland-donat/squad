@@ -10,6 +10,7 @@ import {
 } from "../api";
 import { Brand, Connection, ThemeSwitch } from "../chrome";
 import { navigate } from "../route";
+import { DirectoryPicker } from "../repository/DirectoryPicker";
 import { RecordedSessionPicker } from "../session/RecordedSessionPicker";
 import { reserveTab } from "../tab";
 import { Failure, useSubmission } from "../submission";
@@ -48,6 +49,9 @@ export function NewFeatureView({ state }: { state: SquadState }) {
     setHomeProjectId(projects[0]?.id ?? "");
   }
   const [newPath, setNewPath] = useState("");
+  // Proposed by the walk and editable afterwards: the name a repository carries
+  // on its forge is a good guess and never an answer.
+  const [newName, setNewName] = useState("");
   const [alsoOn, setAlsoOn] = useState<string[]>([]);
   const [goAsRecommended, setGoAsRecommended] = useState(false);
   const [prompt, setPrompt] = useState("");
@@ -146,7 +150,10 @@ export function NewFeatureView({ state }: { state: SquadState }) {
    */
   async function handOver(path: string): Promise<Project> {
     if (handed.current?.path === path) return handed.current.project;
-    const project = await registerProject({ path });
+    const project = await registerProject({
+      path,
+      ...(newName.trim() === "" ? {} : { name: newName.trim() }),
+    });
     handed.current = { path, project };
     return project;
   }
@@ -255,15 +262,41 @@ export function NewFeatureView({ state }: { state: SquadState }) {
                 <span>Un dépôt que squad ne pilote pas encore</span>
               </label>
               {homeProjectId === "" && (
-                <label className="field">
-                  <span>Chemin du dépôt</span>
-                  <input
-                    value={newPath}
-                    onChange={(event) => setNewPath(event.target.value)}
-                    placeholder="/home/moi/projets/mon-depot"
-                    required
-                  />
-                </label>
+                <>
+                  {/* The command beside the field rather than inside its label:
+                      a button in a label joins the name the field is announced
+                      under, and "Chemin du dépôt Parcourir" names nothing. */}
+                  <div className="field--walked">
+                    <label className="field">
+                      <span>Chemin du dépôt</span>
+                      <input
+                        value={newPath}
+                        onChange={(event) => setNewPath(event.target.value)}
+                        placeholder="/home/moi/projets/mon-depot"
+                        required
+                      />
+                    </label>
+                    <DirectoryPicker
+                      label="Parcourir"
+                      onChoose={(chosen) => {
+                        setNewPath(chosen.path);
+                        // Only what the walk proposes, and only when it proposes
+                        // something: a name already typed is a name someone chose.
+                        if (chosen.suggestedName !== null && newName.trim() === "") {
+                          setNewName(chosen.suggestedName);
+                        }
+                      }}
+                    />
+                  </div>
+                  <label className="field">
+                    <span>Nom du dépôt (facultatif)</span>
+                    <input
+                      value={newName}
+                      onChange={(event) => setNewName(event.target.value)}
+                      placeholder="repris du dossier si vide"
+                    />
+                  </label>
+                </>
               )}
             </fieldset>
           )}

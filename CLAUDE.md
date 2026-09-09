@@ -209,6 +209,7 @@ src/shared/state-family.ts # les onze états d'un ticket, ramenés aux cinq que 
 src/server/                # serveur : base, store, git, événements, routes HTTP, outils MCP
 src/server/db/             # schéma drizzle et ouverture de la base
 src/server/agents/         # lanceur d'agent : l'interface étroite et son repli
+src/server/directories.ts  # la marche dans les répertoires de la machine, en lecture seule
 src/server/alerts.ts       # bureau et webhook, avec l'adresse de ce qu'ils rapportent
 src/server/questions.ts    # ce qu'un agent demande, et l'attente que ça ouvre
 src/server/recorded-sessions.ts # les conversations claude-code, lues et jamais interprétées
@@ -229,6 +230,8 @@ src/ui/route.ts            # l'adresse : ce qui est regardé, tenu dans l'URL
 src/ui/tab.ts              # l'onglet d'une feature, nommé d'après elle
 src/ui/geometry.ts         # les tailles de panneau, tenues par le navigateur seul
 src/ui/home/               # l'accueil et la création d'une feature
+src/ui/repository/         # choisir un dépôt en le parcourant, servi par squad
+src/ui/Dialog.tsx          # le dialogue natif : état modal, piège à focus et Échap
 src/ui/feature/            # l'écran de travail : attente, carte, ticket, tiroir du fil
 src/ui/theme.ts            # le thème sur la page, et la copie que lit le premier rendu
 src/ui/brand/              # la marque : un seul dessin, pour l'en-tête, le favicon et le README

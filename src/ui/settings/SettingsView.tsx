@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Project, Settings } from "../../shared/api";
 import { registerProject, updateProject, updateSettings } from "../api";
+import { DirectoryPicker } from "../repository/DirectoryPicker";
 import { Failure, useSubmission } from "../submission";
 
 /**
@@ -69,15 +70,30 @@ function RegisterProjectForm() {
     <form className="form settings__project" onSubmit={submit}>
       <fieldset>
         <legend>Enregistrer un dépôt</legend>
-        <label className="field">
-          <span>Chemin du dépôt</span>
-          <input
-            value={path}
-            onChange={(event) => setPath(event.target.value)}
-            placeholder="/home/moi/projets/mon-depot"
-            required
+        {/* The command beside the field rather than inside its label: a button
+            in a label joins the name the field is announced under. */}
+        <div className="field--walked">
+          <label className="field">
+            <span>Chemin du dépôt</span>
+            <input
+              value={path}
+              onChange={(event) => setPath(event.target.value)}
+              placeholder="/home/moi/projets/mon-depot"
+              required
+            />
+          </label>
+          <DirectoryPicker
+            label="Parcourir"
+            onChoose={(chosen) => {
+              setPath(chosen.path);
+              // Only what the walk proposes, and only into a field nobody has
+              // written in: a name already typed is a name someone chose.
+              if (chosen.suggestedName !== null && name.trim() === "") {
+                setName(chosen.suggestedName);
+              }
+            }}
           />
-        </label>
+        </div>
         <label className="field">
           <span>Nom (facultatif)</span>
           <input
@@ -189,10 +205,16 @@ function ProjectForm({ project }: { project: Project }) {
     <form className="form settings__project" onSubmit={submit}>
       <fieldset>
         <legend>{project.name}</legend>
-        <label className="field">
-          <span>Chemin du dépôt</span>
-          <input value={path} onChange={(event) => setPath(event.target.value)} required />
-        </label>
+        <div className="field--walked">
+          <label className="field">
+            <span>Chemin du dépôt</span>
+            <input value={path} onChange={(event) => setPath(event.target.value)} required />
+          </label>
+          {/* The same walk here: moving a repository is the one time its path is
+              typed a second time, and typing it wrong sends squad's branches
+              into another repository. */}
+          <DirectoryPicker label="Parcourir" onChoose={(chosen) => setPath(chosen.path)} />
+        </div>
         <label className="field">
           <span>Branche par défaut</span>
           <input

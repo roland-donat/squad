@@ -1,5 +1,5 @@
 import { mkdir, realpath, stat } from "node:fs/promises";
-import { dirname } from "node:path";
+import { basename, dirname } from "node:path";
 import { CommandFailure, runCommand } from "./command";
 import { SquadError } from "./errors";
 
@@ -238,6 +238,33 @@ export async function deleteBranch(worktreePath: string, branch: string): Promis
 }
 
 /** Whether the repository knows a remote under this name. */
+/**
+ * What a repository would be called as a project: the name it carries on its
+ * forge when it has an `origin`, the directory's own otherwise.
+ *
+ * A repository cloned into `travail` is not a project called `travail`, and the
+ * forge holds the name its owner chose. Nothing here fails: a repository with no
+ * remote, or a git that will not answer, falls back on the directory, which is
+ * what squad called it before this existed.
+ */
+export async function repositoryName(repositoryRoot: string): Promise<string> {
+  try {
+    const url = (
+      await runCommand(repositoryRoot, "git", ["remote", "get-url", "origin"])
+    ).trim();
+    // The last segment of whichever shape the remote takes, `git@forge:owner/name.git`
+    // as well as `https://forge/owner/name`, with the suffix git adds to a bare one.
+    const name = url
+      .replace(/\.git$/, "")
+      .replace(/[/\\]+$/, "")
+      .split(/[/\\:]/)
+      .pop();
+    return name === undefined || name === "" ? basename(repositoryRoot) : name;
+  } catch {
+    return basename(repositoryRoot);
+  }
+}
+
 export async function hasRemote(repositoryRoot: string, remote: string): Promise<boolean> {
   const remotes = await runCommand(repositoryRoot, "git", ["remote"]);
   return remotes.split("\n").some((line) => line.trim() === remote);

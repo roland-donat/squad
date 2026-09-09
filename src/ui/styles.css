@@ -571,6 +571,96 @@ details.panel summary {
   }
 }
 
+/*
+ * Walking to a repository, in a native dialog: the modal state, the focus trap,
+ * the backdrop and Escape all come from the browser, and those are exactly what
+ * a hand-built dialog gets wrong. It is a dialog rather than a screen because
+ * the walk interrupts what one was filling in and gives it back finished.
+ */
+.dialog {
+  width: min(44rem, calc(100vw - 3rem));
+  max-height: calc(100dvh - 4rem);
+  padding: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  overflow-y: auto;
+}
+
+.dialog::backdrop {
+  background: light-dark(rgb(15 20 32 / 0.4), rgb(0 0 0 / 0.6));
+}
+
+.dialog__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.dialog__header h2 {
+  margin: 0;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+/*
+ * A field and the command that fills it, side by side. The command is beside
+ * the label rather than inside it: a button inside a label joins the name the
+ * field is announced under.
+ */
+.field--walked {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+/* Where the walk is, which is the one thing to read before choosing. */
+.walk__here {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0 0 0.75rem;
+}
+
+.walk__path {
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", monospace;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+/* The directories inside, scrolling on their own: a home holds a hundred. */
+.walk__entries {
+  max-height: 22rem;
+  overflow-y: auto;
+  margin-bottom: 1rem;
+}
+
+/*
+ * A repository is marked by a word, never by colour alone: the whole point of
+ * the walk is telling one directory from another at a glance.
+ */
+.walk__mark {
+  margin-left: 0.5rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+
+.walk__actions {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .panel {
   background: var(--surface);
   border: 1px solid var(--line);

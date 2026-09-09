@@ -1,6 +1,7 @@
 import {
   apiRoutes,
   attachRecordedSessionRoute,
+  directoriesRoute,
   featureRoute,
   mainSessionMessagesRoute,
   mainSessionRoute,
@@ -12,6 +13,7 @@ import {
   type AnswerQuestionBody,
   type AttachRecordedSessionBody,
   type ApiErrorBody,
+  type DirectoryListing,
   type ErrorCode,
   type Feature,
   type LaunchAngle,
@@ -195,6 +197,15 @@ export async function updateProject(
 export async function updateSettings(body: UpdateSettingsBody): Promise<Settings> {
   const { settings } = await send<{ settings: Settings }>(apiRoutes.settings, body, "PUT");
   return settings;
+}
+
+/**
+ * One step of the walk through the machine's directories. Read on request like
+ * the conversations below, and for a stronger reason: this is the filesystem,
+ * and squad holds nothing of it.
+ */
+export async function listDirectory(path?: string): Promise<DirectoryListing> {
+  return read<DirectoryListing>(directoriesRoute(path));
 }
 
 /**

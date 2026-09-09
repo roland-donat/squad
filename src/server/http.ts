@@ -40,6 +40,8 @@ export interface HttpDependencies {
   autonomy: Autonomy;
   resumptions: Resumptions;
   settlements: Settlements;
+  /** What hands out a place under the caps: a cap raised is a place freed. */
+  dispatch: { schedule(): void };
 }
 
 /**
@@ -58,6 +60,7 @@ export function buildApiRouter({
   autonomy,
   resumptions,
   settlements,
+  dispatch,
 }: HttpDependencies): express.Router {
   const router = express.Router();
   router.use(express.json());
@@ -79,7 +82,7 @@ export function buildApiRouter({
     bus.publish({ type: "project-changed", project });
     // A cap raised is a place freed: whatever was waiting on it starts now,
     // rather than at the next thing that happens to move.
-    subSessions.schedule();
+    dispatch.schedule();
     response.json({ project });
   });
 
@@ -209,7 +212,7 @@ export function buildApiRouter({
     bus.publish({ type: "settings-changed", settings });
     // The machine-wide cap lives here, so raising it frees a place just as an
     // ending sub-session does.
-    subSessions.schedule();
+    dispatch.schedule();
     response.json({ settings });
   });
 
@@ -217,7 +220,7 @@ export function buildApiRouter({
   // that serves the interface, so a session has one address for all of squad.
   router.all(
     apiRoutes.mcp,
-    buildMcpHandler({ store, bus, questions, autonomy, validations, subSessions, merges }),
+    buildMcpHandler({ store, bus, questions, autonomy, validations, dispatch, merges }),
   );
 
   router.get(apiRoutes.events, (request, response) => {

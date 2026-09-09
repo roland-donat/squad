@@ -52,7 +52,9 @@ export interface MergeDependencies {
    * provides them: a validated step's session is closed before its worktree is
    * touched, and a merge frees whatever was waiting behind the ticket.
    */
-  subSessions: { close(ticketId: string): Promise<void>; schedule(): void };
+  subSessions: { close(ticketId: string): Promise<void> };
+  /** What hands out a place under the caps, this session taking one too. */
+  dispatch: { schedule(): void };
   /**
    * What go-as-recommended does with a ticket squad wrote itself. Declared by
    * what is needed of it: a fix ticket born of a fix ticket is a cascade like
@@ -91,6 +93,13 @@ export class Merges {
   // them: they are claude-code processes, and waiting for one to finish on its
   // own would keep the server up for as long as an agent takes to think.
   private readonly resolving = new Set<AgentSession>();
+  /**
+   * The merges waiting for a place to open a resolution session in, by ticket.
+   * A merge is a chain that awaits its resolution, so it cannot ask the
+   * scheduler and carry on: it registers here, and the scheduler releases it
+   * when a place comes free.
+   */
+  private readonly waitingForPlace = new Map<string, () => void>();
   private stopping = false;
 
   constructor(private readonly dependencies: MergeDependencies) {}
@@ -147,6 +156,9 @@ export class Merges {
   /** Waits for what is in flight, and starts nothing more. */
   async stopAll(): Promise<void> {
     this.stopping = true;
+    // Released rather than left waiting: a merge queued behind a full cap would
+    // otherwise hold the shutdown until a place it will never get comes free.
+    for (const release of this.waitingForPlace.values()) release();
     await Promise.all([...this.resolving].map((session) => session.stop()));
     await Promise.all([...this.chains.values()]);
   }
@@ -194,7 +206,7 @@ export class Merges {
     if (!(await this.bringBranchBack(merge))) {
       // Whatever the ticket was holding up stays held up, but a place under the
       // caps has just been freed by the session that was closed above.
-      subSessions.schedule();
+      this.dependencies.dispatch.schedule();
       return;
     }
 
@@ -203,7 +215,7 @@ export class Merges {
     // ticket that drained the graph may well be the last of its own repository
     // while another was already waiting for it.
     this.deliver(feature.id);
-    subSessions.schedule();
+    this.dependencies.dispatch.schedule();
   }
 
   /**
@@ -347,6 +359,58 @@ export class Merges {
    * git is what answers.
    */
   private async resolveConflict(merge: Merge): Promise<void> {
+    const { ticket } = merge;
+    const { store, dispatch } = this.dependencies;
+    if (ticket.worktree === null) return;
+    // A place first, like every other session squad opens (ADR 0007). It is
+    // first in the queue, because the merges of a project are serialised and
+    // everything that project has to merge is already waiting behind this one.
+    //
+    // The waiter is registered before the scheduler is asked: places are handed
+    // out synchronously, so one set afterwards would never be found and the
+    // merge would wait for a place it had already been given.
+    const place = new Promise<void>((release) => this.waitingForPlace.set(ticket.id, release));
+    store.queueService(ticket.id, "resolving");
+    dispatch.schedule();
+    await place;
+    this.waitingForPlace.delete(ticket.id);
+    // Released without a place: a shutdown, which frees whoever is queued so a
+    // stop is never held up by a queue.
+    if (this.stopping || store.queuedService(ticket.id)?.started !== true) {
+      store.clearService(ticket.id);
+      return;
+    }
+    try {
+      await this.runResolution(merge);
+    } finally {
+      store.clearService(ticket.id);
+      dispatch.schedule();
+    }
+  }
+
+  /**
+   * Hands a place to the merge waiting for one, and returns at once: the place
+   * is held from then on by what the ticket says, and given back when the
+   * session ends. Awaiting the session here would make a shutdown wait for one
+   * it has not stopped yet.
+   */
+  startQueuedResolution(ticketId: string): Promise<void> {
+    const { store } = this.dependencies;
+    const waiting = this.waitingForPlace.get(ticketId);
+    if (waiting === undefined) {
+      // Nobody is waiting on it any more: the merge gave up, or a scheduling
+      // crossed a change of state. The place goes straight back.
+      store.clearService(ticketId);
+      return Promise.resolve();
+    }
+    const started = store.startService(ticketId);
+    this.publishGraph(started.featureId);
+    waiting();
+    return Promise.resolve();
+  }
+
+  /** The one session, once its place is held. */
+  private async runResolution(merge: Merge): Promise<void> {
     const { ticket, feature, featureWorktree } = merge;
     const { launcher, mcpUrl } = this.dependencies;
     if (ticket.worktree === null) return;

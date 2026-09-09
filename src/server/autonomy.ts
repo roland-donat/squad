@@ -46,7 +46,7 @@ export interface AutonomyDependencies {
    * it: the mode queues launches, and the scheduler alone decides when each of
    * them actually opens.
    */
-  subSessions: { schedule(): void };
+  dispatch: { schedule(): void };
 }
 
 export class Autonomy {
@@ -139,7 +139,7 @@ export class Autonomy {
    */
   drive(featureId: string): void {
     if (this.driving.has(featureId)) return;
-    const { store, subSessions } = this.dependencies;
+    const { store, dispatch } = this.dependencies;
     if (!this.driven(featureId)) return;
     this.driving.add(featureId);
     try {
@@ -152,7 +152,7 @@ export class Autonomy {
         // the whole state anyway, so telling it per launch would only make it
         // read the same thing several times.
         publishGraph(store, this.dependencies.bus, featureId);
-        subSessions.schedule();
+        dispatch.schedule();
         return;
       }
       // Nothing to launch is not the same as nothing happening: a ticket

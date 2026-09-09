@@ -28,6 +28,16 @@ export const ticketLifecycles = [
 export type TicketLifecycle = (typeof ticketLifecycles)[number];
 
 /**
+ * The jobs squad opens a session of its own for, on a ticket it is not building:
+ * settling a test sheet before anyone is woken, and untangling a merge conflict.
+ * Named together because they are counted together: they are sessions squad
+ * opens for itself, and the concurrency caps hold them exactly like the
+ * sub-sessions that build.
+ */
+export const serviceJobs = ["settling", "resolving"] as const;
+export type ServiceJob = (typeof serviceJobs)[number];
+
+/**
  * Whether a ticket's sub-session is one squad can take back: it stopped, its
  * branch and its worktree are still there, and its session id is written down.
  * Read wherever that question is asked, rather than each caller spelling the
@@ -138,6 +148,10 @@ export interface TicketRecord {
   lifecycle: TicketLifecycle;
   /** Set while a launch squad accepted waits for a place under the caps. */
   queuedAt: string | null;
+  /** The service session squad has on this ticket, asked for or open. */
+  serviceJob: ServiceJob | null;
+  /** Set once that session is actually open, and null while it waits. */
+  serviceStartedAt: string | null;
 }
 
 /**
@@ -176,6 +190,14 @@ export function resolveTicketState(
   // report instead would show a sheet still waiting for a reader who has
   // already been through it.
   if (queuedAt !== null) return "queued";
+  // Squad's own work on the sheet, before the ticket is said to be waiting on
+  // anyone: the settling pass is what decides whether there is anything left
+  // for a person, so saying so beforehand would wake them for what squad is
+  // about to answer itself. A resolution session says nothing here, its ticket
+  // being `merging`, which already says squad is on it.
+  if (record.serviceJob === "settling") {
+    return record.serviceStartedAt === null ? "settling-queued" : "settling";
+  }
   if (lifecycle === "awaiting-validation") return "awaiting-validation";
   if (lifecycle === "failed" || lifecycle === "interrupted" || lifecycle === "conflict") {
     return lifecycle;

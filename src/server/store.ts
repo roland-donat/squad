@@ -38,6 +38,7 @@ import {
   holdsNothingBack,
   resolveTicketState,
   type GraphEdge,
+  type ServiceJob,
   type TicketLifecycle,
 } from "../shared/graph";
 import { sheetWasValidated } from "../shared/validation";
@@ -60,7 +61,7 @@ import {
 import { SquadError } from "./errors";
 import { branchExists, resolveDefaultBranch, resolveRepositoryRoot } from "./git";
 import { isInside } from "./paths";
-import type { ScheduledFeature } from "./scheduler";
+import type { ScheduledFeature, ScheduledService } from "./scheduler";
 
 /** What an agent hands over when it writes a node of the graph. */
 export interface CreateTicketInput {
@@ -882,7 +883,13 @@ export class Store {
     const inFlight = this.db
       .selectDistinct({ featureId: tickets.featureId })
       .from(tickets)
-      .where(or(eq(tickets.lifecycle, "running"), isNotNull(tickets.queuedAt)))
+      .where(
+        or(
+          eq(tickets.lifecycle, "running"),
+          isNotNull(tickets.queuedAt),
+          isNotNull(tickets.serviceJob),
+        ),
+      )
       .all();
     if (inFlight.length === 0) return [];
 
@@ -896,8 +903,104 @@ export class Store {
     );
     return inFlight.map((row) => ({
       graph: this.featureGraph(row.featureId),
+      services: this.servicesOf(row.featureId),
       cap: caps.get(row.featureId) ?? defaultConcurrencyCaps.feature,
     }));
+  }
+
+  /** The service sessions asked for on a feature's tickets, open or waiting. */
+  private servicesOf(featureId: string): ScheduledService[] {
+    return this.db
+      .select({
+        ticketId: tickets.id,
+        job: tickets.serviceJob,
+        queuedAt: tickets.serviceQueuedAt,
+        startedAt: tickets.serviceStartedAt,
+      })
+      .from(tickets)
+      .where(and(eq(tickets.featureId, featureId), isNotNull(tickets.serviceJob)))
+      .all()
+      .flatMap((row) =>
+        row.job === null
+          ? []
+          : [
+              {
+                ticketId: row.ticketId,
+                job: row.job,
+                queuedAt: row.queuedAt ?? "",
+                started: row.startedAt !== null,
+              },
+            ],
+      );
+  }
+
+  /**
+   * Records a service session squad owes on a ticket: which job, and when it
+   * was asked for. Accepted is not open, exactly like a launch: the caps may be
+   * full, and what waits is written down rather than refused.
+   */
+  queueService(ticketId: string, job: ServiceJob): Ticket {
+    this.db
+      .update(tickets)
+      .set({ serviceJob: job, serviceQueuedAt: new Date().toISOString(), serviceStartedAt: null })
+      .where(eq(tickets.id, ticketId))
+      .run();
+    return this.requireTicket(ticketId);
+  }
+
+  /** The service session waiting on a ticket, if one is, and whether it is open. */
+  queuedService(ticketId: string): { job: ServiceJob; started: boolean } | null {
+    const row = this.db
+      .select({ job: tickets.serviceJob, startedAt: tickets.serviceStartedAt })
+      .from(tickets)
+      .where(eq(tickets.id, ticketId))
+      .get();
+    if (!row || row.job === null) return null;
+    return { job: row.job, started: row.startedAt !== null };
+  }
+
+  /** Records that the service session is open, and therefore holding a place. */
+  startService(ticketId: string): Ticket {
+    this.db
+      .update(tickets)
+      .set({ serviceStartedAt: new Date().toISOString() })
+      .where(eq(tickets.id, ticketId))
+      .run();
+    return this.requireTicket(ticketId);
+  }
+
+  /** Gives the place back: the session ended, failed, or was never opened. */
+  clearService(ticketId: string): Ticket {
+    this.db
+      .update(tickets)
+      .set({ serviceJob: null, serviceQueuedAt: null, serviceStartedAt: null })
+      .where(eq(tickets.id, ticketId))
+      .run();
+    return this.requireTicket(ticketId);
+  }
+
+  /**
+   * The service sessions of a run that has ended. Their processes went with it,
+   * so they hold a place nothing occupies any more, and the two jobs part ways
+   * here.
+   *
+   * A settling pass goes back to waiting and the scheduler opens it again: it
+   * is owed, exactly like an accepted launch, and the round bound is what stops
+   * squad arguing with itself rather than a restart. A resolution is dropped
+   * instead: nothing is waiting on it after a restart, and the merge that
+   * needed it is taken back on its own and asks for a place again.
+   */
+  recoverServicesAtBoot(): void {
+    this.db
+      .update(tickets)
+      .set({ serviceStartedAt: null })
+      .where(eq(tickets.serviceJob, "settling"))
+      .run();
+    this.db
+      .update(tickets)
+      .set({ serviceJob: null, serviceQueuedAt: null, serviceStartedAt: null })
+      .where(eq(tickets.serviceJob, "resolving"))
+      .run();
   }
 
   /**

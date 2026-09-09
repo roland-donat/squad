@@ -12,7 +12,7 @@ import type { AgentLauncher, AgentSession } from "./agents/launcher";
 import { alertFor, type Alert, type Alerts } from "./alerts";
 import { SquadError } from "./errors";
 import { publishGraph, type EventBus } from "./events";
-import { nextLaunches } from "./scheduler";
+import type { Launch } from "./scheduler";
 import type { Store } from "./store";
 import { appendToThread, drainSession, type ThreadLine } from "./threads";
 import type { Worktrees } from "./worktrees";
@@ -35,6 +35,12 @@ export interface SubSessionDependencies {
    * feature somebody has to look at.
    */
   autonomy: { ticketStopped(ticket: Ticket): void };
+  /**
+   * What opens a session when the caps allow it, declared by what is needed of
+   * it. Sub-sessions no longer hold the loop: three kinds of session share one
+   * count, so one place asks the scheduler and hands the places out (ADR 0007).
+   */
+  dispatch: { schedule(): void; isOpening(launch: Launch): boolean };
   /** Resolved late: squad only knows its own address once it is listening. */
   mcpUrl: () => string;
 }
@@ -79,7 +85,6 @@ export class SubSessions {
   // checkout and a process, and every scheduling during that window would hand
   // the same ticket out again without this. Held as promises so a shutdown can
   // wait for what is half open rather than leave a process behind it.
-  private readonly opening = new Map<string, Promise<void>>();
   // Held so shutdown can wait for them: a drain still writing when the database
   // closes loses the last thing the session had to say, which is exactly the
   // line worth keeping when a session died rather than finished. Keyed by
@@ -112,7 +117,10 @@ export class SubSessions {
   launch(ticketId: string, angle: LaunchAngle): Ticket {
     const { store } = this.dependencies;
     const ticket = store.requireTicket(ticketId);
-    if (this.running.has(ticket.id) || this.opening.has(ticket.id)) {
+    if (
+      this.running.has(ticket.id) ||
+      this.dependencies.dispatch.isOpening({ ticketId: ticket.id, job: "sub-session" })
+    ) {
       throw new SquadError(
         "sub_session_already_running",
         409,
@@ -145,44 +153,12 @@ export class SubSessions {
     this.asked.delete(ticket.id);
     const queued = store.queueLaunch(ticket.id, angle);
     this.publishGraph(ticket.featureId);
-    this.schedule();
+    this.dependencies.dispatch.schedule();
     return queued;
   }
 
-  /**
-   * Opens what the caps allow, and nothing more. Called every time the state it
-   * reads may have moved: a launch asked for, a sub-session ended, a cap
-   * raised. It decides nothing itself, the scheduler does, and it never opens a
-   * ticket twice, since the place it takes is held before anything is awaited.
-   */
-  schedule(): void {
-    if (this.stopping) return;
-    const { store } = this.dependencies;
-    const launches = nextLaunches({
-      features: store.scheduledFeatures(),
-      machineCap: store.settings().machineConcurrencyCap,
-      opening: [...this.opening.keys()],
-    });
-    for (const ticketId of launches) {
-      // Held as a promise that never rejects: a shutdown awaits these to know
-      // nothing is half open, and one rejection would leave the others waited
-      // on by nobody. Whatever opening could not deal with is a bug, and it is
-      // logged rather than left to take the process down.
-      const opening = this.startQueued(ticketId).catch((failure: unknown) => {
-        console.error(`opening the sub-session of ticket ${ticketId} failed`, failure);
-      });
-      this.opening.set(ticketId, opening);
-      void opening.then(() => {
-        this.opening.delete(ticketId);
-        // A launch that could not be opened gives its place straight back, and
-        // whatever was behind it in the queue takes it.
-        this.schedule();
-      });
-    }
-  }
-
   /** Opens the sub-session of a launch the scheduler has just handed out. */
-  private async startQueued(ticketId: string): Promise<void> {
+  async startQueued(ticketId: string): Promise<void> {
     const { store } = this.dependencies;
     const request = store.queuedLaunch(ticketId);
     // Nothing waiting any more: a scheduling that crossed a change of state.
@@ -295,14 +271,11 @@ export class SubSessions {
     // Always, even with nothing stranded: a launch squad accepted before it
     // stopped is still owed, and a machine killed between accepting one and
     // opening it comes back up with a row nothing else would ever look at.
-    this.schedule();
+    this.dependencies.dispatch.schedule();
   }
 
   async stopAll(): Promise<void> {
     this.stopping = true;
-    // Awaited first: a session still opening would otherwise register itself
-    // after this method has already stopped everything it could see.
-    await Promise.all([...this.opening.values()]);
     await Promise.all([...this.running.values()].map((session) => session.stop()));
     await Promise.all([...this.drains.values()]);
   }
@@ -348,7 +321,7 @@ export class SubSessions {
       // ticket, which the opening reads for itself.
       store.queueLaunch(ticket.id, "implement");
       this.publishGraph(ticket.featureId);
-      this.schedule();
+      this.dependencies.dispatch.schedule();
       return;
     }
 
@@ -435,7 +408,7 @@ export class SubSessions {
     await this.recordEnd(ticket, session.id, ending.outcome, ending.detail);
     // Whatever the ending was, the place this session held may be free again,
     // and the launch that has waited longest for it goes now.
-    this.schedule();
+    this.dependencies.dispatch.schedule();
   }
 
   /**

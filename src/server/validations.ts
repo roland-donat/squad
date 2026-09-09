@@ -25,7 +25,7 @@ export interface ValidationDependencies {
    * The pass that empties a sheet of what a command answers, before anyone is
    * woken.
    */
-  settlements: { settle(ticket: Ticket, feature: Feature): void };
+  settlements: { settle(ticket: Ticket): void };
   /** The feature a ticket belongs to, which the pass has to be told about. */
   featureOf(ticket: Ticket): Feature | null;
 }
@@ -50,7 +50,7 @@ export class Validations {
         this.dependencies.alerts.raise(alertFor.testSheetWaiting(ticket));
         return;
       }
-      this.dependencies.settlements.settle(ticket, feature);
+      this.dependencies.settlements.settle(ticket);
       return;
     }
     if (sheetWasValidated(ticket.stepReport)) this.dependencies.merges.merge(ticket);

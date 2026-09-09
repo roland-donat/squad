@@ -34,6 +34,10 @@ const stateExplanations: Record<TicketState, string> = {
   running: "En cours : sa sous-session travaille dans son worktree.",
   "awaiting-validation":
     "Étape rapportée : la fiche de tests ci-dessous attend d'être passée en revue. La sous-session n'est pas détruite, elle reste le fil où la correction se fera.",
+  settling:
+    "En dépouillement : squad passe sur la fiche avant de vous la montrer, et lance ce qu'une commande peut trancher. Ce qui reste après cette passe est ce dont vous serez averti.",
+  "settling-queued":
+    "Dépouillement en attente : la passe est demandée, et s'ouvrira dès qu'un plafond de concurrence le permettra. La fiche vous sera montrée après, pas avant.",
   merging:
     "En fusion : sa sous-session est fermée, sa branche revient dans la branche de feature, puis la vérification d'intégration tourne dessus.",
   failed:

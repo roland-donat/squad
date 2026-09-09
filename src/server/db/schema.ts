@@ -22,7 +22,7 @@ import {
   threadEntryKinds,
   ticketKinds,
 } from "../../shared/api";
-import { ticketLifecycles } from "../../shared/graph";
+import { serviceJobs, ticketLifecycles } from "../../shared/graph";
 
 /**
  * The durable state of squad. This schema is the single declaration of what is
@@ -192,6 +192,20 @@ export const tickets = sqliteTable(
     queuedAt: text("queued_at"),
     queuedAngle: text("queued_angle", { enum: launchAngles }),
     /**
+     * The service session squad has on this ticket, if any: which job, when it
+     * was asked for, and when it was actually opened. A row with a queue time
+     * and no start time is waiting for a place under the caps, exactly like a
+     * launch is above.
+     *
+     * Stored rather than held in memory for the same reason as the launch: a
+     * pass squad owes is owed across a restart, and three in-memory counters
+     * were what let these sessions run past every cap in the first place. A
+     * ticket carries at most one at a time, so this needs no table of its own.
+     */
+    serviceJob: text("service_job", { enum: serviceJobs }),
+    serviceQueuedAt: text("service_queued_at"),
+    serviceStartedAt: text("service_started_at"),
+    /**
      * How deep in a cascade of agent-written tickets this one sits: 0 for what
      * the main session wrote, one more than the ticket it was born of
      * otherwise. Written here rather than walked back through the graph,
@@ -208,6 +222,7 @@ export const tickets = sqliteTable(
     check("tickets_kind", sql`${table.kind} in (${literals(ticketKinds)})`),
     check("tickets_lifecycle", sql`${table.lifecycle} in (${literals(ticketLifecycles)})`),
     check("tickets_queued_angle", sql`${table.queuedAngle} in (${literals(launchAngles)})`),
+    check("tickets_service_job", sql`${table.serviceJob} in (${literals(serviceJobs)})`),
   ],
 );
 

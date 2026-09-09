@@ -2,18 +2,20 @@ import { realpath } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
-import { apiRoutes, type Feature, type Ticket } from "../shared/api";
+import { apiRoutes, type Ticket } from "../shared/api";
 import { createClaudeCodeLauncher } from "./agents/claude-code";
 import type { AgentLauncher } from "./agents/launcher";
 import { Alerts } from "./alerts";
 import { Autonomy } from "./autonomy";
 import { openDatabase } from "./db/open";
+import { Dispatch } from "./dispatch";
 import { EventBus } from "./events";
 import { buildApiRouter } from "./http";
 import { Merges } from "./merges";
 import { resolveDataDir, resolveRecordedSessionsDir } from "./paths";
 import { Questions } from "./questions";
 import { Resumptions } from "./resumptions";
+import type { Launch } from "./scheduler";
 import { Settlements } from "./settlements";
 import { MainSessions } from "./sessions";
 import { Store } from "./store";
@@ -85,6 +87,13 @@ export async function startSquadServer(
   const asked = { abandonFor: (sessionId: string) => questions.abandonFor(sessionId) };
   const stopped = { ticketStopped: (ticket: Ticket) => autonomy.ticketStopped(ticket) };
   const mainSessions = new MainSessions({ store, bus, launcher, questions: asked, mcpUrl });
+  // The one place that hands out places, read late by everything that opens a
+  // session: sub-sessions, settling passes and conflict resolutions share a
+  // single count, so they share a single loop (ADR 0007).
+  const handing = {
+    schedule: () => dispatch.schedule(),
+    isOpening: (launch: Launch) => dispatch.isOpening(launch),
+  };
   const subSessions = new SubSessions({
     store,
     bus,
@@ -93,14 +102,25 @@ export async function startSquadServer(
     alerts,
     questions: asked,
     autonomy: stopped,
+    dispatch: handing,
     mcpUrl,
   });
-  const autonomy = new Autonomy({ store, bus, alerts, subSessions });
-  const merges = new Merges({ store, bus, alerts, worktrees, launcher, subSessions, autonomy, mcpUrl });
+  const autonomy = new Autonomy({ store, bus, alerts, dispatch: handing });
+  const merges = new Merges({
+    store,
+    bus,
+    alerts,
+    worktrees,
+    launcher,
+    subSessions,
+    autonomy,
+    dispatch: handing,
+    mcpUrl,
+  });
   // Read late like the modules above: the pass hands the ticket back to the
   // validations when it ends, and the validations open the pass. Two objects
   // that call each other, declared in the order the constructors allow.
-  const settling = { settle: (ticket: Ticket, feature: Feature) => settlements.settle(ticket, feature) };
+  const settling = { settle: (ticket: Ticket) => settlements.settle(ticket) };
   const validations = new Validations({
     alerts,
     merges,
@@ -108,7 +128,15 @@ export async function startSquadServer(
     settlements: settling,
     featureOf: (ticket) => store.feature(ticket.featureId),
   });
-  const settlements = new Settlements({ store, bus, launcher, mcpUrl, validations });
+  const settlements = new Settlements({ store, bus, launcher, mcpUrl, validations, dispatch: handing });
+  const dispatch = new Dispatch({
+    store,
+    open: {
+      "sub-session": (ticketId) => subSessions.startQueued(ticketId),
+      settling: (ticketId) => settlements.startQueued(ticketId),
+      resolving: (ticketId) => merges.startQueuedResolution(ticketId),
+    },
+  });
   const questions = new Questions({ store, bus, alerts, autonomy, mainSessions });
   const resumptions = new Resumptions({
     store,
@@ -122,6 +150,11 @@ export async function startSquadServer(
   // nobody.
   const stranded = subSessions.markInterrupted();
   questions.abandonInterrupted();
+  // Service sessions of the previous run hold a place nothing occupies any
+  // more. A settling pass goes back to waiting and the scheduler opens it
+  // again; a resolution is dropped, the merge that needed it being taken back
+  // below and asking for its own.
+  store.recoverServicesAtBoot();
 
   const app = express();
   app.use(
@@ -136,6 +169,7 @@ export async function startSquadServer(
       autonomy,
       resumptions,
       settlements,
+      dispatch: handing,
     }),
   );
   const ui = await mountUi(app, options.ui ?? "auto");
@@ -149,6 +183,9 @@ export async function startSquadServer(
   // session a merge taken back may have to open.
   subSessions.takeBack(stranded);
   merges.resumeInterrupted();
+  // Whatever the two lines above have not already asked for: a settling pass
+  // taken back at boot waits for nothing else to notice it.
+  dispatch.schedule();
   // Watched last: what the previous run left behind is squad's own to take
   // back, and a mode reading that churn would stop on a restart.
   const unwatch = autonomy.watch();
@@ -165,6 +202,14 @@ export async function startSquadServer(
       questions.releaseAll();
       // The merges last: one of them may be waiting on a sub-session it closed,
       // and the database has to outlive the last line either of them writes.
+      // Places stop being handed out first, so nothing opens behind the
+      // sessions that are being stopped.
+      dispatch.halt();
+      // Drained before anything is stopped: what is awaited here is the opening
+      // of a session and never its life, so this is short, and a session that
+      // finished opening afterwards would register itself behind a shutdown
+      // that had already been through the list.
+      await dispatch.drain();
       await Promise.all([mainSessions.stopAll(), subSessions.stopAll(), settlements.stop()]);
       await merges.stopAll();
       // Event streams are long lived by design: without this, closing the

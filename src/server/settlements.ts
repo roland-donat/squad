@@ -4,6 +4,7 @@ import type { AgentLauncher, AgentSession } from "./agents/launcher";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
 import type { Store } from "./store";
+import { publishGraph } from "./events";
 import { appendToThread, drainSession, type ThreadLine } from "./threads";
 
 export interface SettlementDependencies {
@@ -13,6 +14,13 @@ export interface SettlementDependencies {
   mcpUrl(): string;
   /** Declared by what is needed of it: what the pass leaves is what follows. */
   validations: { afterSettling(ticket: Ticket): Promise<void> };
+  /**
+   * What hands out a place under the caps. The pass no longer opens its session
+   * where it is needed: it is a session like the others, it waits its turn, and
+   * ten sheets reported together are ten passes queued rather than ten
+   * claude-code processes at once (ADR 0007).
+   */
+  dispatch: { schedule(): void };
 }
 
 /**
@@ -38,8 +46,13 @@ export interface SettlementDependencies {
  */
 export class Settlements {
   private readonly running = new Set<AgentSession>();
-  /** The tickets a pass is on, so one is never opened twice over the same sheet. */
-  private readonly inFlight = new Set<string>();
+  /**
+   * The passes actually under way, by ticket. The store is what says a pass is
+   * owed, this says it is running: a pass asked for by hand is awaited through
+   * it, so the request still answers with what the pass concluded whenever a
+   * place was free.
+   */
+  private readonly inFlight = new Map<string, Promise<void>>();
   private stopping = false;
 
   constructor(private readonly dependencies: SettlementDependencies) {}
@@ -55,15 +68,61 @@ export class Settlements {
   /**
    * Settles the sheet of a reported step, then hands the ticket to whatever
    * follows. Awaited by nobody: a report returns as soon as it is written, and
-   * the pass runs behind it like a sub-session does.
+   * the pass then waits its turn under the caps like any other session.
    *
    * Whatever happens, the ticket is handed on exactly once: a pass that throws
    * is a pass that said nothing, and a sheet nobody answered is a sheet the
    * developer reads.
    */
-  settle(ticket: Ticket, feature: Feature): void {
-    const bounded = this.dependencies.store.reportedSteps(ticket.id) <= Settlements.rounds;
-    this.start(ticket, feature, bounded);
+  settle(ticket: Ticket): void {
+    const { store, dispatch } = this.dependencies;
+    if (store.reportedSteps(ticket.id) > Settlements.rounds) {
+      // Squad has had its word twice; a third pass is two agents disagreeing.
+      // The ticket goes straight on, which hands the sheet to the developer.
+      void this.dependencies.validations.afterSettling(this.reread(ticket));
+      return;
+    }
+    if (store.queuedService(ticket.id) !== null) return;
+    store.queueService(ticket.id, "settling");
+    publishGraph(store, this.dependencies.bus, ticket.featureId);
+    dispatch.schedule();
+  }
+
+  /**
+   * Opens a pass the scheduler has just handed a place to, and returns as soon
+   * as it is open. The place is held from then on by what the ticket says, and
+   * given back when the pass ends.
+   */
+  startQueued(ticketId: string): Promise<void> {
+    const { store, dispatch } = this.dependencies;
+    const asked = store.queuedService(ticketId);
+    // Nothing waiting any more, or waiting for something else: a scheduling
+    // that crossed a change of state.
+    if (asked === null || asked.job !== "settling") return Promise.resolve();
+    const ticket = store.startService(ticketId);
+    publishGraph(store, this.dependencies.bus, ticket.featureId);
+    const feature = store.feature(ticket.featureId);
+    const pass = (async () => {
+      try {
+        if (feature !== null) await this.run(ticket, feature);
+      } catch {
+        // Nothing to add: the sheet is as the sub-session left it, and the line
+        // below wakes whoever has to read it.
+      } finally {
+        this.inFlight.delete(ticketId);
+        store.clearService(ticketId);
+        publishGraph(store, this.dependencies.bus, ticket.featureId);
+        dispatch.schedule();
+      }
+      if (this.stopping) return;
+      await this.dependencies.validations.afterSettling(this.reread(ticket));
+    })();
+    this.inFlight.set(ticketId, pass);
+    // Not awaited, and that is the contract: what the scheduler hands out is
+    // the right to open, and the place is then held by the row it just wrote.
+    // Awaiting the pass here would make a shutdown wait for a session it has
+    // not stopped yet.
+    return Promise.resolve();
   }
 
   /**
@@ -93,41 +152,26 @@ export class Settlements {
         `ticket "${ticket.title}" has no worktree left: a pass has nowhere to run what it would run`,
       );
     }
-    if (this.inFlight.has(ticket.id)) {
+    if (store.queuedService(ticket.id) !== null) {
       throw new SquadError(
         "sheet_not_settleable",
         409,
         `a pass is already going through the test sheet of "${ticket.title}"`,
       );
     }
-    const feature = this.dependencies.store.feature(ticket.featureId);
-    if (feature === null) {
+    if (store.feature(ticket.featureId) === null) {
       throw new SquadError("feature_not_found", 404, `no feature with id ${ticket.featureId}`);
     }
-    this.start(ticket, feature, true);
+    store.queueService(ticket.id, "settling");
+    publishGraph(store, this.dependencies.bus, ticket.featureId);
+    // Handed to the scheduler, which opens it here and now if a place is free.
+    // What comes back then is what the pass concluded, which is the whole point
+    // of asking by hand: a refusal is refused in front of whoever clicked. With
+    // the caps full, the answer is the ticket waiting for a place, and the
+    // interface says so rather than spinning.
+    this.dependencies.dispatch.schedule();
+    await this.inFlight.get(ticket.id);
     return store.requireTicket(ticket.id);
-  }
-
-  /**
-   * The pass itself, running behind whoever asked for it. Whatever happens the
-   * ticket is handed on exactly once: a pass that throws is a pass that said
-   * nothing, and a sheet nobody answered is a sheet the developer reads.
-   */
-  private start(ticket: Ticket, feature: Feature, allowed: boolean): void {
-    if (this.inFlight.has(ticket.id)) return;
-    this.inFlight.add(ticket.id);
-    void (async () => {
-      try {
-        if (allowed) await this.run(ticket, feature);
-      } catch {
-        // Nothing to add: the sheet is as the sub-session left it, and the line
-        // below wakes whoever has to read it.
-      } finally {
-        this.inFlight.delete(ticket.id);
-      }
-      if (this.stopping) return;
-      await this.dependencies.validations.afterSettling(this.reread(ticket));
-    })();
   }
 
   /** Ends every pass in flight, so a shutdown does not wait on one. */

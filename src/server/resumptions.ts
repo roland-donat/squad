@@ -20,6 +20,19 @@ import type { Store } from "./store";
 /** How many sessions are offered when nothing is searched for. */
 const shownByDefault = 10;
 
+/**
+ * What a feature born of a conversation is opened with, beside the conversation
+ * itself. The same settings an opened feature declares: the door the feature
+ * came through changes where its thread starts, not what it is configured with.
+ */
+export interface AttachSettings {
+  /** Left out, the conversation names the feature itself. */
+  title?: string;
+  /** Other registered projects this feature may build tickets in. */
+  otherProjectIds?: string[];
+  goAsRecommended?: boolean;
+}
+
 export interface ResumptionDependencies {
   store: Store;
   bus: EventBus;
@@ -63,7 +76,10 @@ export class Resumptions {
    * exists and its thread says why the session did not start, which is where a
    * main session that fails to open already leaves things.
    */
-  async attach(sessionId: string, title?: string): Promise<{ project: Project; feature: Feature }> {
+  async attach(
+    sessionId: string,
+    settings: AttachSettings = {},
+  ): Promise<{ project: Project; feature: Feature }> {
     const { store, bus } = this.dependencies;
     const recorded = await this.require(sessionId);
     const taken = store.featureResumedFrom(sessionId);
@@ -78,8 +94,9 @@ export class Resumptions {
     const project = await this.projectOf(recorded);
     const feature = store.openFeature({
       projectId: project.id,
-      title: title ?? nameOf(recorded),
-      otherProjectIds: [],
+      title: settings.title ?? nameOf(recorded),
+      otherProjectIds: settings.otherProjectIds ?? [],
+      goAsRecommended: settings.goAsRecommended ?? false,
       resumedSessionId: recorded.id,
     });
     bus.publish({ type: "feature-opened", feature });

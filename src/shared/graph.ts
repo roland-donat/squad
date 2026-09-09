@@ -182,3 +182,25 @@ export function resolveTicketState(
   }
   return kind === "decision" ? "awaiting-decision" : "ready";
 }
+
+/**
+ * Whether every ticket of a graph has come back, which is what makes a feature
+ * a feature to deliver. Read here rather than spelled out again wherever it is
+ * needed: it decides both what squad sends off in a pull request and what the
+ * home screen files under features already delivered, and those two cannot be
+ * allowed to disagree.
+ *
+ * An empty graph is not drained. Nothing was built, so there is nothing to
+ * deliver, and a feature opened a minute ago is not a feature that is finished.
+ */
+export function isDrained(graph: FeatureGraph): boolean {
+  return graph.tickets.length > 0 && graph.tickets.every((ticket) => ticket.state === "merged");
+}
+
+/** How far a graph has come, as a count of what has merged out of the whole. */
+export function graphProgress(graph: FeatureGraph): { merged: number; total: number } {
+  return {
+    merged: graph.tickets.filter((ticket) => ticket.state === "merged").length,
+    total: graph.tickets.length,
+  };
+}

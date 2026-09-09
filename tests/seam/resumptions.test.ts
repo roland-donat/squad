@@ -218,6 +218,32 @@ describe("resuming a recorded conversation", () => {
     expect(said[0]?.detail).toContain(repository);
   });
 
+  it("takes the same settings as a feature opened from nothing", async () => {
+    const repository = await createTemporaryRepository();
+    const elsewhere = await createTemporaryRepository();
+    await start([{ id: "a-reprendre", cwd: repository, title: "Le grilling de la fondation" }]);
+    const registered = await squad.request("POST", apiRoutes.projects, { path: elsewhere });
+    const { project: also } = (await registered.json()) as { project: Project };
+
+    // The door a feature came through changes where its thread starts, not what
+    // it is configured with: the creation screen asks the same questions of
+    // both, so both requests have to accept the same answers.
+    const response = await squad.request("POST", attachRecordedSessionRoute("a-reprendre"), {
+      title: "Reprise nommée à la main",
+      otherProjectIds: [also.id],
+      goAsRecommended: true,
+    });
+
+    expect(response.status).toBe(201);
+    const { project, feature } = (await response.json()) as {
+      project: Project;
+      feature: Feature;
+    };
+    expect(feature.title).toBe("Reprise nommée à la main");
+    expect(feature.goAsRecommended).toBe(true);
+    expect(feature.repositories.map((each) => each.projectId)).toEqual([project.id, also.id]);
+  });
+
   it("resumes that conversation at every start, not only at the first", async () => {
     const repository = await createTemporaryRepository();
     const { opened } = await start([

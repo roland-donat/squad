@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Project, Settings } from "../../shared/api";
-import { updateProject, updateSettings } from "../api";
+import { registerProject, updateProject, updateSettings } from "../api";
 import { Failure, useSubmission } from "../submission";
 
 /**
@@ -32,7 +32,12 @@ export function SettingsView({
       </section>
 
       <section className="panel" aria-labelledby="titre-reglages-projets">
-        <h2 id="titre-reglages-projets">Réglages par projet</h2>
+        <h2 id="titre-reglages-projets">Dépôts pilotés</h2>
+        <p className="panel__context">
+          Un dépôt entre ici, ou au passage quand une feature en nomme un que squad ne pilote
+          pas encore.
+        </p>
+        <RegisterProjectForm />
         {projects.length === 0 ? (
           <p className="empty">Aucun projet enregistré pour l'instant.</p>
         ) : (
@@ -42,6 +47,51 @@ export function SettingsView({
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * Handing squad a repository, which is the one thing that has to happen before
+ * anything else. Here rather than on a screen one pilots from: it is done once
+ * per repository, and the creation screen does it in passing for the repository
+ * a feature actually names.
+ */
+function RegisterProjectForm() {
+  const [path, setPath] = useState("");
+  const [name, setName] = useState("");
+  const { busy, error, submit } = useSubmission(async () => {
+    await registerProject({ path, ...(name.trim() ? { name } : {}) });
+    setPath("");
+    setName("");
+  });
+
+  return (
+    <form className="form settings__project" onSubmit={submit}>
+      <fieldset>
+        <legend>Enregistrer un dépôt</legend>
+        <label className="field">
+          <span>Chemin du dépôt</span>
+          <input
+            value={path}
+            onChange={(event) => setPath(event.target.value)}
+            placeholder="/home/moi/projets/mon-depot"
+            required
+          />
+        </label>
+        <label className="field">
+          <span>Nom (facultatif)</span>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="repris du dossier si vide"
+          />
+        </label>
+        <button type="submit" disabled={busy}>
+          Enregistrer le projet
+        </button>
+        <Failure message={error} />
+      </fieldset>
+    </form>
   );
 }
 

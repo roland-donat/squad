@@ -293,6 +293,13 @@ le ticket est écrit quand même et rien de ce qui tourne n'est annulé.
 - « la session » désignait indifféremment le fil de la feature et celui d'un ticket.
   Résolu : **session principale** et **sous-session**, deux natures aux durées de vie
   opposées.
+- « session squad » a été envisagé pour nommer ce que l'accueil liste et ce qu'un onglet
+  ouvre, et écarté. C'est une **feature** : le mot est déjà tenu, et « session » est
+  précisément celui que cette section a désambiguïsé plus haut. Il en existe déjà quatre
+  emplois nommés, session principale, sous-session, session enregistrée et session de
+  résolution ; un cinquième aurait rendu illisible la phrase qui compte, « rattacher une
+  session claude-code enregistrée à une nouvelle feature ». Ce que la refonte des écrans
+  a changé est l'accès à une feature, pas la feature.
 - « compaction à chaque début d'étape » supposait une session unique par feature, que
   l'exécution parallèle rend impossible. Résolu : une sous-session naît vierge, donc il
   n'y a rien à compacter ; seule la session principale dure, et elle s'en remet à la

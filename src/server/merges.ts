@@ -1,4 +1,5 @@
 import type { Feature, FeatureGraph, Project, Ticket, Worktree } from "../shared/api";
+import { isDrained } from "../shared/graph";
 import {
   conflictResolutionBriefing,
   conflictResolutionInstruction,
@@ -449,11 +450,10 @@ export class Merges {
   private async deliverIfDrained(featureId: string, projectId: string): Promise<void> {
     const { store, alerts, bus } = this.dependencies;
     const graph = store.featureGraph(featureId);
-    if (graph.tickets.length === 0) return;
     // The whole graph, not this repository's share of it: a feature is one
     // piece of work, and sending off one repository while another is still
     // being built would publish half an interface.
-    if (!graph.tickets.every((each) => each.state === "merged")) return;
+    if (!isDrained(graph)) return;
     const feature = store.requireFeature(featureId);
     const carried = store.requireFeatureRepository(featureId, projectId);
     if (carried.pullRequestUrl !== null || carried.worktree === null) return;

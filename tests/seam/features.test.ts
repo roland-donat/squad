@@ -49,6 +49,45 @@ describe("opening a feature", () => {
     expect(features.map((feature) => feature.title)).toEqual(["Courte", "Longue"]);
   });
 
+  it("opens a feature configured, rather than configured a moment later", async () => {
+    const project = await registerProject();
+    const also = await registerProject();
+
+    // Everything the creation screen asks for, in the one call that opens the
+    // feature: a feature must never exist under a mode nobody chose, even for
+    // the moment a second request would take.
+    const response = await squad.request("POST", "/api/features", {
+      projectId: project.id,
+      title: "Fondation",
+      otherProjectIds: [also.id],
+      goAsRecommended: true,
+    });
+
+    expect(response.status).toBe(201);
+    const { feature } = (await response.json()) as { feature: Feature };
+    expect(feature.goAsRecommended).toBe(true);
+    expect(feature.repositories.map((carried) => carried.projectId)).toEqual([
+      project.id,
+      also.id,
+    ]);
+
+    // And it is what squad holds, not merely what the answer said.
+    const listed = await squad.request("GET", "/api/features");
+    const { features } = (await listed.json()) as { features: Feature[] };
+    expect(features[0]?.goAsRecommended).toBe(true);
+  });
+
+  it("leaves the mode off when the opening says nothing of it", async () => {
+    const project = await registerProject();
+    const response = await squad.request("POST", "/api/features", {
+      projectId: project.id,
+      title: "Fondation",
+    });
+
+    const { feature } = (await response.json()) as { feature: Feature };
+    expect(feature.goAsRecommended).toBe(false);
+  });
+
   it("refuses a feature on an unknown project", async () => {
     const response = await squad.request("POST", "/api/features", {
       projectId: "unknown",

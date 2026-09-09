@@ -299,7 +299,7 @@ export class Merges {
     const { launcher, mcpUrl } = this.dependencies;
     if (ticket.worktree === null) return;
     const session = await launcher.open({
-      role: "sub",
+      role: "resolving",
       featureId: feature.id,
       ticketId: ticket.id,
       workingDirectory: ticket.worktree.path,

@@ -19,6 +19,8 @@ import type {
   Question,
   RegisterProjectBody,
   Settings,
+  SettlementOutcome,
+  SheetVerdict,
   StepReport,
   StoredState,
   TestSheetPoint,
@@ -126,6 +128,14 @@ export interface RecordStepReportInput {
   coverage: Array<{ criterionId: string; verdict: CriterionVerdict; note?: string | null }>;
   /** What the agent suggests checking by hand beyond the criteria. */
   suggestions: string[];
+}
+
+/** What a settling pass hands back, one entry per point of the sheet. */
+export interface SettleSheetInput {
+  /** The feature the ticket belongs to: a pass only settles its own graph. */
+  featureId: string;
+  ticketId: string;
+  points: Array<{ pointId: string; outcome: SettlementOutcome; note: string }>;
 }
 
 /** What the developer says of a test sheet once they have been through it. */
@@ -1208,6 +1218,91 @@ export class Store {
    * point, and a general return. A sheet is gone through once; a step corrected
    * afterwards is reported again, and that report carries a sheet of its own.
    */
+  /**
+   * What a settling pass found, applied to the sheet before anyone is woken.
+   *
+   * The pass answers in its own vocabulary and squad turns it into the
+   * developer's: a point that holds is checked, a point that is broken is left
+   * unchecked and goes back with its evidence, a point handed over stays
+   * pending and is the only kind that reaches a human. The note is kept whatever
+   * the outcome, so what the pass ran is readable next to what it concluded.
+   *
+   * Two things are refused rather than interpreted. A pass that answers some
+   * points and not others, because a sheet half settled would silently drop what
+   * it skipped. And a point born of an acceptance criterion the sub-session
+   * itself declared `judgement`: one agent does not get to certify what another
+   * declared beyond its reach, and it is exactly the promise the ticket made.
+   */
+  settleSheet(input: SettleSheetInput): Ticket {
+    const ticket = this.requireTicketIn(input.featureId, input.ticketId);
+    const report = ticket.stepReport;
+    if (!report || report.reviewedAt !== null) {
+      throw new SquadError(
+        "sheet_not_settleable",
+        409,
+        `ticket "${ticket.title}" has no test sheet waiting to be settled`,
+      );
+    }
+    const pending = report.sheet.filter((point) => point.verdict === "pending");
+    const expected = new Set(pending.map((point) => point.id));
+    const given = new Set(input.points.map((entry) => entry.pointId));
+    if (expected.size !== given.size || [...expected].some((id) => !given.has(id))) {
+      throw new SquadError(
+        "settlement_mismatch",
+        400,
+        `the pass must answer each of the ${expected.size} point(s) of this test sheet, and no other`,
+      );
+    }
+    const judgement = new Set(
+      report.coverage
+        .filter((entry) => entry.verdict === "judgement")
+        .map((entry) => entry.criterionId),
+    );
+    const byId = new Map(report.sheet.map((point) => [point.id, point]));
+    const certified = input.points.filter((entry) => {
+      if (entry.outcome !== "holds") return false;
+      const criterionId = byId.get(entry.pointId)?.criterionId ?? null;
+      return criterionId !== null && judgement.has(criterionId);
+    });
+    if (certified.length > 0) {
+      throw new SquadError(
+        "criterion_needs_a_person",
+        400,
+        `the sub-session declared these criteria beyond a command's reach, so the pass may hand them over or show them broken, never check them off: ${certified
+          .map((entry) => `"${byId.get(entry.pointId)?.text ?? entry.pointId}"`)
+          .join("; ")}`,
+      );
+    }
+
+    const verdicts: Record<SettlementOutcome, SheetVerdict> = {
+      holds: "passed",
+      broken: "failed",
+      human: "pending",
+    };
+    this.db.transaction((tx) => {
+      for (const entry of input.points) {
+        tx.update(testSheetPoints)
+          .set({
+            verdict: verdicts[entry.outcome],
+            settlement: entry.outcome,
+            settlementNote: entry.note,
+          })
+          .where(eq(testSheetPoints.id, entry.pointId))
+          .run();
+      }
+      // A sheet with nothing left pending has been gone through, by squad rather
+      // than by the developer: dating it here is what stops the interface from
+      // asking them to fill in a form nobody is waiting on.
+      if (input.points.every((entry) => entry.outcome !== "human")) {
+        tx.update(stepReports)
+          .set({ reviewedAt: new Date().toISOString() })
+          .where(eq(stepReports.id, report.id))
+          .run();
+      }
+    });
+    return this.requireTicket(ticket.id);
+  }
+
   reviewTestSheet(input: ReviewTestSheetInput): Ticket {
     const ticket = this.requireTicket(input.ticketId);
     const report = ticket.stepReport;
@@ -1225,13 +1320,18 @@ export class Store {
         `the test sheet of "${ticket.title}" was already gone through on ${report.reviewedAt}`,
       );
     }
-    const expected = new Set(report.sheet.map((point) => point.id));
+    // What is asked of the developer is what is still pending: a point squad's
+    // settling pass answered carries its own verdict and its evidence, and
+    // asking about it again would be asking them to do the work it spared.
+    const expected = new Set(
+      report.sheet.filter((point) => point.verdict === "pending").map((point) => point.id),
+    );
     const given = new Set(input.points.map((point) => point.id));
     if (expected.size !== given.size || [...expected].some((id) => !given.has(id))) {
       throw new SquadError(
         "invalid_request",
         400,
-        `the review must answer each of the ${expected.size} point(s) of this test sheet, and no other`,
+        `the review must answer each of the ${expected.size} point(s) of this test sheet still waiting on you, and no other`,
       );
     }
 
@@ -1492,6 +1592,20 @@ export class Store {
   }
 
   /**
+   * How many steps a ticket has reported. What bounds the settling pass: a
+   * sheet answered, corrected and reported again has already had squad's word
+   * once, and a third round is a disagreement between two agents that a person
+   * should be the one to end.
+   */
+  reportedSteps(ticketId: string): number {
+    return this.db
+      .select()
+      .from(stepReports)
+      .where(eq(stepReports.ticketId, ticketId))
+      .all().length;
+  }
+
+  /**
    * The latest step report of each ticket, with its coverage and its sheet. The
    * latest one and not all of them: a ticket corrected after a red sheet reports
    * again, and what the graph shows is where it stands now.
@@ -1538,6 +1652,10 @@ export class Store {
         text: row.text,
         verdict: row.verdict,
         comment: row.comment,
+        settlement:
+          row.settlement === null || row.settlementNote === null
+            ? null
+            : { outcome: row.settlement, note: row.settlementNote },
       });
       sheets.set(row.reportId, list);
     }

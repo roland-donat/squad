@@ -15,6 +15,7 @@ import {
   defaultConcurrencyCaps,
   defaultGenerationDepthCap,
   launchAngles,
+  settlementOutcomes,
   questionStates,
   sheetVerdicts,
   themes,
@@ -306,11 +307,19 @@ export const testSheetPoints = sqliteTable(
     text: text("text").notNull(),
     verdict: text("verdict", { enum: sheetVerdicts }).notNull().default("pending"),
     comment: text("comment"),
+    /** What squad's settling pass found, before anyone was woken. */
+    settlement: text("settlement", { enum: settlementOutcomes }),
+    /** What it ran and what that answered, or why nothing can answer. */
+    settlementNote: text("settlement_note"),
   },
   (table) => [
     index("test_sheet_points_report_idx").on(table.reportId),
     unique("test_sheet_points_position").on(table.reportId, table.position),
     check("test_sheet_points_verdict", sql`${table.verdict} in (${literals(sheetVerdicts)})`),
+    check(
+      "test_sheet_points_settlement",
+      sql`${table.settlement} is null or ${table.settlement} in (${literals(settlementOutcomes)})`,
+    ),
   ],
 );
 

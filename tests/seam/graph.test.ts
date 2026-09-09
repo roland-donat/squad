@@ -52,6 +52,7 @@ describe("the graph an agent writes through the MCP tools", () => {
       "read_graph",
       "report_step",
       "settle_decision",
+      "settle_sheet",
     ]);
   });
 

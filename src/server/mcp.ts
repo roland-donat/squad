@@ -3,7 +3,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { RequestHandler } from "express";
 import { z } from "zod";
 import type { Question, Ticket } from "../shared/api";
-import { criterionVerdicts, ticketKinds } from "../shared/api";
+import { criterionVerdicts, settlementOutcomes, ticketKinds } from "../shared/api";
 import type { AskInput } from "./questions";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
@@ -28,6 +28,7 @@ export const squadTools = {
   createTicket: "create_ticket",
   carryRepository: "carry_repository",
   reportStep: "report_step",
+  settleSheet: "settle_sheet",
   askQuestion: "ask_question",
   settleDecision: "settle_decision",
   readGraph: "read_graph",
@@ -160,6 +161,35 @@ const reportStepShape = {
     .trim()
     .min(1)
     .describe("What you recommend doing next, in one or two sentences."),
+};
+
+const settleSheetShape = {
+  featureId: z.string().min(1).describe("The feature the ticket belongs to."),
+  ticketId: z.string().min(1).describe("The ticket whose test sheet you are settling."),
+  points: z
+    .array(
+      z.object({
+        pointId: z
+          .string()
+          .min(1)
+          .describe("The id of the sheet point, as handed to you in the instruction."),
+        outcome: z
+          .enum(settlementOutcomes)
+          .describe(
+            "`holds` when you ran something and the point is true. `broken` when you ran something and it is false: the ticket goes back to the sub-session with what you found. `human` when no command, script or browser can settle it: wording, ergonomics, what a screen looks like, a domain arbitration, an intent to confirm. Hand over when unsure.",
+          ),
+        note: z
+          .string()
+          .trim()
+          .min(1)
+          .describe(
+            "What you ran and what it answered, or why nothing can answer. Required whatever the outcome: it is the whole of what the developer reads instead of doing the work again.",
+          ),
+      }),
+    )
+    .describe(
+      "One entry per point of the sheet, exactly once each and none other. A sheet answered by halves would silently drop what it skipped, so it is refused.",
+    ),
 };
 
 const settleDecisionShape = {
@@ -326,6 +356,22 @@ function buildMcpServer({
         // there is nothing for a human to look at, so nobody is woken for it and
         // the branch goes on to merge. What decides that lives in one place.
         validations.afterReport(ticket);
+        return ticket;
+      }),
+  );
+
+  server.registerTool(
+    squadTools.settleSheet,
+    {
+      title: "Settle a test sheet",
+      description:
+        "Answers every point of the test sheet you were opened for: what you ran and what it said. Only the points you declare `human` reach the developer; a point that holds is checked off and a point that is broken goes back to the sub-session with your evidence. A sheet you never answer through this tool reaches the developer untouched, so giving up costs nothing but never pretend a point holds without having run something.",
+      inputSchema: settleSheetShape,
+    },
+    async (input) =>
+      answer(() => {
+        const ticket = store.settleSheet(input);
+        bus.publish({ type: "graph-changed", graph: store.featureGraph(ticket.featureId) });
         return ticket;
       }),
   );

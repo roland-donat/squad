@@ -2,7 +2,7 @@ import { realpath } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
-import { apiRoutes, type Ticket } from "../shared/api";
+import { apiRoutes, type Feature, type Ticket } from "../shared/api";
 import { createClaudeCodeLauncher } from "./agents/claude-code";
 import type { AgentLauncher } from "./agents/launcher";
 import { Alerts } from "./alerts";
@@ -14,6 +14,7 @@ import { Merges } from "./merges";
 import { resolveDataDir, resolveRecordedSessionsDir } from "./paths";
 import { Questions } from "./questions";
 import { Resumptions } from "./resumptions";
+import { Settlements } from "./settlements";
 import { MainSessions } from "./sessions";
 import { Store } from "./store";
 import { SubSessions } from "./sub-sessions";
@@ -96,7 +97,18 @@ export async function startSquadServer(
   });
   const autonomy = new Autonomy({ store, bus, alerts, subSessions });
   const merges = new Merges({ store, bus, alerts, worktrees, launcher, subSessions, autonomy, mcpUrl });
-  const validations = new Validations({ alerts, merges, subSessions });
+  // Read late like the modules above: the pass hands the ticket back to the
+  // validations when it ends, and the validations open the pass. Two objects
+  // that call each other, declared in the order the constructors allow.
+  const settling = { settle: (ticket: Ticket, feature: Feature) => settlements.settle(ticket, feature) };
+  const validations = new Validations({
+    alerts,
+    merges,
+    subSessions,
+    settlements: settling,
+    featureOf: (ticket) => store.feature(ticket.featureId),
+  });
+  const settlements = new Settlements({ store, bus, launcher, mcpUrl, validations });
   const questions = new Questions({ store, bus, alerts, autonomy, mainSessions });
   const resumptions = new Resumptions({
     store,
@@ -152,7 +164,7 @@ export async function startSquadServer(
       questions.releaseAll();
       // The merges last: one of them may be waiting on a sub-session it closed,
       // and the database has to outlive the last line either of them writes.
-      await Promise.all([mainSessions.stopAll(), subSessions.stopAll()]);
+      await Promise.all([mainSessions.stopAll(), subSessions.stopAll(), settlements.stop()]);
       await merges.stopAll();
       // Event streams are long lived by design: without this, closing the
       // server would wait for every open browser tab to go away.

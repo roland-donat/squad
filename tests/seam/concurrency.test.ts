@@ -97,6 +97,10 @@ describe("running several tickets at once, under the declared caps", () => {
           }
           return;
         }
+        // A settling pass this scenario does not script: it ends without
+        // answering, so the sheet reaches the developer untouched, which is
+        // what these scenarios are about.
+        if (agent.request.role === "settling") return;
         await runTicket(agent);
       }),
     });

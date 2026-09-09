@@ -103,6 +103,10 @@ describe("go-as-recommended, from the drain to what stops it", () => {
           }
           return;
         }
+        // A settling pass this scenario does not script: it ends without
+        // answering, so the sheet reaches the developer untouched, which is
+        // what these scenarios are about.
+        if (agent.request.role === "settling") return;
         await options.subSession?.(agent, titles.get(agent.request.ticketId ?? "") ?? "");
       }),
     });

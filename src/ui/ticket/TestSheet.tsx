@@ -1,5 +1,10 @@
 import { useState, type FormEvent } from "react";
-import type { CriterionCoverage, StepReport, TestSheetPoint } from "../../shared/api";
+import type {
+  CriterionCoverage,
+  SettlementOutcome,
+  StepReport,
+  TestSheetPoint,
+} from "../../shared/api";
 import { ApiError, reviewTestSheet } from "../api";
 
 /**
@@ -13,6 +18,10 @@ import { ApiError, reviewTestSheet } from "../api";
  * what was said is the record the correction is based on.
  */
 export function TestSheet({ ticketId, report }: { ticketId: string; report: StepReport }) {
+  // What is asked of the developer is what is still pending: squad's settling
+  // pass answers the rest before they are woken, and a point it answered is
+  // read with its evidence rather than asked about again.
+  const waiting = report.sheet.filter((point) => point.verdict === "pending");
   return (
     <>
       <h3 className="ticket__heading">Fin d'étape</h3>
@@ -30,14 +39,21 @@ export function TestSheet({ ticketId, report }: { ticketId: string; report: Step
         entries={report.coverage.filter((entry) => entry.verdict === "checked")}
       />
 
+      <Settled
+        title="Dépouillés par squad"
+        entries={report.sheet.filter((point) => point.settlement !== null)}
+      />
+
       <h3 className="ticket__heading">Fiche de tests</h3>
       {report.sheet.length === 0 ? (
         <p className="empty">
           Rien à juger : tous les critères sont couverts par un test ou réglés par l'agent, et il
           n'a rien suggéré de plus.
         </p>
+      ) : waiting.length === 0 ? (
+        <ReviewedSheet report={report} />
       ) : report.reviewedAt === null ? (
-        <SheetForm ticketId={ticketId} points={report.sheet} notes={notesByCriterion(report)} />
+        <SheetForm ticketId={ticketId} points={waiting} notes={notesByCriterion(report)} />
       ) : (
         <ReviewedSheet report={report} />
       )}
@@ -51,22 +67,44 @@ export function TestSheet({ ticketId, report }: { ticketId: string; report: Step
  * this is what spares doing the work again, so a checked criterion shows its
  * note rather than hiding it behind the claim.
  */
-function Settled({ title, entries }: { title: string; entries: CriterionCoverage[] }) {
+function Settled({
+  title,
+  entries,
+}: {
+  title: string;
+  entries: Array<CriterionCoverage | TestSheetPoint>;
+}) {
   if (entries.length === 0) return null;
   return (
     <>
       <h3 className="ticket__heading">{title}</h3>
       <ul className="ticket__criteria">
         {entries.map((entry) => (
-          <li key={entry.criterionId}>
+          <li key={"id" in entry ? entry.id : entry.criterionId}>
+            {"settlement" in entry && entry.settlement !== null && (
+              <span className="chip chip--verdict">{settlementLabels[entry.settlement.outcome]}</span>
+            )}{" "}
             {entry.text}
-            {entry.note !== null && <p className="sheet__comment">{entry.note}</p>}
+            <Note entry={entry} />
           </li>
         ))}
       </ul>
     </>
   );
 }
+
+/** What was run, whoever wrote it down: the agent's note or the pass's. */
+function Note({ entry }: { entry: CriterionCoverage | TestSheetPoint }) {
+  const text =
+    "settlement" in entry ? (entry.settlement?.note ?? null) : (entry.note ?? null);
+  return text === null ? null : <p className="sheet__comment">{text}</p>;
+}
+
+const settlementLabels: Record<SettlementOutcome, string> = {
+  holds: "tient",
+  broken: "ne tient pas",
+  human: "pour vous",
+};
 
 /**
  * What the agent already established on a criterion it still hands over: read

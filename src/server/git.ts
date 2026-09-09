@@ -237,7 +237,6 @@ export async function deleteBranch(worktreePath: string, branch: string): Promis
   await git(worktreePath, ["branch", "-d", branch]);
 }
 
-/** Whether the repository knows a remote under this name. */
 /**
  * What a repository would be called as a project: the name it carries on its
  * forge when it has an `origin`, the directory's own otherwise.
@@ -254,9 +253,11 @@ export async function repositoryName(repositoryRoot: string): Promise<string> {
     ).trim();
     // The last segment of whichever shape the remote takes, `git@forge:owner/name.git`
     // as well as `https://forge/owner/name`, with the suffix git adds to a bare one.
+    // The trailing separator first: a remote written `.../name.git/` would
+    // otherwise keep the suffix, the anchor no longer matching the end.
     const name = url
-      .replace(/\.git$/, "")
       .replace(/[/\\]+$/, "")
+      .replace(/\.git$/, "")
       .split(/[/\\:]/)
       .pop();
     return name === undefined || name === "" ? basename(repositoryRoot) : name;
@@ -265,6 +266,7 @@ export async function repositoryName(repositoryRoot: string): Promise<string> {
   }
 }
 
+/** Whether the repository knows a remote under this name. */
 export async function hasRemote(repositoryRoot: string, remote: string): Promise<boolean> {
   const remotes = await runCommand(repositoryRoot, "git", ["remote"]);
   return remotes.split("\n").some((line) => line.trim() === remote);

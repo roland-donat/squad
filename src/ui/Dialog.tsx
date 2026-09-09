@@ -21,6 +21,11 @@ export function Dialog({
   children: ReactNode;
 }) {
   const element = useRef<HTMLDialogElement>(null);
+  // Where the press that is about to become a click started. A click fires on
+  // the nearest common ancestor of press and release, so a selection dragged
+  // from inside the dialog and released past its edge arrives as a click on the
+  // backdrop: without this, copying the path one is reading closes the dialog.
+  const pressedOn = useRef<EventTarget | null>(null);
 
   useEffect(() => {
     const dialog = element.current;
@@ -37,8 +42,11 @@ export function Dialog({
       onClose={onClose}
       // The backdrop is painted by the dialog itself, so a press landing on the
       // element rather than on anything inside it is a press outside.
+      onMouseDown={(event) => {
+        pressedOn.current = event.target;
+      }}
       onClick={(event) => {
-        if (event.target === element.current) onClose();
+        if (event.target === element.current && pressedOn.current === element.current) onClose();
       }}
     >
       <header className="dialog__header">

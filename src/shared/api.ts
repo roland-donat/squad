@@ -514,8 +514,14 @@ export interface DirectoryListing {
    * only until someone types over it.
    */
   suggestedName: string | null;
-  /** Its directories, by name. */
+  /** Its directories, by name, up to what one step hands back. */
   entries: DirectoryEntry[];
+  /**
+   * How many were found, which is more than `entries` holds on a directory that
+   * runs to thousands. Said rather than kept quiet: a listing silently cut at
+   * five hundred tells the reader they have seen the directory.
+   */
+  total: number;
 }
 
 /**

@@ -1,5 +1,6 @@
 import { realpath } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
+import { homedir } from "node:os";
 import type { AddressInfo } from "node:net";
 import express from "express";
 import { apiRoutes, type Ticket } from "../shared/api";
@@ -42,6 +43,12 @@ export interface SquadServerOptions {
    * test never reads the developer's own conversations.
    */
   recordedSessionsDir?: string;
+  /**
+   * Where a walk through the machine's directories starts when it is given
+   * nothing to go on. Handed in for the same reason the conversations above
+   * are: a test must never read the home directory of whoever runs the suite.
+   */
+  homeDir?: string;
 }
 
 /** Squad is a single-user tool on a single machine: it never leaves the loopback. */
@@ -169,6 +176,7 @@ export async function startSquadServer(
       questions,
       autonomy,
       resumptions,
+      homeDir: options.homeDir ?? homedir(),
       settlements,
       dispatch: handing,
     }),

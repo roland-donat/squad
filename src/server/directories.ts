@@ -1,6 +1,5 @@
-import { readdir, realpath, stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { readdir, stat } from "node:fs/promises";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { DirectoryEntry, DirectoryListing } from "../shared/api";
 import { SquadError } from "./errors";
 import { repositoryName } from "./git";
@@ -23,11 +22,24 @@ import { repositoryName } from "./git";
  * nothing else, and never descends of its own accord.
  */
 
+/**
+ * How many directories one step hands back. A home holds tens, a `node_modules`
+ * or a `/nix/store` holds tens of thousands, and each of them costs a look at
+ * the disk here and a row to paint there. Capped, and the cap is said: a listing
+ * that quietly keeps five hundred of nine thousand tells the reader they have
+ * seen the directory when they have seen a corner of it.
+ */
+const shownByDefault = 500;
+
 /** How deep a listing goes, said as a number so nobody has to guess: one step. */
-export async function listDirectory(asked: string | undefined): Promise<DirectoryListing> {
+export async function listDirectory(
+  asked: string | undefined,
+  /** Where a walk with nothing to go on starts. Handed in, never read here. */
+  home: string,
+): Promise<DirectoryListing> {
   // No path is not an error: it is the first step, and the home directory is
   // the one place a walk with nothing to go on can honestly start from.
-  const target = asked ?? homedir();
+  const target = asked ?? home;
   if (!isAbsolute(target)) {
     throw new SquadError(
       "invalid_request",
@@ -36,7 +48,7 @@ export async function listDirectory(asked: string | undefined): Promise<Director
     );
   }
   const path = await resolveDirectory(target);
-  const [entries, isRepository] = await Promise.all([readEntries(path), holdsRepository(path)]);
+  const [found, isRepository] = await Promise.all([readEntries(path), holdsRepository(path)]);
 
   return {
     path,
@@ -44,26 +56,37 @@ export async function listDirectory(asked: string | undefined): Promise<Director
     parent: dirname(path) === path ? null : dirname(path),
     isRepository,
     suggestedName: isRepository ? await repositoryName(path) : null,
-    entries,
+    entries: found.slice(0, shownByDefault),
+    total: found.length,
   };
 }
 
 /**
- * The directory this path names, free of symlinks. Missing, unreadable and not
- * a directory are told apart: reporting a permission failure as an absent
- * directory sends the reader looking for the wrong problem, which is the same
- * reason `git.ts` tells them apart when a project is registered.
+ * The directory this path names, normalised and not resolved: `..` is worked
+ * out, and a symlink is left standing.
+ *
+ * Following it would be the wrong kindness. A walk that steps into `~/Work`,
+ * which on a real machine is often a link to another disk, would land in a tree
+ * nobody asked for, and "up" would lead somewhere they have never been. What
+ * the walk shows is where one clicked; making a path canonical is the business
+ * of registering a project, which resolves it anyway and is the only place
+ * where two names for one repository would matter.
+ *
+ * Missing, unreadable and not-a-directory are told apart: reporting a
+ * permission failure as an absent directory sends the reader looking for the
+ * wrong problem, which is the same reason `git.ts` tells them apart.
  */
 async function resolveDirectory(path: string): Promise<string> {
+  const normalised = resolve(path);
   try {
-    const entry = await stat(path);
+    const entry = await stat(normalised);
     if (!entry.isDirectory()) {
-      throw new SquadError("invalid_request", 400, `${path} is not a directory`);
+      throw new SquadError("invalid_request", 400, `${normalised} is not a directory`);
     }
-    return await realpath(path);
+    return normalised;
   } catch (cause) {
     if (cause instanceof SquadError) throw cause;
-    throw failureOf(path, cause);
+    throw failureOf(normalised, cause);
   }
 }
 

@@ -1,11 +1,15 @@
-import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { chmod, mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { realpath } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ApiErrorBody, DirectoryListing } from "../../src/shared/api";
 import { directoriesRoute } from "../../src/shared/api";
-import { addOrigin, createTemporaryRepository, removeTemporaryPaths } from "../support/git";
+import {
+  addOrigin,
+  createTemporaryRepository,
+  removeTemporaryPaths,
+  setOrigin,
+} from "../support/git";
 import { startTestSquad, type TestSquad } from "../support/squad";
 
 /**
@@ -22,8 +26,15 @@ describe("walking to a repository", () => {
   let squad: TestSquad;
   const temporary: string[] = [];
 
+  /** The home a walk with nothing to go on starts from, this scenario's own. */
+  let home: string;
+
   beforeEach(async () => {
-    squad = await startTestSquad();
+    home = await realpath(await mkdtemp(join(tmpdir(), "squad-maison-")));
+    temporary.push(home);
+    // Handed in like the recorded conversations are, and for the same reason:
+    // no test ever reads the home directory of whoever runs the suite.
+    squad = await startTestSquad({ homeDir: home });
   });
 
   afterEach(async () => {
@@ -63,21 +74,27 @@ describe("walking to a repository", () => {
     ]);
   });
 
-  it("says which of them are repositories", async () => {
+  it("says which of them are repositories, a worktree counting as one", async () => {
     const root = await scratch();
-    const repository = await createTemporaryRepository();
     await mkdir(join(root, "pas-un-depot"));
-    // Moved under the walked directory rather than created there: the helper
-    // makes a real repository, and this scenario needs one that is real.
-    await mkdir(join(root, "un-depot"), { recursive: true });
-    await writeFile(join(root, "un-depot", ".git"), `gitdir: ${repository}/.git\n`);
+    await mkdir(join(root, "un-depot"));
+    await mkdir(join(root, "un-depot", ".git"));
+    // A worktree carries a `.git` file rather than a directory, and squad's own
+    // worktrees are exactly that: the mark is read off the presence and not the
+    // kind, which is what this second one is here to hold.
+    await mkdir(join(root, "un-worktree"));
+    await writeFile(join(root, "un-worktree", ".git"), "gitdir: /ailleurs/.git\n");
 
     const walked = await listing(root);
 
     const marked = Object.fromEntries(
       walked.entries.map((entry) => [entry.name, entry.isRepository]),
     );
-    expect(marked).toEqual({ "pas-un-depot": false, "un-depot": true });
+    expect(marked).toEqual({
+      "pas-un-depot": false,
+      "un-depot": true,
+      "un-worktree": true,
+    });
   });
 
   it("carries the way back up, and stops at the root of the filesystem", async () => {
@@ -92,8 +109,43 @@ describe("walking to a repository", () => {
   });
 
   it("starts in the home directory when no path is named", async () => {
+    await mkdir(join(home, "projets"));
+
     const walked = await listing();
-    expect(walked.path).toBe(await realpath(homedir()));
+
+    expect(walked.path).toBe(home);
+    expect(walked.entries.map((entry) => entry.name)).toEqual(["projets"]);
+  });
+
+  it("walks through a symlink without losing the way back", async () => {
+    const root = await scratch();
+    const elsewhere = await scratch();
+    await mkdir(join(elsewhere, "cible"));
+    await symlink(elsewhere, join(root, "raccourci"));
+
+    const walked = await listing(join(root, "raccourci"));
+
+    // Where one clicked, not where the link points: a walk that stepped into a
+    // link would land in a tree nobody asked for, and up would lead somewhere
+    // they have never been. Making a path canonical is registration's business.
+    expect(walked.path).toBe(join(root, "raccourci"));
+    expect(walked.parent).toBe(root);
+    expect(walked.entries.map((entry) => entry.name)).toEqual(["cible"]);
+  });
+
+  it("hands back what one step holds, and says how many there were", async () => {
+    const root = await scratch();
+    for (let index = 0; index < 12; index += 1) {
+      await mkdir(join(root, `dossier-${String(index).padStart(2, "0")}`));
+    }
+
+    const walked = await listing(root);
+
+    // The cap is far above twelve, so this says the count is the whole truth
+    // when nothing is cut: a total that lied on a small directory would lie on
+    // a large one too, where nobody could check it.
+    expect(walked.total).toBe(12);
+    expect(walked.entries).toHaveLength(12);
   });
 
   it("proposes the name the repository carries on its forge", async () => {
@@ -107,6 +159,23 @@ describe("walking to a repository", () => {
     // into `travail` is not a project called `travail`.
     expect(walked.suggestedName).toBe(basename(remote));
     expect(walked.suggestedName).not.toBe(basename(repository));
+  });
+
+  it.each([
+    ["git@github.com:edgemind/muscadet.git", "muscadet"],
+    ["https://github.com/edgemind/muscadet", "muscadet"],
+    ["https://github.com/edgemind/muscadet.git/", "muscadet"],
+    ["ssh://git@forge.interne:2222/edgemind/muscadet.git", "muscadet"],
+    // Credentials in a remote are a real thing people have; what comes back is
+    // the name and nothing of what stands before it.
+    ["https://jeton@forge.interne/edgemind/muscadet.git", "muscadet"],
+  ])("reads the name out of a remote written %s", async (url, expected) => {
+    const repository = await createTemporaryRepository();
+    await setOrigin(repository, url);
+
+    const walked = await listing(repository);
+
+    expect(walked.suggestedName).toBe(expected);
   });
 
   it("proposes the directory's name when the repository has no origin", async () => {

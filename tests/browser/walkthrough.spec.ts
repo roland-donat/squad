@@ -2,7 +2,11 @@ import { realpath } from "node:fs/promises";
 import { dirname } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import type { Feature, Project, Settings, Ticket } from "../../src/shared/api";
-import { createTemporaryRepository, removeTemporaryPaths } from "../support/git";
+import {
+  createTemporaryDirectory,
+  createTemporaryRepository,
+  removeTemporaryPaths,
+} from "../support/git";
 import { connectToSquadTools } from "../support/mcp";
 
 test.afterAll(removeTemporaryPaths);
@@ -33,21 +37,28 @@ test("opens a feature from the home screen and reads the graph an agent wrote", 
   request,
   baseURL,
 }) => {
-  const repository = await createTemporaryRepository();
+  // In a directory of this run's own, and not straight in the system's
+  // temporary one: the walk is capped, and a machine that has run this suite
+  // has a temporary directory the repository would be lost in.
+  const tree = await createTemporaryDirectory();
+  const repository = await createTemporaryRepository(tree);
   // The server stores the path git reports, with its symlinks resolved.
   const repositoryRoot = await realpath(repository);
 
   // The home screen, on a squad that drives nothing yet: one gesture, and a
   // sentence saying what it opens.
+  await page.goto("/");
   // Where the last walk ended, which is where the next one starts. Seeded so the
   // walk opens beside the repository this run made, rather than in the home
   // directory of whoever runs the suite: that squad starts there when nothing is
   // remembered is the seam suite's to prove, not this one's.
-  await page.addInitScript((from: string) => {
+  //
+  // Once, after the first load, and not on every one: an init script would
+  // write it again at each reload, and the walk keeping where it was left would
+  // then be impossible to tell from the seed doing it.
+  await page.evaluate((from: string) => {
     window.localStorage.setItem("squad.last-directory", from);
   }, dirname(repositoryRoot));
-
-  await page.goto("/");
   await expect(page.getByRole("heading", { name: "squad", exact: true })).toBeVisible();
   await expect(page.getByText("Aucune feature en vol.")).toBeVisible();
 
@@ -319,15 +330,27 @@ test("opens a feature from the home screen and reads the graph an agent wrote", 
   await machine.getByRole("button", { name: "Enregistrer les réglages" }).click();
   await expect(machine.getByText("Enregistré.")).toBeVisible();
 
-  // The same walk here, where a project's path is changed: that is the one time
-  // it is typed a second time, and typing it wrong sends squad's branches into
-  // another repository.
-  await expect(page.getByRole("button", { name: "Parcourir" }).first()).toBeVisible();
-
   const ofProject = page.getByRole("group", { name: nameOf(repositoryRoot) });
   await ofProject.getByLabel("Branche par défaut").fill("main");
   await ofProject.getByRole("button", { name: "Enregistrer le projet" }).click();
   await expect(ofProject.getByText("Enregistré.")).toBeVisible();
+
+  // The same walk on this project's own path, which is the one time it is typed
+  // a second time, and typing it wrong sends squad's branches into another
+  // repository. This project's form and no other: the registration form above
+  // has a walk of its own, and hitting that one would prove nothing about this.
+  await ofProject.getByRole("button", { name: "Parcourir" }).click();
+  const again = page.getByRole("dialog", { name: "Choisir un dépôt" });
+  // Opened where the last walk ended, which is what says the choice was kept:
+  // the creation screen walked to this repository at the start of this run.
+  await expect(again.getByText(repositoryRoot, { exact: true })).toBeVisible();
+  await again.getByRole("button", { name: ".. remonter" }).click();
+  await expect(again.getByText(dirname(repositoryRoot), { exact: true })).toBeVisible();
+  await again.getByRole("button", { name: "Choisir ce répertoire" }).click();
+  // Filled in, and only in this project's form. Not submitted: what is proven
+  // here is the walk, and changing where squad thinks this repository lives
+  // would send everything after this line somewhere else.
+  await expect(ofProject.getByLabel("Chemin du dépôt")).toHaveValue(dirname(repositoryRoot));
 
   // Held by the server, not by the screen: what was typed is what squad
   // applies, and the verification command set on the creation screen took.

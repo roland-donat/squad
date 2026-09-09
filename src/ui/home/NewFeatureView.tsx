@@ -11,6 +11,7 @@ import {
 import { Brand, Connection, ThemeSwitch } from "../chrome";
 import { navigate } from "../route";
 import { DirectoryPicker } from "../repository/DirectoryPicker";
+import { useProposedField } from "../repository/proposed-field";
 import { RecordedSessionPicker } from "../session/RecordedSessionPicker";
 import { reserveTab } from "../tab";
 import { Failure, useSubmission } from "../submission";
@@ -51,7 +52,7 @@ export function NewFeatureView({ state }: { state: SquadState }) {
   const [newPath, setNewPath] = useState("");
   // Proposed by the walk and editable afterwards: the name a repository carries
   // on its forge is a good guess and never an answer.
-  const [newName, setNewName] = useState("");
+  const newName = useProposedField();
   const [alsoOn, setAlsoOn] = useState<string[]>([]);
   const [goAsRecommended, setGoAsRecommended] = useState(false);
   const [prompt, setPrompt] = useState("");
@@ -152,7 +153,7 @@ export function NewFeatureView({ state }: { state: SquadState }) {
     if (handed.current?.path === path) return handed.current.project;
     const project = await registerProject({
       path,
-      ...(newName.trim() === "" ? {} : { name: newName.trim() }),
+      ...(newName.value.trim() === "" ? {} : { name: newName.value.trim() }),
     });
     handed.current = { path, project };
     return project;
@@ -280,20 +281,16 @@ export function NewFeatureView({ state }: { state: SquadState }) {
                       label="Parcourir"
                       onChoose={(chosen) => {
                         setNewPath(chosen.path);
-                        // Only what the walk proposes, and only when it proposes
-                        // something: a name already typed is a name someone chose.
-                        if (chosen.suggestedName !== null && newName.trim() === "") {
-                          setNewName(chosen.suggestedName);
-                        }
+                        newName.propose(chosen.suggestedName);
                       }}
                     />
                   </div>
                   <label className="field">
                     <span>Nom du dépôt (facultatif)</span>
                     <input
-                      value={newName}
-                      onChange={(event) => setNewName(event.target.value)}
-                      placeholder="repris du dossier si vide"
+                      value={newName.value}
+                      onChange={(event) => newName.onChange(event.target.value)}
+                      placeholder="repris du dépôt si vide"
                     />
                   </label>
                 </>

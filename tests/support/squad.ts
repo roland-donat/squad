@@ -39,6 +39,12 @@ export interface TestSquadOptions {
    * temporary data directory, which is the same as having recorded nothing.
    */
   recordedSessionsDir?: string;
+  /**
+   * Where a walk through the machine's directories starts when it is given
+   * nothing to go on. Handed in for the same reason the conversations above
+   * are: a test must never read the home directory of whoever runs the suite.
+   */
+  homeDir?: string;
 }
 
 export async function startTestSquad(options: TestSquadOptions = {}): Promise<TestSquad> {
@@ -50,6 +56,7 @@ export async function startTestSquad(options: TestSquadOptions = {}): Promise<Te
       ui: "none",
       ...(options.launcher === undefined ? {} : { launcher: options.launcher }),
       recordedSessionsDir: options.recordedSessionsDir ?? join(dataDir, "aucune-session"),
+      ...(options.homeDir === undefined ? {} : { homeDir: options.homeDir }),
     });
   let server = await start();
   const streams: EventStream[] = [];

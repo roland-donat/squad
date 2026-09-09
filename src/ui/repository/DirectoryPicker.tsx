@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DirectoryListing } from "../../shared/api";
 import { ApiError, listDirectory } from "../api";
 import { Dialog } from "../Dialog";
@@ -66,6 +66,19 @@ function rememberedWalk(): string | undefined {
 }
 
 /**
+ * Forgets where the last walk ended, which is what a directory that has since
+ * been removed comes down to. Without this the refusal is served again at every
+ * opening, for as long as the entry outlives the directory it names.
+ */
+function forget(): void {
+  try {
+    window.localStorage.removeItem(lastWalk);
+  } catch {
+    // Same as writing it: a browser refusing storage costs a starting point.
+  }
+}
+
+/**
  * The walk itself. One step at a time, and a step that fails costs the step and
  * not the walk: a directory squad may not read says so and leaves the listing
  * where it was, which is the only place from which one can carry on.
@@ -73,10 +86,14 @@ function rememberedWalk(): string | undefined {
 function Walk({ onChoose }: { onChoose: (chosen: DirectoryListing) => void }) {
   const [here, setHere] = useState<DirectoryListing | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
-  // Where to walk to next. Null on the first render means "wherever squad
-  // starts", which is the home directory, and the remembered path when there is
-  // one: a walk that begins at the root of the filesystem begins nowhere useful.
+  // Where to walk to next. Undefined means "wherever squad starts", which is the
+  // home directory, and the remembered path when there is one: a walk that
+  // begins at the root of the filesystem begins nowhere useful.
   const [going, setGoing] = useState<string | undefined>(rememberedWalk);
+  // Whether the remembered path has already been given up on. A ref and not a
+  // dependency: the effect must not read a `here` from a render before its own,
+  // and this says what it needs in one word rather than by deduction.
+  const gaveUpRemembered = useRef(false);
 
   useEffect(() => {
     let current = true;
@@ -90,10 +107,14 @@ function Walk({ onChoose }: { onChoose: (chosen: DirectoryListing) => void }) {
         if (!current) return;
         setRefused(failure instanceof ApiError ? failure.message : "Le serveur est injoignable.");
         // Left where it was rather than emptied: a refusal is a step not taken.
-        // On the very first one there is nowhere to stay, so squad's own
-        // starting point takes over, which is what a remembered path that has
-        // since been removed comes down to.
-        if (here === null && going !== undefined) setGoing(undefined);
+        // The first step is the one exception, there being nowhere to stay: a
+        // remembered directory that has since been removed is given up on, and
+        // forgotten, so the refusal is not served again at the next opening.
+        if (going !== undefined && !gaveUpRemembered.current) {
+          gaveUpRemembered.current = true;
+          forget();
+          setGoing(undefined);
+        }
       });
     return () => {
       current = false;
@@ -137,6 +158,15 @@ function Walk({ onChoose }: { onChoose: (chosen: DirectoryListing) => void }) {
         ))}
         {here.entries.length === 0 && <li className="empty">Aucun répertoire ici.</li>}
       </ul>
+      {/* Never a cap kept quiet: a reader who cannot see the other eight
+          thousand would read the directory as the corner of it they were
+          shown. */}
+      {here.total > here.entries.length && (
+        <p className="empty">
+          {here.entries.length} répertoires sur {here.total}. Saisir le chemin à la main pour
+          atteindre les autres.
+        </p>
+      )}
 
       <div className="walk__actions">
         <button type="button" onClick={() => onChoose(here)}>

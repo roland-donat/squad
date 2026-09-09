@@ -79,6 +79,13 @@ feature après chaque fusion. `PUT` sur `/api/features/<id>` pour ce qui est pro
 concurrence s'applique. Rien n'est lu dans l'environnement, de sorte que ce qui est
 en vigueur se relit par la même surface que le reste.
 
+Ce qui n'est **pas** un réglage vit dans le navigateur et n'est jamais envoyé au
+serveur : la largeur du panneau de ticket, la hauteur du tiroir, et le dernier
+répertoire atteint en parcourant. Squad n'en lit aucun, et les deux premiers
+diffèrent légitimement d'une fenêtre à l'autre. Ce sont des commodités, pas des
+réglages, et c'est ce qui les distingue du thème, que le serveur lit pour
+peindre la page avant que React ne monte.
+
 Le thème fait exception sur un point, et un seul : sa commande est dans l'en-tête
 plutôt que sur l'écran de réglages, parce qu'on s'aperçoit qu'un thème ne va pas
 en regardant autre chose, et que devoir naviguer pour le corriger est toute la

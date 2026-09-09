@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Project, Settings } from "../../shared/api";
 import { registerProject, updateProject, updateSettings } from "../api";
 import { DirectoryPicker } from "../repository/DirectoryPicker";
+import { useProposedField } from "../repository/proposed-field";
 import { Failure, useSubmission } from "../submission";
 
 /**
@@ -59,11 +60,11 @@ export function SettingsView({
  */
 function RegisterProjectForm() {
   const [path, setPath] = useState("");
-  const [name, setName] = useState("");
+  const name = useProposedField();
   const { busy, error, submit } = useSubmission(async () => {
-    await registerProject({ path, ...(name.trim() ? { name } : {}) });
+    await registerProject({ path, ...(name.value.trim() ? { name: name.value } : {}) });
     setPath("");
-    setName("");
+    name.onChange("");
   });
 
   return (
@@ -86,20 +87,16 @@ function RegisterProjectForm() {
             label="Parcourir"
             onChoose={(chosen) => {
               setPath(chosen.path);
-              // Only what the walk proposes, and only into a field nobody has
-              // written in: a name already typed is a name someone chose.
-              if (chosen.suggestedName !== null && name.trim() === "") {
-                setName(chosen.suggestedName);
-              }
+              name.propose(chosen.suggestedName);
             }}
           />
         </div>
         <label className="field">
           <span>Nom (facultatif)</span>
           <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="repris du dossier si vide"
+            value={name.value}
+            onChange={(event) => name.onChange(event.target.value)}
+            placeholder="repris du dépôt si vide"
           />
         </label>
         <button type="submit" disabled={busy}>

@@ -81,9 +81,9 @@ const wording: Record<ErrorCode, string> = {
     "Le rapport doit dire, pour chaque critère d'acceptation du ticket et pour ceux-là seuls, comment il a été réglé.",
   checked_without_note:
     "Un critère réglé par l'agent doit dire ce qui a été lancé et ce que ça a répondu.",
-  sheet_not_settleable: "Cette fiche n'attend pas d'être dépouillée.",
+  sheet_not_settleable: "Cette fiche n'attend aucune vérification.",
   settlement_mismatch:
-    "Le dépouillement doit répondre à chaque point de la fiche, et à ceux-là seuls.",
+    "La vérification préalable doit répondre à chaque point de la fiche, et à ceux-là seuls.",
   decision_without_a_road:
     "Un arbitrage doit nommer la voie recommandée, sans quoi personne ne peut le trancher à votre place.",
   test_sheet_not_found: "Ce ticket n'a pas encore de fiche de tests.",

@@ -146,7 +146,7 @@ describe("the sessions squad opens for itself, under the concurrency caps", () =
     throw new Error(`waited in vain for ${what}`);
   }
 
-  it("tient deux dépouillements demandés coup sur coup sous le plafond", async () => {
+  it("tient deux vérifications demandées coup sur coup sous le plafond", async () => {
     const held = gate();
     const { featureId, peak } = await start(held);
 

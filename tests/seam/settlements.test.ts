@@ -434,7 +434,7 @@ describe("the settling pass, between a test sheet and the developer", () => {
     ]);
   });
 
-  it("dépouille une fiche déjà en attente quand le développeur le demande", async () => {
+  it("vérifie une fiche déjà en attente quand le développeur le demande", async () => {
     // The pass says nothing on its own: the sheet reaches the developer whole,
     // which is the state every sheet reported before this pass existed is in.
     let asked = false;
@@ -475,7 +475,7 @@ describe("the settling pass, between a test sheet and the developer", () => {
     expect(((await again.json()) as ApiErrorBody).error.code).toBe("sheet_not_settleable");
   });
 
-  it("cesse de dépouiller après deux tours et rend la fiche au développeur", async () => {
+  it("cesse de vérifier après deux tours et rend la fiche au développeur", async () => {
     const { featureId, ticket, passes } = await start({
       coverage: [{ verdict: "automated" }, { verdict: "automated" }],
       settle: async (points, agent) => {

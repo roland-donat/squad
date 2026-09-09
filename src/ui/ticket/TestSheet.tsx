@@ -40,7 +40,7 @@ export function TestSheet({ ticketId, report }: { ticketId: string; report: Step
       />
 
       <Settled
-        title="Dépouillés par squad"
+        title="Vérifiés par squad"
         entries={report.sheet.filter((point) => point.settlement !== null)}
       />
 
@@ -158,8 +158,8 @@ function SettleFirst({ ticketId, points }: { ticketId: string; points: TestSheet
         {busy
           ? "squad s'en charge…"
           : untouched === 0
-            ? `Refaire dépouiller ces ${points.length} point(s) par squad`
-            : `Faire dépouiller ces ${points.length} point(s) par squad`}
+            ? `Refaire vérifier ces ${points.length} point(s) par squad`
+            : `Faire vérifier ces ${points.length} point(s) par squad`}
       </button>
       {error && (
         <span className="error" role="alert">

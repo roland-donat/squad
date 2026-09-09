@@ -114,6 +114,35 @@ export async function branchExists(repositoryRoot: string, branch: string): Prom
   }
 }
 
+/** The commit a branch points at, or null when the branch is not there. */
+export async function branchHead(worktreePath: string, branch: string): Promise<string | null> {
+  try {
+    return (await runCommand(worktreePath, "git", ["rev-parse", "--verify", `${branch}^{commit}`]))
+      .trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether `commit` is already an ancestor of the branch checked out here, which
+ * is git's own answer to "is this work in".
+ *
+ * Squad asks it rather than deducing it from its own merge having succeeded: a
+ * conflict resolution session is not confined (ADR 0004), and one that carries
+ * the merge through itself leaves squad's retry with nothing to merge and a
+ * branch that may be gone. What decides whether a ticket landed is the state of
+ * the tree, never whose command put it there.
+ */
+export async function isMergedInto(worktreePath: string, commit: string): Promise<boolean> {
+  try {
+    await runCommand(worktreePath, "git", ["merge-base", "--is-ancestor", commit, "HEAD"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * A git command squad runs on a repository it drives. Its failure comes back as
  * a squad error carrying what git said and where: a worktree that could not be

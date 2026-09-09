@@ -128,6 +128,16 @@ export async function resolveConflictWith(worktree: string, content: string): Pr
   await run("git", ["commit", "--no-edit"], { cwd: worktree });
 }
 
+/** Leaves a checkout on no branch, which is how a branch it holds gets freed. */
+export async function detach(worktree: string): Promise<void> {
+  await run("git", ["checkout", "--detach"], { cwd: worktree });
+}
+
+/** Deletes a branch from a checkout, as an unconfined session may well do. */
+export async function deleteBranchIn(worktree: string, branch: string): Promise<void> {
+  await run("git", ["branch", "-D", branch], { cwd: worktree });
+}
+
 /** A bare repository added to a repository as its `origin`, as a forge would be. */
 export async function addOrigin(repository: string): Promise<string> {
   const remote = await mkdtemp(join(tmpdir(), "squad-remote-"));

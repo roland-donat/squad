@@ -1592,6 +1592,22 @@ export class Store {
   }
 
   /**
+   * Writes down the commit a ticket branch is on, just before squad sets out to
+   * merge it. Kept afterwards: it is what lets a second attempt ask git whether
+   * the work landed, when the branch that carried it is no longer there.
+   */
+  recordMergeHead(ticketId: string, head: string): void {
+    this.db.update(tickets).set({ mergeHead: head }).where(eq(tickets.id, ticketId)).run();
+  }
+
+  /** What the last merge attempt wrote down, or null if none ever did. */
+  mergeHeadOf(ticketId: string): string | null {
+    return (
+      this.db.select().from(tickets).where(eq(tickets.id, ticketId)).get()?.mergeHead ?? null
+    );
+  }
+
+  /**
    * How many steps a ticket has reported. What bounds the settling pass: a
    * sheet answered, corrected and reported again has already had squad's word
    * once, and a third round is a disagreement between two agents that a person

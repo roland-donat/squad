@@ -18,11 +18,15 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "squad" })).toBeVisible();
 
+  await page.getByRole("button", { name: "enregistrer un projet" }).click();
   await page.getByLabel("Chemin du dépôt").fill(repository);
   await page.getByRole("button", { name: "Enregistrer le projet" }).click();
 
+  // Registered, listed in the rail, and the dialog closed itself on the way.
   await expect(page.getByText(repositoryRoot, { exact: true })).toBeVisible();
+  await expect(page.locator("dialog[open]")).toHaveCount(0);
 
+  await page.getByRole("button", { name: "ouvrir une feature" }).click();
   await page.getByLabel("Intitulé de la feature").fill("Fondation");
   await page.getByRole("button", { name: "Ouvrir la feature" }).click();
 
@@ -79,12 +83,29 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
 
   // Four nodes and the two arrows between them, without a reload: the graph
   // arrives on the event stream while it is being written.
-  const nodes = page.getByRole("region", { name: "Graphe" }).getByRole("button");
+  const nodes = page.getByRole("region", { name: "Graphe" }).locator(".node");
   await expect(nodes).toHaveCount(4);
   await expect(page.getByLabel("Le store, construction, prêt")).toBeVisible();
   await expect(page.getByLabel("Les outils MCP, construction, bloqué")).toBeVisible();
   await expect(page.getByLabel("Quelle disposition, décision, bloqué")).toBeVisible();
   await expect(page.locator(".graph__edge")).toHaveCount(2);
+
+  // The map is navigated rather than scrolled: the wheel zooms, and the key
+  // that recentres puts it back exactly where the framing had left it. The
+  // framing is a function of the graph and the viewport, so it is reproducible.
+  const map = page.locator(".graph");
+  const framing = () => map.evaluate((element) => element.style.transform);
+  const framed = await framing();
+  await page.locator(".graph__viewport").hover();
+  await page.mouse.wheel(0, -300);
+  await expect.poll(framing).not.toBe(framed);
+  await page.locator(".graph__viewport").focus();
+  await page.keyboard.press("0");
+  await expect.poll(framing).toBe(framed);
+
+  // One tab stop for the whole map, whatever it holds: the arrows walk from
+  // node to node inside it.
+  await expect(page.locator(".node[tabindex='0']")).toHaveCount(1);
 
   // The indicator lists what waits on the developer, and opens it: the decision
   // nothing blocks is there, the one still blocked is not.
@@ -115,11 +136,13 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
   // every node which one builds it, since the answer stops being the same
   // everywhere.
   const second = await createTemporaryRepository();
+  await page.getByRole("button", { name: "enregistrer un projet" }).click();
   await page.getByLabel("Chemin du dépôt").fill(second);
   await page.getByRole("button", { name: "Enregistrer le projet" }).click();
   await expect(page.getByText(await realpath(second), { exact: true })).toBeVisible();
   await page.getByRole("button", { name: new RegExp(repositoryRoot.split("/").at(-1) ?? "") }).click();
 
+  await page.getByRole("button", { name: "ouvrir une feature" }).click();
   await page.getByLabel("Intitulé de la feature").fill("Sur deux dépôts");
   await page.getByLabel(second.split("/").at(-1) ?? "").check();
   await page.getByRole("button", { name: "Ouvrir la feature" }).click();
@@ -157,24 +180,28 @@ test("registers a project, opens a feature and reads the graph an agent wrote", 
   // from when it comes from work already done. What is on this machine is
   // nobody's business here: what is proven is that the panel asks squad and
   // renders the answer, so the search is given something nothing can match.
+  await page.getByRole("button", { name: "reprendre une conversation" }).click();
   const recorded = page.getByRole("region", { name: "Reprendre une session" });
   await expect(recorded.getByLabel("Rechercher une session")).toBeVisible();
   await recorded.getByLabel("Rechercher une session").fill("zzz-aucune-conversation-zzz");
   await expect(recorded.getByText("Aucune conversation ne correspond.")).toBeVisible();
   await recorded.getByLabel("Rechercher une session").fill("");
+  await page.getByRole("button", { name: "fermer" }).click();
 
   // Go-as-recommandé, on the feature it drives. It is armed here on a feature
   // whose graph is empty, so squad has nothing to launch and this walk-through
   // opens no session: what is proven is the control, not the drain, which the
   // seam covers with a scripted agent.
   const featuresPanel = page.getByRole("region", { name: "Features" });
+  const graphPanel = page.getByRole("region", { name: "Graphe" });
+  await page.getByRole("button", { name: "ouvrir une feature" }).click();
   await page.getByLabel("Intitulé de la feature").fill("Sans graphe");
   await page.getByRole("button", { name: "Ouvrir la feature" }).click();
-  await featuresPanel.getByRole("button", { name: "go-as-recommandé : arrêté" }).click();
-  await expect(featuresPanel.getByText("go-as-recommandé : en cours")).toBeVisible();
-  await featuresPanel.getByRole("button", { name: "arrêter" }).click();
+  await graphPanel.getByRole("button", { name: "go-as-recommandé : arrêté" }).click();
+  await expect(graphPanel.getByText("go-as-recommandé : en cours")).toBeVisible();
+  await graphPanel.getByRole("button", { name: "arrêter" }).click();
   await expect(
-    featuresPanel.getByRole("button", { name: "go-as-recommandé : arrêté" }),
+    graphPanel.getByRole("button", { name: "go-as-recommandé : arrêté" }),
   ).toBeVisible();
 
   // The settings screen: what squad is configured with, changed where it is

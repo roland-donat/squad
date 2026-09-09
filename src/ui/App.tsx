@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { themes, type AutonomyHaltReason, type Feature, type Project, type Theme } from "../shared/api";
 import { pendingActions, type PendingAction, type PendingReason } from "../shared/pending";
 import { ticketsAwaitingDeveloper } from "../shared/state-family";
 import { piloting, type PilotingRoute } from "../shared/ui-routes";
 import { openFeature, registerProject, setGoAsRecommended, updateSettings } from "./api";
+import { Dialog } from "./Dialog";
 // The lockup itself, not a copy of it in JSX: one drawing serves the header, the
 // favicon and the README, and a second one would drift from it in silence.
 import lockup from "./brand/squad-lockup.svg?raw";
@@ -24,6 +25,13 @@ import {
   ticketThreadOf,
   useSquadState,
 } from "./useSquadState";
+
+/**
+ * How much of the map the drawer covers, in pixels. Declared here rather than in
+ * the stylesheet: the map has to know it to bring a covered node back into view,
+ * and a width living in two places would drift.
+ */
+const drawerWidth = 448;
 
 export function App() {
   const state = useSquadState();
@@ -112,6 +120,30 @@ export function App() {
     );
   }
 
+  // What squad is set up with, asked for one dialog at a time. Registering a
+  // repository, opening a feature and resuming a conversation are done once,
+  // and the shell owes its height to piloting.
+  const [dialog, setDialog] = useState<"project" | "feature" | "recorded" | null>(null);
+  // The drawer covers the right of the map permanently, which is right while
+  // one reads a ticket and wrong while one reads the whole chantier.
+  const [drawerOpen, setDrawerOpen] = useState(true);
+  const showDrawer = openedFeature !== null && drawerOpen;
+  // How much of the map the drawer hides, so the map can translate a node back
+  // into what is left. In pixels because that is what the viewport works in.
+  const obstructedRight = showDrawer ? drawerWidth : 0;
+
+  // Escape gives the map back: the ticket closes and the drawer falls back to
+  // the thread. Not while a dialog is up, where Escape is the dialog's own.
+  useEffect(() => {
+    if (openedTicket === null || dialog !== null) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      navigate(piloting({ projectId: shownProjectId, featureId: shownFeatureId }));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openedTicket, dialog, shownProjectId, shownFeatureId]);
+
   return (
     <div className="app">
       <header className="app__header">
@@ -133,58 +165,147 @@ export function App() {
         <ThemeSwitch theme={theme} />
       </header>
 
-      {settingsOpen && <SettingsView settings={state.settings} projects={projects} />}
+      {settingsOpen ? (
+        <main className="app__screen">
+          <SettingsView settings={state.settings} projects={projects} />
+        </main>
+      ) : (
+        /* The work, in one row that fills the shell: what waits on me down the
+           left, the map it waits in taking everything else, and the drawer over
+           its right edge for the one thing being read. */
+        <main className="app__work">
+          <aside className="rail">
+            <WaitingPanel actions={waiting} features={features} onOpen={open} />
 
-      {/* The work, in one row and above everything else: what waits on me, the
-          graph it waits in, and the thread it is settled in. What squad is set
-          up with lives below, since setting it up is not piloting it. */}
-      <main className="app__work" hidden={settingsOpen}>
-        <WaitingPanel
-          actions={waiting}
-          features={features}
-          onOpen={open}
-        />
-        <section className="panel panel--graph" aria-labelledby="titre-graphe">
-          <h2 id="titre-graphe">Graphe</h2>
-          {openedFeature && graph ? (
-            <>
-              <p className="panel__context">
-                de <strong>{openedFeature.title}</strong>
-                {openedFeature.repositories.length > 1 && (
-                  <span className="row__meta">
-                    {" · "}
-                    {openedFeature.repositories.length} dépôts :{" "}
-                    {openedFeature.repositories
-                      .map((carried) => repositoryNames.get(carried.projectId))
-                      .join(", ")}
-                  </span>
+            <section className="panel" aria-labelledby="titre-projets">
+              <h2 id="titre-projets">Projets</h2>
+              <ul className="list">
+                {projects.map((project) => (
+                  <li key={project.id}>
+                    <button
+                      type="button"
+                      className={project.id === selected?.id ? "row row--selected" : "row"}
+                      onClick={() => navigate(piloting({ projectId: project.id }))}
+                      aria-current={project.id === selected?.id}
+                    >
+                      <span className="row__title">{project.name}</span>
+                      <span className="row__detail">{project.path}</span>
+                    </button>
+                  </li>
+                ))}
+                {projects.length === 0 && (
+                  <li className="empty">Aucun projet enregistré pour l'instant.</li>
                 )}
-                {openedFeature.repositories.flatMap((carried) =>
-                  // Once the graph has drained: one address per repository squad
-                  // sent off, and the place the rest of that story is told.
-                  carried.pullRequestUrl === null
-                    ? []
-                    : [
-                        <a
-                          key={carried.projectId}
-                          className="link"
-                          href={carried.pullRequestUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          pull request{" "}
-                          {openedFeature.repositories.length > 1
-                            ? repositoryNames.get(carried.projectId)
-                            : ""}
-                        </a>,
-                      ],
-                )}
-              </p>
+              </ul>
+            </section>
+
+            <section className="panel" aria-labelledby="titre-features">
+              <h2 id="titre-features">Features</h2>
+              {selected ? (
+                <ul className="list">
+                  {featuresOfProject.map((feature) => (
+                    <li key={feature.id}>
+                      <button
+                        type="button"
+                        className={feature.id === openedFeature?.id ? "row row--selected" : "row"}
+                        onClick={() =>
+                          navigate(piloting({ projectId: selected.id, featureId: feature.id }))
+                        }
+                        aria-current={feature.id === openedFeature?.id}
+                      >
+                        <span className="row__title">{feature.title}</span>
+                        <span className="row__meta">
+                          ouverte le {new Date(feature.createdAt).toLocaleString("fr-FR")}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                  {featuresOfProject.length === 0 && (
+                    <li className="empty">Aucune feature en vol sur ce projet.</li>
+                  )}
+                </ul>
+              ) : (
+                <p className="empty">Enregistrer un projet pour y ouvrir une feature.</p>
+              )}
+            </section>
+
+            <div className="rail__setup">
+              <button type="button" className="link" onClick={() => setDialog("project")}>
+                enregistrer un projet
+              </button>
+              <button
+                type="button"
+                className="link"
+                disabled={selected === null}
+                onClick={() => setDialog("feature")}
+              >
+                ouvrir une feature
+              </button>
+              <button type="button" className="link" onClick={() => setDialog("recorded")}>
+                reprendre une conversation
+              </button>
+            </div>
+          </aside>
+
+          <section
+            className="panel panel--graph"
+            aria-labelledby="titre-graphe"
+            /* What the drawer covers, so the header and the legend stay out from
+               under it while the viewport keeps the full width: resizing it on
+               every open would invalidate the framing one has just made. */
+            style={{ "--obstructed": `${obstructedRight}px` } as CSSProperties}
+          >
+            <div className="graph__header">
+              <h2 id="titre-graphe">Graphe</h2>
+              {openedFeature && (
+                <>
+                  <p className="panel__context">
+                    de <strong>{openedFeature.title}</strong>
+                    {openedFeature.repositories.length > 1 && (
+                      <span className="row__meta">
+                        {" · "}
+                        {openedFeature.repositories.length} dépôts :{" "}
+                        {openedFeature.repositories
+                          .map((carried) => repositoryNames.get(carried.projectId))
+                          .join(", ")}
+                      </span>
+                    )}
+                    {openedFeature.repositories.flatMap((carried) =>
+                      // Once the graph has drained: one address per repository
+                      // squad sent off, and the place the rest of that story is
+                      // told.
+                      carried.pullRequestUrl === null
+                        ? []
+                        : [
+                            <a
+                              key={carried.projectId}
+                              className="link"
+                              href={carried.pullRequestUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              pull request{" "}
+                              {openedFeature.repositories.length > 1
+                                ? repositoryNames.get(carried.projectId)
+                                : ""}
+                            </a>,
+                          ],
+                    )}
+                  </p>
+                  {/* Beside the map it drives rather than on the feature's row:
+                      how much of this chantier runs without me is read where
+                      one watches it run. */}
+                  <AutonomySwitch feature={openedFeature} />
+                </>
+              )}
+            </div>
+            {openedFeature && graph ? (
               <FeatureGraphView
                 graph={graph}
                 repositoryNames={repositoryNames}
                 awaitingDeveloper={ticketsAwaitingDeveloper(waiting)}
                 selectedId={openedTicket?.id ?? null}
+                obstructedRight={obstructedRight}
                 onSelect={(ticketId) =>
                   navigate(
                     piloting({
@@ -194,96 +315,99 @@ export function App() {
                     }),
                   )
                 }
-              />
-            </>
-          ) : (
-            <p className="empty">Ouvrir une feature pour voir son graphe.</p>
-          )}
-        </section>
-
-        {openedTicket ? (
-          <section className="panel panel--ticket" aria-labelledby="titre-ticket">
-            <h2 id="titre-ticket">Ticket</h2>
-            <TicketPanel
-              ticket={openedTicket}
-              thread={ticketThreadOf(state, openedTicket.id)}
-              questions={ticketQuestionsOf(state, openedTicket.id)}
-              repository={
-                repositoryNames.size > 1
-                  ? (repositoryNames.get(openedTicket.projectId) ?? null)
-                  : null
-              }
-              onClose={() =>
-                navigate(piloting({ projectId: shownProjectId, featureId: shownFeatureId }))
-              }
-            />
-          </section>
-        ) : (
-          <section className="panel panel--session" aria-labelledby="titre-session">
-            <h2 id="titre-session">Session principale</h2>
-            {openedFeature ? (
-              <MainSessionView
-                feature={openedFeature}
-                thread={threadOf(state, openedFeature.id)}
-                questions={featureQuestionsOf(state, openedFeature.id)}
-                running={isMainSessionRunning(state, openedFeature.id)}
+                onDeselect={() => {
+                  // Only when something is open: a press on the background is
+                  // the ordinary way of moving the map, and it would otherwise
+                  // stack an identical address in the history at every drag.
+                  if (openedTicket === null) return;
+                  navigate(piloting({ projectId: shownProjectId, featureId: shownFeatureId }));
+                }}
               />
             ) : (
-              <p className="empty">Ouvrir une feature pour lui parler.</p>
+              <p className="empty">Ouvrir une feature pour voir son graphe.</p>
             )}
           </section>
-        )}
-      </main>
 
-      {/* What squad is set up with, under the work rather than above it:
-          registering a repository, opening a feature and resuming a
-          conversation are what one does once, and piloting is what one does
-          all day. */}
-      <aside className="app__setup" hidden={settingsOpen}>
-        <section className="panel" aria-labelledby="titre-projets">
-          <h2 id="titre-projets">Projets</h2>
-          <RegisterProjectForm />
-          <ul className="list">
-            {projects.map((project) => (
-              <li key={project.id}>
-                <button
-                  type="button"
-                  className={project.id === selected?.id ? "row row--selected" : "row"}
-                  onClick={() => navigate(piloting({ projectId: project.id }))}
-                  aria-current={project.id === selected?.id}
-                >
-                  <span className="row__title">{project.name}</span>
-                  <span className="row__detail">{project.path}</span>
-                </button>
-              </li>
-            ))}
-            {projects.length === 0 && (
-              <li className="empty">Aucun projet enregistré pour l'instant.</li>
-            )}
-          </ul>
-        </section>
-
-        <section className="panel" aria-labelledby="titre-features">
-          <h2 id="titre-features">Features</h2>
-          {selected ? (
-            <FeaturesPanel
-              project={selected}
-              projects={projects}
-              features={featuresOfProject}
-              openedId={openedFeature?.id ?? null}
-              onOpen={(featureId) => navigate(piloting({ projectId: selected.id, featureId }))}
-            />
-          ) : (
-            <p className="empty">Enregistrer un projet pour y ouvrir une feature.</p>
+          {openedFeature && (
+            <aside
+              className="drawer"
+              data-open={drawerOpen ? "true" : undefined}
+              style={drawerOpen ? { width: drawerWidth } : undefined}
+            >
+              <button
+                type="button"
+                className="drawer__handle"
+                aria-expanded={drawerOpen}
+                onClick={() => setDrawerOpen((open) => !open)}
+              >
+                {drawerOpen ? "replier le panneau" : "déplier le panneau"}
+              </button>
+              {drawerOpen &&
+                (openedTicket ? (
+                  <section className="panel panel--ticket" aria-labelledby="titre-ticket">
+                    <h2 id="titre-ticket">Ticket</h2>
+                    <TicketPanel
+                      ticket={openedTicket}
+                      thread={ticketThreadOf(state, openedTicket.id)}
+                      questions={ticketQuestionsOf(state, openedTicket.id)}
+                      repository={
+                        repositoryNames.size > 1
+                          ? (repositoryNames.get(openedTicket.projectId) ?? null)
+                          : null
+                      }
+                      onClose={() =>
+                        navigate(piloting({ projectId: shownProjectId, featureId: shownFeatureId }))
+                      }
+                    />
+                  </section>
+                ) : (
+                  <section className="panel panel--session" aria-labelledby="titre-session">
+                    <h2 id="titre-session">Session principale</h2>
+                    <MainSessionView
+                      feature={openedFeature}
+                      thread={threadOf(state, openedFeature.id)}
+                      questions={featureQuestionsOf(state, openedFeature.id)}
+                      running={isMainSessionRunning(state, openedFeature.id)}
+                    />
+                  </section>
+                ))}
+            </aside>
           )}
-        </section>
+        </main>
+      )}
+
+      <Dialog
+        title="Enregistrer un projet"
+        open={dialog === "project"}
+        onClose={() => setDialog(null)}
+      >
+        <RegisterProjectForm onRegistered={() => setDialog(null)} />
+      </Dialog>
+      <Dialog title="Ouvrir une feature" open={dialog === "feature"} onClose={() => setDialog(null)}>
+        {selected && (
+          <OpenFeatureForm
+            project={selected}
+            projects={projects}
+            onOpened={(featureId) => {
+              setDialog(null);
+              navigate(piloting({ projectId: selected.id, featureId }));
+            }}
+          />
+        )}
+      </Dialog>
+      <Dialog
+        title="Reprendre une conversation"
+        open={dialog === "recorded"}
+        onClose={() => setDialog(null)}
+      >
         <RecordedSessions
           projects={projects}
-          onAttached={(feature) =>
-            navigate(piloting({ projectId: feature.projectId, featureId: feature.id }))
-          }
+          onAttached={(feature) => {
+            setDialog(null);
+            navigate(piloting({ projectId: feature.projectId, featureId: feature.id }));
+          }}
         />
-      </aside>
+      </Dialog>
     </div>
   );
 }
@@ -443,13 +567,14 @@ function AutonomySwitch({ feature }: { feature: Feature }) {
   );
 }
 
-function RegisterProjectForm() {
+function RegisterProjectForm({ onRegistered }: { onRegistered: () => void }) {
   const [path, setPath] = useState("");
   const [name, setName] = useState("");
   const { busy, error, submit } = useSubmission(async () => {
     await registerProject({ path, ...(name.trim() ? { name } : {}) });
     setPath("");
     setName("");
+    onRegistered();
   });
 
   return (
@@ -479,19 +604,20 @@ function RegisterProjectForm() {
   );
 }
 
-function FeaturesPanel({
+/**
+ * Opening a feature: its title, and the repositories beyond its own it is
+ * allowed to touch. In a dialog, since one opens a feature once and pilots it
+ * all day; the features themselves are listed in the rail.
+ */
+function OpenFeatureForm({
   project,
   projects,
-  features,
-  openedId,
-  onOpen,
+  onOpened,
 }: {
   project: Project;
   /** Every registered project, since a feature may carry more than its own. */
   projects: Project[];
-  features: Feature[];
-  openedId: string | null;
-  onOpen: (featureId: string) => void;
+  onOpened: (featureId: string) => void;
 }) {
   const [title, setTitle] = useState("");
   const [alsoOn, setAlsoOn] = useState<string[]>([]);
@@ -502,9 +628,9 @@ function FeaturesPanel({
       title,
       otherProjectIds: alsoOn,
     });
-    onOpen(created.id);
     setTitle("");
     setAlsoOn([]);
+    onOpened(created.id);
   });
 
   return (
@@ -548,28 +674,6 @@ function FeaturesPanel({
         </button>
         <Failure message={error} />
       </form>
-      <ul className="list">
-        {features.map((feature) => (
-          <li key={feature.id}>
-            <button
-              type="button"
-              className={feature.id === openedId ? "row row--selected" : "row"}
-              onClick={() => onOpen(feature.id)}
-              aria-current={feature.id === openedId}
-            >
-              <span className="row__title">{feature.title}</span>
-              <span className="row__meta">
-                ouverte le {new Date(feature.createdAt).toLocaleString("fr-FR")}
-              </span>
-            </button>
-            {/* On the feature rather than beside its graph: how much of it runs
-                without me is a property of the piece of work, and the graph
-                panel holds the graph and nothing else. */}
-            {feature.id === openedId && <AutonomySwitch feature={feature} />}
-          </li>
-        ))}
-        {features.length === 0 && <li className="empty">Aucune feature en vol sur ce projet.</li>}
-      </ul>
     </>
   );
 }

@@ -23,9 +23,17 @@ c'est elle, et rien d'autre, qui fait qu'une carte sert à quelque chose.
 
 Corollaire assumé : **le cadrage ne vit pas dans l'adresse**. L'URL de squad dit
 ce qui est regardé, pas où se pose l'œil ; un lien qui transporterait un cadrage
-serait faux dès le ticket suivant. Le cadrage se refait à l'ouverture d'une
-feature, jamais sur une mise à jour du graphe, faute de quoi un ticket écrit par
-la session principale recadrerait la vue pendant qu'on lit.
+serait faux dès le ticket suivant.
+
+Le cadrage suit le graphe **tant que personne ne l'a touché**, et s'arrête
+définitivement à la première molette ou au premier glissé. Ce qui ne doit jamais
+arriver, c'est que squad déplace la carte sous quelqu'un qui l'a placée ; suivre
+un graphe que personne n'a placé est autre chose, et c'est le cas ordinaire, une
+feature étant ouverte avant que son graphe existe et la session principale
+l'écrivant ensuite ticket par ticket. La première version cadrait une fois pour
+toutes, donc sur le premier ticket arrivé : le test navigateur l'a montrée
+fausse. Le bouton « recadrer » rend la main au suivi, ce qui en fait une sortie
+de secours plutôt qu'un geste sans lendemain.
 
 ## Le pan et le zoom sont écrits ici
 

@@ -164,7 +164,11 @@ obligatoirement la voie recommandée, sans quoi personne ne peut le prendre à l
 développeur. Le ticket le dit dans son état : il **attend une décision** quand il ne
 reste que des arbitrages, il **attend une validation** dès qu'il reste une observation.
 Squad tranche **avant** de publier le graphe, faute de quoi le mode s'arrêterait sur
-l'arbitrage même qu'il allait prendre. **Ce
+l'arbitrage même qu'il allait prendre. Et **squad relâche la session dès qu'elle a
+répondu**, sans attendre qu'elle se termine : une session en entrée continue attend le
+message suivant, qui ne vient jamais, si bien qu'une passe ayant fini de parler gardait sa
+place indéfiniment. Constaté sur l'instance : trois passes inertes pendant une heure, onze
+en attente derrière elles. **Ce
 qui est cassé repart avant que qui que ce soit ne soit réveillé**, même s'il reste du
 jugement sur la fiche : un critère qu'une commande dément est du travail non fait, et la
 formulation d'un écran qu'on va réécrire ne vaut pas une lecture. La correction rapporte

@@ -59,6 +59,17 @@ export class Settlements {
    * place was free.
    */
   private readonly inFlight = new Map<string, Promise<void>>();
+  /**
+   * What to call, per ticket, the moment its pass has answered its sheet.
+   *
+   * A session opened in streaming input mode does not end when it has said what
+   * it had to say: it waits for the next message, and there is never one. A
+   * sub-session is kept alive on purpose, since a correction comes back to it,
+   * but a session opened for one job has nothing left to be asked of it.
+   * Measured on a real run: three passes sat idle for an hour after answering,
+   * each holding its place, with eleven queued behind them.
+   */
+  private readonly answering = new Map<string, () => void>();
   private stopping = false;
 
   constructor(private readonly dependencies: SettlementDependencies) {}
@@ -202,6 +213,12 @@ export class Settlements {
       briefing: settlingBriefing(feature, ticket),
     });
     this.running.add(session);
+    // Stopped the moment it answers, rather than waited on: see `answering`. Set
+    // before the instruction goes out, since a session can call the tool while
+    // squad is still handing it its message, and a waiter posted after that
+    // would never be called.
+    const answered = new Promise<void>((resolve) => this.answering.set(ticket.id, resolve));
+    void answered.then(() => session.stop());
     const write = (line: ThreadLine) => this.append(ticket, session.id, line);
     const instruction = settlingInstruction(report);
     write({ kind: "pilot", text: instruction });
@@ -250,7 +267,20 @@ export class Settlements {
    * decides nothing. Deciding first, publishing once, is what keeps the two in
    * the right order.
    */
-  take(ticket: Ticket): Ticket {
+  /**
+   * What follows a sheet the pass has just answered: the arbitrations the mode
+   * may take, taken, and the session let go. Called from the tool that records
+   * the answer, so both happen before the graph goes out.
+   */
+  settled(ticket: Ticket): Ticket {
+    console.log("DEBUG settled", ticket.id.slice(0, 8), "waiter?", this.answering.has(ticket.id));
+    const decided = this.take(ticket);
+    // Its job is done and nothing else will be asked of it: waiting for it to
+    // end by itself is waiting for a message nobody is going to send.
+    this.answering.get(ticket.id)?.();
+    return decided;
+  }
+  private take(ticket: Ticket): Ticket {
     const { store, autonomy } = this.dependencies;
     const current = this.reread(ticket);
     const open = (current.stepReport?.sheet ?? []).filter(

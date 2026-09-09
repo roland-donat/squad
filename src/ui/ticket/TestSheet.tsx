@@ -124,15 +124,19 @@ function notesByCriterion(report: StepReport): Record<string, string> {
 }
 
 /**
- * Hands the sheet back to squad before going through it. A pass runs on its own
- * after every report, so this is for a sheet reported before there was one, or
- * for a second look at points the first pass handed over.
+ * Hands the sheet back to squad before going through it.
+ *
+ * A pass runs on its own after every report, so this is for a sheet reported
+ * before there was one, and for asking again on one that has already been
+ * through: the rules the pass applies change, and a sheet settled under the old
+ * ones keeps what those left. Offered on anything still pending for that
+ * reason, not only on points no pass ever read.
  */
 function SettleFirst({ ticketId, points }: { ticketId: string; points: TestSheetPoint[] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const untouched = points.filter((point) => point.settlement === null).length;
-  if (untouched === 0) return null;
+  if (points.length === 0) return null;
   return (
     <p className="sheet__settle">
       <button
@@ -151,7 +155,11 @@ function SettleFirst({ ticketId, points }: { ticketId: string; points: TestSheet
           }
         }}
       >
-        {busy ? "squad s'en charge…" : `Faire dépouiller ces ${untouched} point(s) par squad`}
+        {busy
+          ? "squad s'en charge…"
+          : untouched === 0
+            ? `Refaire dépouiller ces ${points.length} point(s) par squad`
+            : `Faire dépouiller ces ${points.length} point(s) par squad`}
       </button>
       {error && (
         <span className="error" role="alert">

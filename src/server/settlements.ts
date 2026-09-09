@@ -18,7 +18,7 @@ export interface SettlementDependencies {
    * What hands out a place under the caps. The pass no longer opens its session
    * where it is needed: it is a session like the others, it waits its turn, and
    * ten sheets reported together are ten passes queued rather than ten
-   * claude-code processes at once (ADR 0007).
+   * claude-code processes at once (ADR 0008).
    */
   dispatch: { schedule(): void };
 }

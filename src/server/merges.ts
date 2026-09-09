@@ -362,7 +362,7 @@ export class Merges {
     const { ticket } = merge;
     const { store, dispatch } = this.dependencies;
     if (ticket.worktree === null) return;
-    // A place first, like every other session squad opens (ADR 0007). It is
+    // A place first, like every other session squad opens (ADR 0008). It is
     // first in the queue, because the merges of a project are serialised and
     // everything that project has to merge is already waiting behind this one.
     //

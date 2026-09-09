@@ -89,7 +89,7 @@ export async function startSquadServer(
   const mainSessions = new MainSessions({ store, bus, launcher, questions: asked, mcpUrl });
   // The one place that hands out places, read late by everything that opens a
   // session: sub-sessions, settling passes and conflict resolutions share a
-  // single count, so they share a single loop (ADR 0007).
+  // single count, so they share a single loop (ADR 0008).
   const handing = {
     schedule: () => dispatch.schedule(),
     isOpening: (launch: Launch) => dispatch.isOpening(launch),

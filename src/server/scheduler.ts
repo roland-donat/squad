@@ -4,7 +4,7 @@ import type { ServiceJob } from "../shared/graph";
 /**
  * What squad opens next, and nothing else: a pure function of the graphs, of
  * the service sessions asked for, and of the declared caps (ADR 0003, ADR
- * 0007). No effect, no clock, no model call, and no agent ever gets a say in
+ * 0008). No effect, no clock, no model call, and no agent ever gets a say in
  * it. Two consequences worth the constraint: the same state always yields the
  * same answer, and a launch cannot be forgotten in silence, since being
  * forgotten would be a property of the state rather than of a decision taken

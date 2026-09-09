@@ -38,7 +38,7 @@ export interface SubSessionDependencies {
   /**
    * What opens a session when the caps allow it, declared by what is needed of
    * it. Sub-sessions no longer hold the loop: three kinds of session share one
-   * count, so one place asks the scheduler and hands the places out (ADR 0007).
+   * count, so one place asks the scheduler and hands the places out (ADR 0008).
    */
   dispatch: { schedule(): void; isOpening(launch: Launch): boolean };
   /** Resolved late: squad only knows its own address once it is listening. */

@@ -419,6 +419,43 @@ describe("the settling pass, between a test sheet and the developer", () => {
     expect(reportOf(merged).sheet[0]?.settlement?.note).toContain("go-as-recommandé");
   });
 
+  it("prend ce qui ne change rien même quand un arbitrage de périmètre attend", async () => {
+    // Un arbitrage de périmètre arrête le mode. Lu dans l'ordre de la fiche, il
+    // gèle tout ce qui le suit, et squad rendrait au développeur des décisions
+    // qu'il avait le droit de prendre. Mesuré sur l'instance : 25 arbitrages
+    // ouverts, dont une majorité que rien ne reprenait.
+    const { featureId, stream, ticket, settled } = await start({
+      driven: true,
+      coverage: [{ verdict: "automated" }, { verdict: "automated" }],
+      suggestions: ["Le périmètre", "L'orthographe de la clé"],
+      settle: async (points, agent) => {
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: points.map((pointId, index) => ({
+            pointId,
+            outcome: "decision",
+            note: "Deux voies tiennent.",
+            recommendation: index === 0 ? "Élargir le périmètre" : "Garder `kind`",
+            // Celui qui change le périmètre arrive EN PREMIER dans la fiche.
+            scopeChanging: index === 0,
+          })),
+        });
+      },
+    });
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    await settled;
+    const waiting = await waitForState(stream, featureId, ticket.id, "awaiting-decision");
+
+    // Le second est pris malgré le premier, et seul le premier reste.
+    const sheet = reportOf(waiting).sheet;
+    expect(sheet.filter((point) => point.verdict === "pending")).toHaveLength(1);
+    expect(sheet.find((point) => point.verdict === "passed")?.settlement?.note).toContain(
+      "go-as-recommandé",
+    );
+  });
+
   it("laisse un arbitrage de périmètre au développeur, et le ticket attend une décision", async () => {
     const { featureId, stream, ticket, settled } = await start({
       driven: true,

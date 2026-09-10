@@ -13,5 +13,4 @@ export const locations = {
   migrations: join(repositoryRoot, "drizzle"),
   viteConfig: join(repositoryRoot, "vite.config.ts"),
   uiBuild: join(repositoryRoot, "dist", "ui"),
-  uiBuildEntry: join(repositoryRoot, "dist", "ui", "index.html"),
 } as const;

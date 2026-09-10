@@ -10,6 +10,7 @@ import {
 } from "../../src/shared/api";
 import type { AgentLauncher } from "../../src/server/agents/launcher";
 import { startSquadServer } from "../../src/server/server";
+import type { UiMode } from "../../src/server/ui";
 import { createTemporaryRepository } from "./git";
 
 /**
@@ -45,6 +46,14 @@ export interface TestSquadOptions {
    * are: a test must never read the home directory of whoever runs the suite.
    */
   homeDir?: string;
+  /**
+   * How the interface is served. `none` by default, the suite driving the API
+   * and not the browser; a scenario about what a deployment serves asks for
+   * `static` and hands in the build below.
+   */
+  ui?: UiMode;
+  /** Where that build is read from, when the interface is served at all. */
+  uiBuild?: string;
 }
 
 export async function startTestSquad(options: TestSquadOptions = {}): Promise<TestSquad> {
@@ -53,7 +62,8 @@ export async function startTestSquad(options: TestSquadOptions = {}): Promise<Te
     startSquadServer({
       dataDir,
       port: 0,
-      ui: "none",
+      ui: options.ui ?? "none",
+      ...(options.uiBuild === undefined ? {} : { uiBuild: options.uiBuild }),
       ...(options.launcher === undefined ? {} : { launcher: options.launcher }),
       recordedSessionsDir: options.recordedSessionsDir ?? join(dataDir, "aucune-session"),
       ...(options.homeDir === undefined ? {} : { homeDir: options.homeDir }),

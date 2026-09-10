@@ -32,6 +32,11 @@ export interface SquadServerOptions {
   port?: number;
   ui?: UiMode;
   /**
+   * Where the interface build is read from in `static` mode. Defaults to
+   * squad's own `dist/ui`; a seam test hands in a build it wrote itself.
+   */
+  uiBuild?: string;
+  /**
    * How claude-code sessions are opened. Defaults to the real launcher; the seam
    * tests hand in a scripted double instead, which is the only place squad's
    * non-determinism is removed.
@@ -185,7 +190,7 @@ export async function startSquadServer(
       dispatch: handing,
     }),
   );
-  const ui = await mountUi(app, options.ui ?? "auto");
+  const ui = await mountUi(app, options.ui ?? "auto", options.uiBuild);
 
   const server = createServer(app);
   await listen(server, port, host);

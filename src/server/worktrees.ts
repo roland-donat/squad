@@ -2,7 +2,8 @@ import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Feature, Project, Ticket, Worktree } from "../shared/api";
 import type { EventBus } from "./events";
-import { createWorktree } from "./git";
+import { SquadError } from "./errors";
+import { branchExists, createWorktree } from "./git";
 import type { Store } from "./store";
 
 /**
@@ -125,6 +126,20 @@ export class Worktrees {
   ): Promise<Worktree> {
     const worktree = recorded ?? intended;
     if (!(await exists(worktree.path))) {
+      // A checkout squad recorded and no longer finds is one it may rebuild,
+      // but only from the branch that holds the work. If that branch is gone
+      // too, the repository this ticket was built in is not the one in front of
+      // us: a fresh branch off the default one would look like a resumed ticket
+      // and be an empty one. The case is not theoretical: the data directory
+      // travels between machines while the checkouts, build output and all, do
+      // not.
+      if (recorded !== null && !(await branchExists(repositoryRoot, recorded.branch))) {
+        throw new SquadError(
+          "branch_not_found",
+          409,
+          `squad recorded the branch ${recorded.branch} for this checkout and ${repositoryRoot} does not have it: the work it holds is not in this repository, and squad will not open an empty branch in its place`,
+        );
+      }
       await createWorktree({ repositoryRoot, startPoint, ...worktree });
     }
     if (recorded === null) record(worktree);
@@ -169,7 +184,7 @@ function slug(title: string): string {
   return plain === "" ? "sans-titre" : plain;
 }
 
-async function exists(path: string): Promise<boolean> {
+export async function exists(path: string): Promise<boolean> {
   try {
     await stat(path);
     return true;

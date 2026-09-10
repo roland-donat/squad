@@ -1,6 +1,12 @@
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { Feature, FeatureGraph, ThreadEntry, Ticket } from "../../src/shared/api";
+import type {
+  Feature,
+  FeatureGraph,
+  ThreadEntry,
+  Ticket,
+} from "../../src/shared/api";
 import {
   apiRoutes,
   featureGraphRoute,
@@ -8,7 +14,10 @@ import {
   ticketSessionRoute,
 } from "../../src/shared/api";
 import {
+  commitFile,
   currentBranch,
+  deleteBranchIn,
+  pruneWorktrees,
   isAncestor,
   listBranches,
   listWorktrees,
@@ -234,6 +243,91 @@ describe("launching a ticket, failing, and resuming", () => {
     const last = thread.at(-1);
     expect(last?.kind).toBe("notice");
     expect(last?.detail).toContain("les tests ne passent pas");
+  });
+
+  it("rouvre le checkout d'un ticket dont le répertoire a disparu, sur sa propre branche", async () => {
+    // Le cas ordinaire d'une base qui a voyagé : les dépôts et la base
+    // arrivent, les checkouts non, parce qu'un seul d'entre eux porte plus d'un
+    // gigaoctet de sortie de compilation. Ce qui tient le travail est la
+    // branche, et elle a voyagé avec le dépôt.
+    const reprise = gate();
+    const repertoires: string[] = [];
+    const { featureId, repository, stream } = await start(writeOneTicket, async (agent) => {
+      repertoires.push(agent.request.workingDirectory);
+      await agent.awaitMessage();
+      if (repertoires.length === 1) {
+        await commitFile(agent.request.workingDirectory, "fait.ts", "le travail\n", "feat: le travail");
+        throw new Error("interrompu");
+      }
+      await reprise.passed;
+    });
+
+    await squad.request("POST", mainSessionRoute(featureId), { prompt: "/to-tickets" });
+    await waitForEvent(stream, "graph-changed");
+    const ready = await readTicket(featureId, "Le store");
+    await launch(ready.id);
+    const failed = await waitForState(stream, featureId, ready.id, "failed");
+    const where = failed.worktree?.path ?? "";
+    const branch = failed.worktree?.branch ?? "";
+
+    // Le répertoire disparaît, la branche reste : exactement ce qu'une synchro
+    // qui exclut les worktrees laisse derrière elle.
+    await rm(where, { recursive: true, force: true });
+    expect(await pathExists(where)).toBe(false);
+    expect(await listBranches(repository)).toContain(branch);
+
+    await launch(ready.id);
+    await waitForState(stream, featureId, ready.id, "running");
+    // Rouvert au même endroit, sur la même branche, avec le travail dedans.
+    expect(await pathExists(where)).toBe(true);
+    expect(repertoires[1]).toBe(where);
+    expect(await readFile(join(where, "fait.ts"), "utf8")).toBe("le travail\n");
+    reprise.open();
+  });
+
+  it("refuse d'ouvrir une branche vide à la place de celle qui portait le travail", async () => {
+    // Le répertoire ET la branche ont disparu : le dépôt en face n'est pas
+    // celui où ce ticket a été construit. Repartir de la branche par défaut
+    // rendrait un ticket qui a l'air repris et qui est vide.
+    const { featureId, repository, stream } = await start(writeOneTicket, async (agent) => {
+      await agent.awaitMessage();
+      throw new Error("interrompu");
+    });
+
+    await squad.request("POST", mainSessionRoute(featureId), { prompt: "/to-tickets" });
+    await waitForEvent(stream, "graph-changed");
+    const ready = await readTicket(featureId, "Le store");
+    await launch(ready.id);
+    const failed = await waitForState(stream, featureId, ready.id, "failed");
+    const where = failed.worktree?.path ?? "";
+    const branch = failed.worktree?.branch ?? "";
+
+    // Le répertoire part, puis l'enregistrement que git en garde, sans quoi il
+    // refuse de supprimer une branche « utilisée par un worktree » qui n'existe
+    // plus. C'est exactement l'état d'une machine qui a reçu la base sans les
+    // checkouts.
+    await rm(where, { recursive: true, force: true });
+    await pruneWorktrees(repository);
+    await deleteBranchIn(repository, branch);
+    expect(await listBranches(repository)).not.toContain(branch);
+
+    // Le lancement est accepté puis conduit à son terme : ce qu'il rencontre se
+    // lit sur le fil du ticket, comme toute panne d'ouverture.
+    expect((await squad.request("POST", ticketSessionRoute(ready.id), {})).status).toBe(202);
+    await expect
+      .poll(
+        async () =>
+          (await readTicketThread(ready.id)).some(
+            (entry) => entry.kind === "notice" && (entry.detail ?? "").includes(branch),
+          ),
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+
+    // Rien n'a été recréé : ni le répertoire, ni une branche du même nom, et le
+    // ticket garde ce que sa première tentative avait écrit.
+    expect(await pathExists(where)).toBe(false);
+    expect(await listBranches(repository)).not.toContain(branch);
   });
 
   it("resumes a failed ticket on its own session, under the angle the developer chose", async () => {

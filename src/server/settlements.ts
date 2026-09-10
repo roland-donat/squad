@@ -1,6 +1,7 @@
-import type { Feature, TestSheetPoint, Ticket } from "../shared/api";
+import type { Feature, TestSheetPoint, Ticket, Worktree } from "../shared/api";
 import { settlingBriefing, settlingInstruction } from "./agents/briefing";
 import type { AgentLauncher, AgentSession } from "./agents/launcher";
+import { exists } from "./worktrees";
 import { SquadError } from "./errors";
 import type { QuestionVerdict } from "./autonomy";
 import type { EventBus } from "./events";
@@ -10,6 +11,8 @@ import { appendToThread, drainSession, type ThreadLine } from "./threads";
 
 export interface SettlementDependencies {
   store: Store;
+  /** What opens a ticket's checkout, and reopens one that is no longer there. */
+  worktrees: { forTicket(ticket: Ticket): Promise<Worktree> };
   bus: EventBus;
   launcher: AgentLauncher;
   mcpUrl(): string;
@@ -203,12 +206,18 @@ export class Settlements {
     // No sheet to settle, or no worktree to settle it in: there is nothing this
     // pass can do that the developer would not do better.
     if (report === null || ticket.worktree === null) return;
-    const { launcher, mcpUrl } = this.dependencies;
+    const { launcher, mcpUrl, worktrees } = this.dependencies;
+    // Reopened only when it is missing, never re-asked for when it is there: a
+    // checkout squad already holds must not be touched on the ordinary path,
+    // and a data directory that travelled between machines arrives without any.
+    const checkout = (await exists(ticket.worktree.path))
+      ? ticket.worktree
+      : await worktrees.forTicket(ticket);
     const session = await launcher.open({
       role: "settling",
       featureId: feature.id,
       ticketId: ticket.id,
-      workingDirectory: ticket.worktree.path,
+      workingDirectory: checkout.path,
       mcpUrl: mcpUrl(),
       briefing: settlingBriefing(feature, ticket),
     });

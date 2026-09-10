@@ -168,7 +168,10 @@ l'arbitrage même qu'il allait prendre. Et **squad relâche la session dès qu'e
 répondu**, sans attendre qu'elle se termine : une session en entrée continue attend le
 message suivant, qui ne vient jamais, si bien qu'une passe ayant fini de parler gardait sa
 place indéfiniment. Constaté sur l'instance : trois passes inertes pendant une heure, onze
-en attente derrière elles. **Ce
+en attente derrière elles. Enfin, **relancer le mode reprend les arbitrages restés
+ouverts** : un arbitrage posé sur une feature déjà arrêtée reçoit « attends », et rien ne
+le redemandait ; mesuré sur l'instance, un arbitrage de périmètre en avait gelé sept que
+squad avait le droit de prendre. **Ce
 qui est cassé repart avant que qui que ce soit ne soit réveillé**, même s'il reste du
 jugement sur la fiche : un critère qu'une commande dément est du travail non fait, et la
 formulation d'un écran qu'on va réécrire ne vaut pas une lecture. La correction rapporte

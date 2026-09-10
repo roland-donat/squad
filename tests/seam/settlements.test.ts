@@ -382,6 +382,43 @@ describe("the settling pass, between a test sheet and the developer", () => {
     expect(receiver.received()).toEqual([]);
   });
 
+  it("reprend les arbitrages restés ouverts quand le mode est relancé", async () => {
+    // Un arbitrage posé sur une feature déjà arrêtée reçoit « attends », et rien
+    // ne le redemandait jamais. Mesuré sur l'instance : un arbitrage de
+    // périmètre en avait gelé sept que squad avait le droit de prendre.
+    const { featureId, stream, ticket, settled } = await start({
+      coverage: [{ verdict: "automated" }, { verdict: "automated" }],
+      suggestions: ["L'orthographe de la clé exposée, `kind` ou `type`"],
+      settle: async (points, agent) => {
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: points.map((pointId) => ({
+            pointId,
+            outcome: "decision",
+            note: "Rien n'est cassé : deux orthographes tiennent.",
+            recommendation: "Garder `kind`, aligné sur le reste du document.",
+            scopeChanging: false,
+          })),
+        });
+      },
+    });
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    await settled;
+    // Le mode n'est pas armé : l'arbitrage reste sur la fiche, et le ticket dit
+    // qu'il attend une décision.
+    const waiting = await waitForState(stream, featureId, ticket.id, "awaiting-decision");
+    expect(reportOf(waiting).sheet.every((point) => point.verdict === "pending")).toBe(true);
+
+    // Armer le mode, c'est redemander : ce qui dormait est pris, sans qu'aucune
+    // passe ne soit rouverte.
+    const armed = await squad.request("PUT", featureRoute(featureId), { goAsRecommended: true });
+    expect(armed.status).toBe(200);
+    const merged = await waitForState(stream, featureId, ticket.id, "merged");
+    expect(reportOf(merged).sheet[0]?.settlement?.note).toContain("go-as-recommandé");
+  });
+
   it("laisse un arbitrage de périmètre au développeur, et le ticket attend une décision", async () => {
     const { featureId, stream, ticket, settled } = await start({
       driven: true,

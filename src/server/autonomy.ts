@@ -39,6 +39,12 @@ export interface Halt {
 }
 
 export interface AutonomyDependencies {
+  /**
+   * What takes the arbitrations a feature has left open, declared by what is
+   * needed of it. Held by the pass that records them, since taking one is
+   * writing on a test sheet.
+   */
+  decisions: { takeOpen(featureId: string): void };
   store: Store;
   bus: EventBus;
   alerts: Alerts;
@@ -164,6 +170,13 @@ export class Autonomy {
     if (!this.driven(featureId)) return;
     this.driving.add(featureId);
     try {
+      // The arbitrations left open on this feature, taken before anything else.
+      // They pile up while the mode is held: a pass records one on a feature
+      // already stopped on another, `verdictForDecision` answers "wait", and
+      // nothing ever asks again. Measured on the instance: one scope
+      // arbitration had frozen seven implementation ones, every one of which
+      // squad was allowed to take.
+      this.dependencies.decisions.takeOpen(featureId);
       const graph = store.featureGraph(featureId);
       const launches = frontier(graph);
       for (const ticket of launches) store.queueLaunch(ticket.id, "implement");

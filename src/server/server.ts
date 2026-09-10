@@ -112,7 +112,11 @@ export async function startSquadServer(
     dispatch: handing,
     mcpUrl,
   });
-  const autonomy = new Autonomy({ store, bus, alerts, dispatch: handing });
+  // Read late like the modules around it: the mode takes the arbitrations the
+  // pass records, and the pass asks the mode what it may take. Two objects that
+  // call each other, declared in the order the constructors allow.
+  const openDecisions = { takeOpen: (featureId: string) => settlements.takeOpen(featureId) };
+  const autonomy = new Autonomy({ store, bus, alerts, dispatch: handing, decisions: openDecisions });
   const merges = new Merges({
     store,
     bus,

@@ -280,6 +280,31 @@ export class Settlements {
     this.answering.get(ticket.id)?.();
     return decided;
   }
+  /**
+   * Takes every arbitration a feature has left open, on every ticket at once.
+   *
+   * They pile up while the mode is held: a pass records one on a feature
+   * stopped on another, the mode answers "wait", and nothing ever asks again.
+   * Lifting the hold is what asks again, since the mode drives the feature the
+   * moment it is armed.
+   */
+  takeOpen(featureId: string): void {
+    const { store, bus, validations } = this.dependencies;
+    for (const ticket of store.featureGraph(featureId).tickets) {
+      const open = (ticket.stepReport?.sheet ?? []).some(
+        (point) => point.verdict === "pending" && point.settlement?.outcome === "decision",
+      );
+      if (!open) continue;
+      const decided = this.take(ticket);
+      if (decided.stepReport?.reviewedAt === null) continue;
+      // Taken here rather than by a pass, so what follows a settled sheet has to
+      // be reached from here too: merged, sent back, or left waiting. Announced
+      // once per ticket, since each is answered on its own.
+      publishGraph(store, bus, decided.featureId);
+      void validations.afterSettling(decided);
+    }
+  }
+
   private take(ticket: Ticket): Ticket {
     const { store, autonomy } = this.dependencies;
     const current = this.reread(ticket);

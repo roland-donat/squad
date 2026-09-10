@@ -271,6 +271,15 @@ chemin sont **écrits sur la ligne** du dépôt porté et du ticket, pas recalcu
 depuis leur titre : un ticket renommé demain doit retrouver le worktree qu'il a
 ouvert aujourd'hui.
 
+**Un checkout absent se rouvre, une branche absente ne s'invente pas.** Le
+répertoire de données voyage d'une machine à l'autre par la synchronisation du
+poste, les checkouts non : un seul worktree raichu porte 1,3 Go de sortie de
+compilation. Squad rouvre donc un checkout manquant depuis la branche que la
+ligne nomme, à l'endroit qu'elle nomme, au moment où quelque chose en a besoin.
+Si la branche a disparu elle aussi, il **refuse** : le dépôt en face n'est pas
+celui où ce ticket a été construit, et repartir de la branche par défaut rendrait
+un ticket qui a l'air repris et qui est vide.
+
 ### Quatre écrans, et un onglet par feature
 
 L'accueil (`/`) liste les features à plat, tous dépôts confondus, avec ce qui

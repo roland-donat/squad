@@ -23,7 +23,7 @@ import { runVerification, type IntegrationCheck } from "./integration";
 import { pullRequestBody } from "./pull-request";
 import type { Store } from "./store";
 import { appendToThread, drainSession, type ThreadLine } from "./threads";
-import type { Worktrees } from "./worktrees";
+import { exists, type Worktrees } from "./worktrees";
 
 /**
  * What squad does with a step nobody has anything left to say about: it closes
@@ -418,7 +418,9 @@ export class Merges {
       role: "resolving",
       featureId: feature.id,
       ticketId: ticket.id,
-      workingDirectory: ticket.worktree.path,
+      workingDirectory: (await exists(ticket.worktree.path))
+        ? ticket.worktree.path
+        : (await this.dependencies.worktrees.forTicket(ticket)).path,
       mcpUrl: mcpUrl(),
       briefing: conflictResolutionBriefing(feature, ticket, featureWorktree.branch),
     });

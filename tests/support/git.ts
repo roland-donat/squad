@@ -140,6 +140,11 @@ export async function detach(worktree: string): Promise<void> {
   await run("git", ["checkout", "--detach"], { cwd: worktree });
 }
 
+/** Clears git's record of worktrees whose directory is gone. */
+export async function pruneWorktrees(repository: string): Promise<void> {
+  await run("git", ["worktree", "prune"], { cwd: repository });
+}
+
 /** Deletes a branch from a checkout, as an unconfined session may well do. */
 export async function deleteBranchIn(worktree: string, branch: string): Promise<void> {
   await run("git", ["branch", "-D", branch], { cwd: worktree });

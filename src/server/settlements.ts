@@ -290,11 +290,26 @@ export class Settlements {
    */
   takeOpen(featureId: string): void {
     const { store, bus, validations } = this.dependencies;
-    for (const ticket of store.featureGraph(featureId).tickets) {
-      const open = (ticket.stepReport?.sheet ?? []).some(
+    const holding = (ticket: Ticket): boolean =>
+      (ticket.stepReport?.sheet ?? []).some(
         (point) => point.verdict === "pending" && point.settlement?.outcome === "decision",
       );
-      if (!open) continue;
+    const scoped = (ticket: Ticket): boolean =>
+      (ticket.stepReport?.sheet ?? []).some(
+        (point) =>
+          point.verdict === "pending" &&
+          point.settlement?.outcome === "decision" &&
+          point.settlement.scopeChanging,
+      );
+    // Across tickets for the same reason as within one: the first scope
+    // arbitration stops the mode, so every ticket holding one is left for last.
+    // Otherwise what gets taken would depend on the order the graph happens to
+    // hand its tickets out in.
+    const holders = store
+      .featureGraph(featureId)
+      .tickets.filter(holding)
+      .sort((left, right) => Number(scoped(left)) - Number(scoped(right)));
+    for (const ticket of holders) {
       const decided = this.take(ticket);
       if (decided.stepReport?.reviewedAt === null) continue;
       // Taken here rather than by a pass, so what follows a settled sheet has to
@@ -308,9 +323,18 @@ export class Settlements {
   private take(ticket: Ticket): Ticket {
     const { store, autonomy } = this.dependencies;
     const current = this.reread(ticket);
-    const open = (current.stepReport?.sheet ?? []).filter(
-      (point) => point.verdict === "pending" && point.settlement?.outcome === "decision",
-    );
+    // What does not change the perimeter first, and that ordering is the whole
+    // of what makes this correct: a scope arbitration stops the mode, and every
+    // point read after it gets "wait" from a mode that is no longer driving.
+    // Read in sheet order, one scope point in the middle freezes what follows
+    // it, which is the very thing this sweep exists to undo.
+    const open = (current.stepReport?.sheet ?? [])
+      .filter((point) => point.verdict === "pending" && point.settlement?.outcome === "decision")
+      .sort(
+        (left, right) =>
+          Number(left.settlement?.scopeChanging ?? false) -
+          Number(right.settlement?.scopeChanging ?? false),
+      );
     const taken: Array<{ pointId: string; answer: string }> = [];
     for (const point of open) {
       const verdict = autonomy.verdictForDecision(current.featureId, point);

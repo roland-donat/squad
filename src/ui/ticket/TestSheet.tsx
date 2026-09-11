@@ -186,6 +186,53 @@ function SettleFirst({ ticketId, points }: { ticketId: string; points: TestSheet
   );
 }
 
+/**
+ * Takes the road squad recommends on one arbitration, without the rest of the
+ * sheet.
+ *
+ * An arbitration is not a verification, and squad holds the two apart
+ * everywhere: it types them apart, it answers one and not the other under
+ * go-as-recommended, and it sweeps the ones it left open when the mode comes
+ * back. Only the form made them one block to sign, so a decision of perimeter
+ * waited behind a point asking whether a wording read well. What is left
+ * untouched stays on the sheet, which is not gone through until it is empty.
+ */
+function TakeRoad({ ticketId, point }: { ticketId: string; point: TestSheetPoint }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const road = point.settlement?.recommendation ?? "";
+  return (
+    <>
+      <button
+        type="button"
+        className="link"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setError(null);
+          try {
+            await reviewTestSheet(ticketId, {
+              points: [{ id: point.id, passed: true, comment: `Route retenue : ${road}` }],
+              feedback: "",
+            });
+          } catch (failure) {
+            setError(failure instanceof ApiError ? failure.message : "Le serveur est injoignable.");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? "squad l'enregistre…" : "Prendre cette route"}
+      </button>
+      {error && (
+        <span className="error" role="alert">
+          {error}
+        </span>
+      )}
+    </>
+  );
+}
+
 /** What the developer fills in, one point at a time, then hands back in one go. */
 function SheetForm({
   ticketId,
@@ -260,6 +307,7 @@ function SheetForm({
                 <span className="sheet__text">
                   <MarkdownText text={point.settlement.recommendation} />
                 </span>
+                <TakeRoad ticketId={ticketId} point={point} />
               </p>
             )}
             {point.settlement === null &&

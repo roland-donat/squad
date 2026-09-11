@@ -3,7 +3,7 @@ import { alertFor, type Alerts } from "./alerts";
 import type { QuestionVerdict } from "./autonomy";
 import { SquadError } from "./errors";
 import type { EventBus } from "./events";
-import type { Store } from "./store";
+import type { QuestionOptionInput, Store } from "./store";
 import { appendToThread, type ThreadLine } from "./threads";
 
 /**
@@ -24,7 +24,7 @@ export interface AskInput {
   /** The ticket whose sub-session is asking, or null for the main session. */
   ticketId: string | null;
   prompt: string;
-  options: string[];
+  options: QuestionOptionInput[];
   recommendation: string;
   scopeChanging: boolean;
 }
@@ -204,8 +204,16 @@ function statementOf(question: Question): string {
   return [
     question.prompt,
     "",
-    ...question.options.map(
-      (option) => `- ${option}${option === question.recommendation ? " (recommended)" : ""}`,
+    // The label and what it costs, on the thread as on the screen: a reader of
+    // the thread alone has to be able to tell what was on the table.
+    ...question.options.map((option) =>
+      [
+        `- ${option.label}${option.label === question.recommendation ? " (recommended)" : ""}`,
+        option.consequence === null ? null : `  ${option.consequence}`,
+        option.illustration === null ? null : `  ${option.illustration}`,
+      ]
+        .filter((line) => line !== null)
+        .join("\n"),
     ),
     "",
     question.scopeChanging

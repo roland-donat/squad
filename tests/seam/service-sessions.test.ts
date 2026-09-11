@@ -10,6 +10,7 @@ import {
 import { pendingActions } from "../../src/shared/pending";
 import { familyOf } from "../../src/shared/state-family";
 import { createScriptedLauncher } from "../support/scripted-launcher";
+import { writeTicket } from "../support/mcp";
 import {
   openTestFeature,
   startTestSquad,
@@ -73,7 +74,7 @@ describe("the sessions squad opens for itself, under the concurrency caps", () =
         if (agent.request.role === "main") {
           await agent.awaitMessage();
           for (const title of ["Le store", "L'API"]) {
-            await agent.call("create_ticket", {
+            await writeTicket(agent, {
               featureId: agent.request.featureId,
               kind: "build",
               title,
@@ -99,7 +100,7 @@ describe("the sessions squad opens for itself, under the concurrency caps", () =
         await agent.call("report_step", {
           featureId: agent.request.featureId,
           ticketId: agent.request.ticketId,
-          summary: "Fait.",
+          work: "Fait.",
           recommendation: "À juger.",
           coverage: (await ticketOf(agent.request.featureId, agent.request.ticketId ?? ""))
             .acceptanceCriteria.map((criterion) => ({

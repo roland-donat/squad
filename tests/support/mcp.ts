@@ -13,7 +13,16 @@ export interface McpConnection {
   /** Returns the tool's raw outcome, so a refusal can be inspected. */
   attempt(tool: string, input: unknown): Promise<ToolOutcome>;
   listTools(): Promise<string[]>;
+  /** The schema of one tool as an agent receives it, fields and bounds and all. */
+  toolSchema(tool: string): Promise<ToolSchema>;
   close(): Promise<void>;
+}
+
+/** A published input schema, reduced to what a test has anything to say about. */
+export interface ToolSchema {
+  fields: string[];
+  /** The description of one field, which is where a bound is spelled out. */
+  describe(field: string): string;
 }
 
 export interface ToolOutcome {
@@ -50,8 +59,90 @@ export async function connectToSquadTools(baseUrl: string): Promise<McpConnectio
       const { tools } = await client.listTools();
       return tools.map((tool) => tool.name).sort();
     },
+    async toolSchema(name) {
+      const { tools } = await client.listTools();
+      const tool = tools.find((each) => each.name === name);
+      if (!tool) throw new Error(`no tool named ${name}`);
+      const properties = (tool.inputSchema.properties ?? {}) as Record<
+        string,
+        { description?: string }
+      >;
+      return {
+        fields: Object.keys(properties).sort(),
+        describe: (field) => JSON.stringify(properties[field] ?? null),
+      };
+    },
     async close() {
       await client.close();
     },
+  };
+}
+
+/** Anything that can call a squad tool: an MCP connection, or a scripted agent. */
+export interface ToolCaller {
+  call(tool: string, input: unknown): Promise<unknown>;
+}
+
+/**
+ * The decor the tests work in. One example for every scenario, because what is
+ * being exercised is that a decor exists and is refused when absent, never what
+ * it says.
+ */
+export const testRunningExample =
+  "Une librairie : Camille tient la caisse, Dominique range les rayons, et un exemplaire de « Bel-Ami » passe de l'un à l'autre.";
+
+/**
+ * Writes a ticket the way an agent does, over the wire, filling what a scenario
+ * about something else has no opinion on: the running example the feature needs
+ * before its first ticket, and a plausible summary.
+ *
+ * A helper rather than four more lines at each of the forty call sites: what
+ * each test is about would be buried under boilerplate it never reads. The
+ * tests of the summary itself pass their own, and the tests of the bounds and
+ * of the refusals call `create_ticket` raw through `attempt`, which is the only
+ * way to see what it answers.
+ */
+/** The features this helper has already written a decor on, by id. */
+const decorated = new Set<string>();
+
+export async function writeTicket(
+  caller: ToolCaller,
+  input: Record<string, unknown> & { featureId: string },
+): Promise<unknown> {
+  const kind = typeof input.kind === "string" ? input.kind : "build";
+  // A fix ticket carries no example, so it needs no decor. Every other kind
+  // does, and the tool refuses without one: the tests go through that rule
+  // rather than around it.
+  //
+  // Once per feature, as a main session does, and not once per ticket. Writing
+  // it again would be harmless but slower, and that round trip between two
+  // tickets was enough to lose a race a scenario had been winning: its helper
+  // read the graph on the first `graph-changed` and found one ticket of two.
+  if (kind !== "fix" && !decorated.has(input.featureId)) {
+    decorated.add(input.featureId);
+    await caller.call("set_running_example", {
+      featureId: input.featureId,
+      runningExample: testRunningExample,
+    });
+  }
+  return caller.call("create_ticket", { ...input, kind, summary: input.summary ?? aSummary(kind) });
+}
+
+/**
+ * A summary a scenario about something else has no opinion on. Given out here
+ * rather than written at each call site, and passed explicitly by the tests
+ * that call `create_ticket` raw to see a refusal: without it those calls are
+ * refused for a missing summary and never reach the refusal they are about.
+ */
+export function aSummary(kind = "build"): Record<string, string> {
+  const shared = {
+    context: "La librairie enregistre ses ventes à la main, sur un cahier.",
+    problem: "Rien ne dit ce qui reste en rayon quand deux ventes tombent en même temps.",
+  };
+  if (kind === "fix") return shared;
+  return {
+    ...shared,
+    example:
+      "Camille vend le dernier « Bel-Ami » pendant que Dominique en range un autre : le cahier en compte un, le rayon en a deux.",
   };
 }

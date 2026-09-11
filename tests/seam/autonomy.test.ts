@@ -11,6 +11,7 @@ import {
 import { createScriptedLauncher, type ScriptedAgent } from "../support/scripted-launcher";
 import { openTestFeature, startTestSquad, type TestSquad } from "../support/squad";
 import { startWebhookReceiver, type WebhookReceiver } from "../support/webhook";
+import { writeTicket } from "../support/mcp";
 
 /**
  * Go-as-recommended: the feature moves without its developer. It launches what
@@ -90,7 +91,7 @@ describe("go-as-recommended, from the drain to what stops it", () => {
           await agent.awaitMessage();
           const written = new Map<string, string>();
           for (const spec of options.tickets) {
-            const created = (await agent.call("create_ticket", {
+            const created = (await writeTicket(agent, {
               featureId: agent.request.featureId,
               kind: spec.kind ?? "build",
               title: spec.title,
@@ -206,7 +207,7 @@ describe("go-as-recommended, from the drain to what stops it", () => {
     await agent.call("report_step", {
       featureId: agent.request.featureId,
       ticketId: agent.request.ticketId,
-      summary: `Ce que demandait « ${own.title} » est construit.`,
+      work: `Ce que demandait « ${own.title} » est construit.`,
       coverage: own.acceptanceCriteria.map((criterion) => ({
         criterionId: criterion.id,
         verdict: "automated",
@@ -226,7 +227,10 @@ describe("go-as-recommended, from the drain to what stops it", () => {
           featureId: agent.request.featureId,
           ticketId: agent.request.ticketId,
           question: "Quel format pour les identifiants ?",
-          options: ["UUID v4", "un entier croissant"],
+          options: [
+            { label: "UUID v4", consequence: "Conséquence de « UUID v4 » sur l'exemple." },
+            { label: "un entier croissant", consequence: "Conséquence de « un entier croissant » sur l'exemple." },
+          ],
           recommendation: "UUID v4",
           scopeChanging: false,
         })) as Question;
@@ -272,7 +276,10 @@ describe("go-as-recommended, from the drain to what stops it", () => {
           featureId: agent.request.featureId,
           ticketId: agent.request.ticketId,
           question: "Faut-il aussi stocker les fils de session ?",
-          options: ["oui, dans la base", "non, hors périmètre"],
+          options: [
+            { label: "oui, dans la base", consequence: "Conséquence de « oui, dans la base » sur l'exemple." },
+            { label: "non, hors périmètre", consequence: "Conséquence de « non, hors périmètre » sur l'exemple." },
+          ],
           recommendation: "oui, dans la base",
           scopeChanging: true,
         })) as Question;
@@ -398,7 +405,7 @@ describe("go-as-recommended, from the drain to what stops it", () => {
       depthCap: 1,
       subSession: async (agent) => {
         await agent.awaitMessage();
-        born.ticket = (await agent.call("create_ticket", {
+        born.ticket = (await writeTicket(agent, {
           featureId: agent.request.featureId,
           kind: "build",
           title: "Migrer les bases écrites par la version précédente",

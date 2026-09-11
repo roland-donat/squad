@@ -7,7 +7,7 @@ import {
   createTemporaryRepository,
   removeTemporaryPaths,
 } from "../support/git";
-import { connectToSquadTools } from "../support/mcp";
+import { connectToSquadTools, writeTicket } from "../support/mcp";
 
 test.afterAll(removeTemporaryPaths);
 
@@ -115,20 +115,20 @@ test("opens a feature from the home screen and reads the graph an agent wrote", 
   if (!feature) throw new Error("the feature just opened is missing from the API");
 
   const tools = await connectToSquadTools(baseURL ?? "");
-  const store = (await tools.call("create_ticket", {
+  const store = (await writeTicket(tools, {
     featureId: feature.id,
     kind: "build",
     title: "Le store",
     description: "La base et ses migrations.",
   })) as Ticket;
-  const mcp = (await tools.call("create_ticket", {
+  const mcp = (await writeTicket(tools, {
     featureId: feature.id,
     kind: "build",
     title: "Les outils MCP",
     description: "Le contrat avec les agents.",
     blockedBy: [store.id],
   })) as Ticket;
-  await tools.call("create_ticket", {
+  await writeTicket(tools, {
     featureId: feature.id,
     kind: "decision",
     title: "Quelle disposition",
@@ -137,7 +137,7 @@ test("opens a feature from the home screen and reads the graph an agent wrote", 
   });
   // Nothing blocks this one, so it is waiting on the developer right now: it is
   // what the indicator has to list.
-  await tools.call("create_ticket", {
+  await writeTicket(tools, {
     featureId: feature.id,
     kind: "decision",
     title: "Quelle base",
@@ -276,13 +276,13 @@ test("opens a feature from the home screen and reads the graph an agent wrote", 
   const carrying = carried.at(-1);
   if (!carrying) throw new Error("the feature just opened is missing from the API");
   const both = await connectToSquadTools(baseURL ?? "");
-  await both.call("create_ticket", {
+  await writeTicket(both, {
     featureId: carrying.id,
     kind: "build",
     title: "Ici",
     description: "Dans le dépôt d'attache.",
   });
-  await both.call("create_ticket", {
+  await writeTicket(both, {
     featureId: carrying.id,
     projectId: carrying.repositories[1]?.projectId,
     kind: "build",

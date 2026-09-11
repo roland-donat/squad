@@ -7,6 +7,7 @@ import {
 } from "../../src/shared/api";
 import { frontier } from "../../src/shared/graph";
 import { createScriptedLauncher, type AgentScript } from "../support/scripted-launcher";
+import { writeTicket } from "../support/mcp";
 import {
   openTestFeature,
   startTestSquad,
@@ -68,13 +69,13 @@ describe("a decision ticket, from the graph to its conclusion", () => {
   it("waits for the developer, then releases what it blocked", async () => {
     const { featureId, stream } = await start(async (agent) => {
       await agent.awaitMessage();
-      const decision = (await agent.call("create_ticket", {
+      const decision = (await writeTicket(agent, {
         featureId: agent.request.featureId,
         kind: "decision",
         title: "Quelle disposition pour le graphe",
         description: "En couches ou en radial.",
       })) as Ticket;
-      await agent.call("create_ticket", {
+      await writeTicket(agent, {
         featureId: agent.request.featureId,
         kind: "build",
         title: "Le graphe à l'écran",
@@ -126,7 +127,7 @@ describe("a decision ticket, from the graph to its conclusion", () => {
     let refusal = "";
     const { featureId, stream } = await start(async (agent) => {
       await agent.awaitMessage();
-      const build = (await agent.call("create_ticket", {
+      const build = (await writeTicket(agent, {
         featureId: agent.request.featureId,
         kind: "build",
         title: "Le store",
@@ -154,7 +155,7 @@ describe("a decision ticket, from the graph to its conclusion", () => {
     let refusal = "";
     const { featureId, stream } = await start(async (agent) => {
       await agent.awaitMessage();
-      const decision = (await agent.call("create_ticket", {
+      const decision = (await writeTicket(agent, {
         featureId: agent.request.featureId,
         kind: "decision",
         title: "Quelle base",
@@ -185,7 +186,7 @@ describe("a decision ticket, from the graph to its conclusion", () => {
   it("keeps the thread of the exchange, and hands it back after a restart", async () => {
     const { featureId, stream } = await start(async (agent) => {
       await agent.awaitMessage();
-      const decision = (await agent.call("create_ticket", {
+      const decision = (await writeTicket(agent, {
         featureId: agent.request.featureId,
         kind: "decision",
         title: "Quelle base",
@@ -225,6 +226,7 @@ describe("a decision ticket, from the graph to its conclusion", () => {
     const thread = snapshot.threads.filter((entry) => entry.featureId === featureId);
     expect(thread.map((entry) => `${entry.kind}:${entry.text}`)).toEqual([
       "pilot:/to-tickets",
+      "tool:set_running_example",
       "tool:create_ticket",
       "agent:Une décision à prendre.",
       "pilot:SQLite",
@@ -247,7 +249,7 @@ describe("a decision ticket, from the graph to its conclusion", () => {
       await agent.awaitMessage();
       // A session is opened on one feature. Nothing it says should be able to
       // close a decision taken on another, whatever id it puts in the call.
-      const elsewhere = (await agent.call("create_ticket", {
+      const elsewhere = (await writeTicket(agent, {
         featureId: agent.request.featureId,
         kind: "decision",
         title: "Chez moi",

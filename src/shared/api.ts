@@ -48,6 +48,9 @@ export const errorCodes = [
   "question_not_found",
   "question_not_pending",
   "recommendation_not_an_option",
+  "running_example_missing",
+  "summary_example_missing",
+  "summary_example_refused",
   "not_found",
   "data_directory_inside_project",
   "internal_error",
@@ -173,6 +176,15 @@ export interface Feature {
    * has to say so when nothing is running.
    */
   resumedSessionId: string | null;
+  /**
+   * The running example of this feature's business: the actors and the objects
+   * its tickets illustrate their own problem within. Held on the feature rather
+   * than repeated on every ticket, because it is learnt once per piece of work.
+   * A ticket that had to plant the decor as well could not stay short, and
+   * staying short is the whole point of a summary. Null on a feature cut up
+   * before it existed.
+   */
+  runningExample: string | null;
   /**
    * Whether squad drives this feature on its own: it launches what the frontier
    * allows without being asked, and answers an agent's implementation questions
@@ -353,7 +365,15 @@ export interface StepReport {
   ticketId: string;
   /** The sub-session that reported, which is the one a correction goes back to. */
   sessionId: string;
-  summary: string;
+  /**
+   * What was built. Bounded like the ticket's own summary and for the same
+   * reason: measured before the bound these averaged 2 856 characters and were
+   * rendered as a single paragraph above the test sheet, which is precisely the
+   * wall of text the developer met on the one screen where they had something
+   * to do. What does not fit belongs in the thread. Named `work` rather than
+   * `summary` so that one word means one thing: the summary is the ticket's.
+   */
+  work: string;
   /** What the agent recommends doing next, in its own terms. */
   recommendation: string;
   /** One entry per acceptance criterion of the ticket, in the ticket's order. */
@@ -381,6 +401,28 @@ export interface StepReport {
   createdAt: string;
 }
 
+/**
+ * What a ticket says to the developer, as opposed to what it says to the session
+ * that builds it. Three bounded fields rather than an agreed share of the
+ * description, because a length that is only asked for is a length nobody is
+ * held to: the bounds live on the tool, which refuses, and the refusal is what
+ * makes an agent cut its prose down. Measured before them, a description
+ * averaged 3 765 characters and reached 10 221 (ADR 0009).
+ */
+export interface TicketSummary {
+  /** The standing state of things this ticket starts from. */
+  context: string;
+  /** What is wrong or missing, in one sentence. */
+  problem: string;
+  /**
+   * That problem shown on the feature's running example. Null on a `fix`
+   * ticket, whose breakage is a red command and has no business example to be
+   * shown on: an invented one would be filler, and filler reads worse than a
+   * gap because nothing marks it as empty.
+   */
+  example: string | null;
+}
+
 /** The only kind of node in the graph. */
 export interface Ticket {
   id: string;
@@ -394,6 +436,14 @@ export interface Ticket {
   projectId: string;
   kind: TicketKind;
   title: string;
+  /**
+   * The summary, or null on a ticket written before summaries existed. Null is
+   * read as absent and said so, never painted as an empty summary: what the
+   * developer has to know is that there is nothing to read here, not that this
+   * ticket had nothing to say.
+   */
+  summary: TicketSummary | null;
+  /** The detail: what to build, in enough depth for a fresh session. */
   description: string;
   acceptanceCriteria: AcceptanceCriterion[];
   /**
@@ -587,6 +637,29 @@ export const answerSources = ["developer", "squad"] as const;
 export type AnswerSource = (typeof answerSources)[number];
 
 /**
+ * One of the roads an agent offers. An object rather than a line, because the
+ * line was where the consequence had to go and it never fitted: measured on a
+ * real instance, options averaged 175 characters and reached 342, against a
+ * schema asking for "a line the developer can pick". Picking a road and
+ * weighing what it costs are two readings, so they are two fields.
+ */
+export interface QuestionOption {
+  /** The road itself, short enough to be picked at a glance. */
+  label: string;
+  /**
+   * What taking this road entails. Null only on an option written before this
+   * field existed: the tool requires it of every option it accepts now.
+   */
+  consequence: string | null;
+  /**
+   * That consequence shown on the feature's running example, when it sharpens
+   * it. Left out on a question whose options carry no useful illustration,
+   * which is most implementation questions: required, it would be filler.
+   */
+  illustration: string | null;
+}
+
+/**
  * A question an agent asked, and what it was answered. The tool call that asks
  * it blocks until the answer is written here, which is what makes the interface
  * the place questions are settled rather than a terminal nobody is watching.
@@ -604,8 +677,12 @@ export interface Question {
   /** The question itself, as the agent worded it. */
   prompt: string;
   /** What the agent offers to choose from, in the order it wrote them. */
-  options: string[];
-  /** The option the agent recommends; always one of the options above. */
+  options: QuestionOption[];
+  /**
+   * The label of the option the agent recommends; always one of those above.
+   * The label and not the whole option: it is what squad answers with under
+   * go-as-recommended, and what an answer is recorded as.
+   */
   recommendation: string;
   /**
    * Whether the answer changes what is built rather than only how. A

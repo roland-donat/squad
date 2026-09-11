@@ -6,6 +6,7 @@ import type {
   Ticket,
   TicketKind,
   TicketState,
+  TicketSummary,
 } from "../../shared/api";
 import { isResumable } from "../../shared/graph";
 import { ApiError, launchTicket } from "../api";
@@ -81,6 +82,8 @@ export function TicketPanel({
           still, where everything below is work already done. */}
       <Questions questions={questions} />
 
+      <Summary summary={ticket.summary} />
+
       {ticket.description !== "" && <p className="ticket__description">{ticket.description}</p>}
 
       {ticket.acceptanceCriteria.length > 0 && (
@@ -131,6 +134,34 @@ export function TicketPanel({
         }
       />
     </>
+  );
+}
+
+/**
+ * What the ticket says to the developer, before what it says to the session
+ * that builds it. Three short blocks, in the order they are read: where we
+ * stand, what is wrong, and what that looks like on this feature's own example.
+ *
+ * An absent summary is said and not hidden. The tickets written before summaries
+ * existed carry none, and painting nothing there would read as a ticket with
+ * nothing to say rather than as one whose summary was never written; the
+ * difference decides whether it is worth asking for one.
+ */
+function Summary({ summary }: { summary: TicketSummary | null }) {
+  if (summary === null) {
+    return (
+      <p className="ticket__state">
+        Pas de résumé : ce ticket a été écrit avant qu'ils existent. Le demander à la session
+        principale en écrit un, sans toucher à ce qui se construit.
+      </p>
+    );
+  }
+  return (
+    <div className="ticket__summary">
+      <p className="ticket__problem">{summary.problem}</p>
+      <p className="ticket__context">{summary.context}</p>
+      {summary.example !== null && <p className="ticket__example">{summary.example}</p>}
+    </div>
   );
 }
 

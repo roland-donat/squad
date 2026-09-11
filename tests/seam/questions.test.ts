@@ -9,7 +9,7 @@ import {
   ticketTestSheetRoute,
 } from "../../src/shared/api";
 import { pendingActions } from "../../src/shared/pending";
-import { connectToSquadTools } from "../support/mcp";
+import { connectToSquadTools, writeTicket } from "../support/mcp";
 import { createScriptedLauncher, type ScriptedAgent } from "../support/scripted-launcher";
 import {
   openTestFeature,
@@ -70,7 +70,7 @@ describe("a question asked from a session, and the wait it opens", () => {
       launcher: createScriptedLauncher(async (agent) => {
         if (agent.request.role === "main") {
           await agent.awaitMessage();
-          await agent.call("create_ticket", {
+          await writeTicket(agent, {
             featureId: agent.request.featureId,
             kind: "build",
             title: "Le store",
@@ -149,7 +149,10 @@ describe("a question asked from a session, and the wait it opens", () => {
           featureId: agent.request.featureId,
           ticketId: agent.request.ticketId,
           question: "Quel format pour les identifiants de ticket ?",
-          options: ["UUID v4", "un entier croissant"],
+          options: [
+            { label: "UUID v4", consequence: "Conséquence de « UUID v4 » sur l'exemple." },
+            { label: "un entier croissant", consequence: "Conséquence de « un entier croissant » sur l'exemple." },
+          ],
           recommendation: "UUID v4",
           scopeChanging: false,
         })) as Question;
@@ -164,7 +167,13 @@ describe("a question asked from a session, and the wait it opens", () => {
 
     // What the agent offered, on the ticket it is building, and nothing decided.
     expect(asked.ticketId).toBe(ticket.id);
-    expect(asked.options).toEqual(["UUID v4", "un entier croissant"]);
+    expect(asked.options.map((option) => option.label)).toEqual([
+      "UUID v4",
+      "un entier croissant",
+    ]);
+    // Each road says what taking it costs: that is what makes it a choice
+    // rather than a list of names.
+    expect(asked.options.every((option) => option.consequence !== null)).toBe(true);
     expect(asked.recommendation).toBe("UUID v4");
     expect(asked.scopeChanging).toBe(false);
     expect(asked.answer).toBeNull();
@@ -215,7 +224,10 @@ describe("a question asked from a session, and the wait it opens", () => {
           featureId: agent.request.featureId,
           ticketId: agent.request.ticketId,
           question: "Quelle base ?",
-          options: ["SQLite", "Postgres"],
+          options: [
+            { label: "SQLite", consequence: "Conséquence de « SQLite » sur l'exemple." },
+            { label: "Postgres", consequence: "Conséquence de « Postgres » sur l'exemple." },
+          ],
           recommendation: "DuckDB",
           scopeChanging: false,
         });
@@ -243,7 +255,10 @@ describe("a question asked from a session, and the wait it opens", () => {
         featureId,
         ticketId: ticket.id,
         question: "Faut-il continuer ?",
-        options: ["oui", "non"],
+        options: [
+          { label: "oui", consequence: "Conséquence de « oui » sur l'exemple." },
+          { label: "non", consequence: "Conséquence de « non » sur l'exemple." },
+        ],
         recommendation: "oui",
         scopeChanging: false,
       });
@@ -269,7 +284,7 @@ describe("a question asked from a session, and the wait it opens", () => {
         await agent.call("report_step", {
           featureId: agent.request.featureId,
           ticketId: agent.request.ticketId,
-          summary: "La base s'ouvre.",
+          work: "La base s'ouvre.",
           coverage: criteria.map((criterion) => ({ criterionId: criterion.id, verdict: "judgement" })),
           recommendation: "Fusionner une fois la fiche passée.",
         });
@@ -277,7 +292,10 @@ describe("a question asked from a session, and the wait it opens", () => {
           featureId: agent.request.featureId,
           ticketId: agent.request.ticketId,
           question: "Faut-il aussi indexer les fils ?",
-          options: ["oui", "non"],
+          options: [
+            { label: "oui", consequence: "Conséquence de « oui » sur l'exemple." },
+            { label: "non", consequence: "Conséquence de « non » sur l'exemple." },
+          ],
           recommendation: "non",
           scopeChanging: false,
         })) as Question;
@@ -309,7 +327,10 @@ describe("a question asked from a session, and the wait it opens", () => {
         await agent.attempt("ask_question", {
           featureId: agent.request.featureId,
           question: "Faut-il découper la fondation en deux ?",
-          options: ["oui", "non"],
+          options: [
+            { label: "oui", consequence: "Conséquence de « oui » sur l'exemple." },
+            { label: "non", consequence: "Conséquence de « non » sur l'exemple." },
+          ],
           recommendation: "non",
           scopeChanging: true,
         });

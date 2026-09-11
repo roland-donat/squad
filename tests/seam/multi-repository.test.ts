@@ -14,6 +14,7 @@ import { addOrigin, commitFile, createTemporaryRepository, listBranches } from "
 import { installGhStub, type GhStub } from "../support/gh";
 import { createScriptedLauncher, type ScriptedAgent } from "../support/scripted-launcher";
 import { startTestSquad, type TestSquad } from "../support/squad";
+import { aSummary, writeTicket } from "../support/mcp";
 
 /**
  * A feature that carries several repositories, because a piece of work often
@@ -99,7 +100,7 @@ describe("a feature that carries several repositories", () => {
           await agent.awaitMessage();
           const written = new Map<string, string>();
           for (const spec of options.tickets) {
-            const created = (await agent.call("create_ticket", {
+            const created = (await writeTicket(agent, {
               featureId: agent.request.featureId,
               ...(spec.on === undefined ? {} : { projectId: registered[spec.on]?.id }),
               kind: "build",
@@ -198,7 +199,7 @@ describe("a feature that carries several repositories", () => {
     await agent.call("report_step", {
       featureId: agent.request.featureId,
       ticketId: agent.request.ticketId,
-      summary: `Ce que demandait « ${own?.title ?? ""} » est construit.`,
+      work: `Ce que demandait « ${own?.title ?? ""} » est construit.`,
       coverage: (own?.acceptanceCriteria ?? []).map((criterion) => ({
         criterionId: criterion.id,
         verdict: "automated",
@@ -262,6 +263,7 @@ describe("a feature that carries several repositories", () => {
           projectId: projects["voisin"]?.id,
           kind: "build",
           title: "Chez le voisin",
+          summary: aSummary(),
           description: "Un dépôt que la feature ne porte pas.",
         });
         expect(outcome.refused).toBe(true);

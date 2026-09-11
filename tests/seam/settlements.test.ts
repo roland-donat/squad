@@ -25,6 +25,7 @@ import {
   type TestSquad,
 } from "../support/squad";
 import { startWebhookReceiver, type WebhookReceiver } from "../support/webhook";
+import { writeTicket } from "../support/mcp";
 
 /**
  * Between a step report and the developer, squad runs a pass over the test
@@ -105,7 +106,7 @@ describe("the settling pass, between a test sheet and the developer", () => {
         if (agent.request.role === "main") {
           await agent.awaitMessage();
           for (const title of options.titles ?? ["Le store"]) {
-            await agent.call("create_ticket", {
+            await writeTicket(agent, {
               featureId: agent.request.featureId,
               kind: "build",
               title,
@@ -132,7 +133,7 @@ describe("the settling pass, between a test sheet and the developer", () => {
           await agent.call("report_step", {
             featureId: agent.request.featureId,
             ticketId: agent.request.ticketId,
-            summary: "La base s'ouvre et les migrations tournent.",
+            work: "La base s'ouvre et les migrations tournent.",
             recommendation: "Fusionner une fois la fiche passée.",
             coverage: ticket.acceptanceCriteria.map((criterion, index) => ({
               criterionId: criterion.id,
@@ -151,8 +152,15 @@ describe("the settling pass, between a test sheet and the developer", () => {
     const stream = await squad.openEventStream();
     expect((await stream.next()).type).toBe("snapshot");
     await squad.request("POST", mainSessionRoute(feature.id), { prompt: "/to-tickets" });
-    await waitForEvent(stream, "graph-changed");
-    const written = (await readGraph(feature.id)).tickets;
+    // Every ticket asked for, and not merely the first event: one
+    // `graph-changed` is one ticket written, so reading the graph on it left a
+    // two-ticket scenario running against one.
+    const expected = (options.titles ?? ["Le store"]).length;
+    let written: Ticket[] = [];
+    await until(`les ${expected} ticket(s) du scénario`, async () => {
+      written = (await readGraph(feature.id)).tickets;
+      return written.length === expected;
+    });
     return {
       featureId: feature.id,
       stream,

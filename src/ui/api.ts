@@ -59,6 +59,12 @@ const wording: Record<ErrorCode, string> = {
     "Cette question ne peut plus recevoir de réponse : elle a déjà été répondue ou abandonnée.",
   recommendation_not_an_option:
     "La recommandation de l'agent doit être l'une des options qu'il propose.",
+  running_example_missing:
+    "Cette feature n'a pas encore son exemple fil rouge : la session principale doit l'écrire avant le premier ticket, chaque ticket illustrant son problème dessus.",
+  summary_example_missing:
+    "Le résumé de ce ticket doit montrer son problème sur l'exemple fil rouge de la feature.",
+  summary_example_refused:
+    "Un ticket de correction ne porte pas d'exemple : ce qui a cassé est une commande passée au rouge.",
   git_failed: "Une commande git a échoué : consulter le détail côté serveur.",
   project_already_registered: "Ce dépôt est déjà enregistré comme projet.",
   project_not_found: "Ce projet est introuvable.",

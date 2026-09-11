@@ -33,7 +33,7 @@ export function TestSheet({ ticketId, report }: { ticketId: string; report: Step
   return (
     <>
       <h3 className="ticket__heading">Fin d'étape</h3>
-      <p className="ticket__description">{report.summary}</p>
+      <p className="ticket__description">{report.work}</p>
       <p className="sheet__recommendation">
         <span className="chip">recommandation</span> {report.recommendation}
       </p>

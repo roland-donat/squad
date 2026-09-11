@@ -32,7 +32,7 @@ function describeTicket(ticket: Ticket): string[] {
   return [
     `## ${ticket.title}${ticket.kind === "fix" ? " (correction)" : ""}`,
     "",
-    ...(report === null ? ["_Aucun rapport de fin d'étape._", ""] : [report.summary, ""]),
+    ...(report === null ? ["_Aucun rapport de fin d'étape._", ""] : [report.work, ""]),
     ...(checked.length === 0
       ? []
       : [

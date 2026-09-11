@@ -11,7 +11,7 @@ import {
   type Ticket,
 } from "../../src/shared/api";
 import { listWorktrees } from "../support/git";
-import { connectToSquadTools } from "../support/mcp";
+import { connectToSquadTools, writeTicket } from "../support/mcp";
 import { createScriptedLauncher, type ScriptedAgent } from "../support/scripted-launcher";
 import {
   openTestFeature,
@@ -88,7 +88,7 @@ describe("running several tickets at once, under the declared caps", () => {
         if (agent.request.role === "main") {
           await agent.awaitMessage();
           for (const title of titles) {
-            await agent.call("create_ticket", {
+            await writeTicket(agent, {
               featureId: agent.request.featureId,
               kind: "build",
               title,
@@ -129,7 +129,7 @@ describe("running several tickets at once, under the declared caps", () => {
     await agent.call("report_step", {
       featureId: agent.request.featureId,
       ticketId,
-      summary: "C'est fait.",
+      work: "C'est fait.",
       coverage: [],
       recommendation: "Fusionner.",
     });
@@ -518,7 +518,7 @@ describe("running several tickets at once, under the declared caps", () => {
     // request is not thrown away: the ticket reads as blocked while its blocker
     // stands, since a place is not what it is waiting for any more.
     const tools = await connectToSquadTools(squad.url);
-    const decision = (await tools.call("create_ticket", {
+    const decision = (await writeTicket(tools, {
       featureId: scenario.featureId,
       kind: "decision",
       title: "Quelle base",

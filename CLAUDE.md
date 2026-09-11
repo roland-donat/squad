@@ -213,6 +213,7 @@ commit restent en anglais.
 ```
 src/shared/                # contrat API partagé serveur et interface, sans dépendance node
 src/shared/state-family.ts # les onze états d'un ticket, ramenés aux cinq que peint la carte
+src/server/mcp.ts          # le contrat avec les agents, et les bornes de ce qu'ils écrivent
 src/server/                # serveur : base, store, git, événements, routes HTTP, outils MCP
 src/server/db/             # schéma drizzle et ouverture de la base
 src/server/agents/         # lanceur d'agent : l'interface étroite et son repli

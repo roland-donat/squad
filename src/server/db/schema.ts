@@ -71,6 +71,12 @@ export const features = sqliteTable(
      * one thread, and two features writing into it would each hold half of it.
      */
     resumedSessionId: text("resumed_session_id").unique(),
+    /**
+     * The running example of this feature's business, written once by the main
+     * session before the first ticket. Null on a feature cut up before it
+     * existed, which is what lets those features still be read.
+     */
+    runningExample: text("running_example"),
     /** Whether squad drives this feature on its own. */
     goAsRecommended: integer("go_as_recommended", { mode: "boolean" })
       .notNull()
@@ -153,6 +159,20 @@ export const tickets = sqliteTable(
       .references(() => projects.id, { onDelete: "cascade" }),
     kind: text("kind", { enum: ticketKinds }).notNull(),
     title: text("title").notNull(),
+    /**
+     * The summary the developer reads first: the standing context, the problem
+     * in one sentence, and that problem on the feature's running example.
+     *
+     * Nullable, though the tool requires two of the three: a column cannot
+     * refuse, and the tickets written before summaries existed have to stay
+     * readable. What holds the contract is the tool, which refuses; what holds
+     * the past is the column, which accepts. `summary_example` is null for a
+     * second reason too, and a lasting one: a `fix` ticket has no business
+     * example to be shown on.
+     */
+    summaryContext: text("summary_context"),
+    summaryProblem: text("summary_problem"),
+    summaryExample: text("summary_example"),
     description: text("description").notNull(),
     /** What squad recorded of this ticket's execution, and nothing the edges can say. */
     lifecycle: text("lifecycle", { enum: ticketLifecycles }).notNull().default("unstarted"),
@@ -266,7 +286,8 @@ export const stepReports = sqliteTable(
       .references(() => tickets.id, { onDelete: "cascade" }),
     /** The sub-session that reported, which is the one a correction goes back to. */
     sessionId: text("session_id").notNull(),
-    summary: text("summary").notNull(),
+    /** What was built. `work` and not `summary`: the summary is the ticket's. */
+    work: text("work").notNull(),
     recommendation: text("recommendation").notNull(),
     /** The developer's general return, written when they went through the sheet. */
     feedback: text("feedback"),
@@ -465,6 +486,13 @@ export const questionOptions = sqliteTable(
       .references(() => questions.id, { onDelete: "cascade" }),
     position: integer("position").notNull(),
     text: text("text").notNull(),
+    /**
+     * What taking this road entails, and that entailment on the feature's
+     * running example. Nullable for the options written before they existed;
+     * the tool requires the consequence of every option it accepts now.
+     */
+    consequence: text("consequence"),
+    illustration: text("illustration"),
   },
   (table) => [
     primaryKey({ columns: [table.questionId, table.position] }),

@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Feature, FeatureGraph, Ticket } from "../../src/shared/api";
 import { featureGraphRoute } from "../../src/shared/api";
 import { frontier } from "../../src/shared/graph";
-import { connectToSquadTools, type McpConnection } from "../support/mcp";
+import {
+  aSummary,
+  connectToSquadTools,
+  testRunningExample,
+  type McpConnection,
+  writeTicket,
+} from "../support/mcp";
 import { openTestFeature, startTestSquad, type TestSquad } from "../support/squad";
 
 describe("the graph an agent writes through the MCP tools", () => {
@@ -14,6 +20,13 @@ describe("the graph an agent writes through the MCP tools", () => {
     squad = await startTestSquad();
     tools = await connectToSquadTools(squad.url);
     feature = (await openTestFeature(squad, "Le noyau")).feature;
+    // What a main session does before writing its first ticket. Set here as
+    // well as inside `writeTicket`, because the tests that go straight to
+    // `attempt` to read a refusal must get past this one to reach theirs.
+    await tools.call("set_running_example", {
+      featureId: feature.id,
+      runningExample: testRunningExample,
+    });
   });
 
   afterEach(async () => {
@@ -24,7 +37,7 @@ describe("the graph an agent writes through the MCP tools", () => {
   async function createTicket(
     ticket: { title: string; blockedBy?: string[]; blocks?: string[] },
   ): Promise<Ticket> {
-    return (await tools.call("create_ticket", {
+    return (await writeTicket(tools, {
       featureId: feature.id,
       kind: "build",
       description: "",
@@ -52,13 +65,15 @@ describe("the graph an agent writes through the MCP tools", () => {
       "discard_ticket",
       "read_graph",
       "report_step",
+      "rewrite_ticket_summary",
+      "set_running_example",
       "settle_decision",
       "settle_sheet",
     ]);
   });
 
   it("writes a ticket with its kind, its criteria and its reserved external identifier", async () => {
-    const created = (await tools.call("create_ticket", {
+    const created = (await writeTicket(tools, {
       featureId: feature.id,
       kind: "build",
       title: "Le lanceur d'agent",
@@ -81,7 +96,7 @@ describe("the graph an agent writes through the MCP tools", () => {
   });
 
   it("hands the same graph to the agent as to the interface", async () => {
-    await tools.call("create_ticket", {
+    await writeTicket(tools, {
       featureId: feature.id,
       kind: "decision",
       title: "Quel format de fiche de tests",
@@ -97,6 +112,7 @@ describe("the graph an agent writes through the MCP tools", () => {
       featureId: "unknown",
       kind: "build",
       title: "Orphelin",
+      summary: aSummary(),
       description: "",
     });
 
@@ -109,6 +125,7 @@ describe("the graph an agent writes through the MCP tools", () => {
       featureId: feature.id,
       kind: "chore",
       title: "Genre inventé",
+      summary: aSummary(),
       description: "",
     });
 
@@ -170,6 +187,7 @@ describe("the graph an agent writes through the MCP tools", () => {
       featureId: feature.id,
       kind: "build",
       title: "Troisième",
+      summary: aSummary(),
       description: "",
       blockedBy: [second.id],
       blocks: [first.id],
@@ -189,7 +207,7 @@ describe("the graph an agent writes through the MCP tools", () => {
 
   it("refuses an edge onto a ticket of another feature", async () => {
     const { feature: elsewhere } = await openTestFeature(squad, "Un autre chantier");
-    const foreign = (await tools.call("create_ticket", {
+    const foreign = (await writeTicket(tools, {
       featureId: elsewhere.id,
       kind: "build",
       title: "Ailleurs",
@@ -200,6 +218,7 @@ describe("the graph an agent writes through the MCP tools", () => {
       featureId: feature.id,
       kind: "build",
       title: "Ici",
+      summary: aSummary(),
       description: "",
       blockedBy: [foreign.id],
     });

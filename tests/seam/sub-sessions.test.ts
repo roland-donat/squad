@@ -24,6 +24,7 @@ import {
   pathExists,
 } from "../support/git";
 import { createScriptedLauncher, type ScriptedAgent } from "../support/scripted-launcher";
+import { writeTicket } from "../support/mcp";
 import {
   onlyRepository,
   openTestFeature,
@@ -151,7 +152,7 @@ describe("launching a ticket, failing, and resuming", () => {
 
   /** The one ticket every scenario starts from: on the frontier, nothing before it. */
   async function writeOneTicket(agent: ScriptedAgent): Promise<void> {
-    await agent.call("create_ticket", {
+    await writeTicket(agent, {
       featureId: agent.request.featureId,
       kind: "build",
       title: "Le store",
@@ -451,13 +452,13 @@ describe("launching a ticket, failing, and resuming", () => {
 
   it("refuses to launch a ticket whose blockers are not all merged", async () => {
     const { featureId, stream } = await start(async (agent) => {
-      const store = (await agent.call("create_ticket", {
+      const store = (await writeTicket(agent, {
         featureId: agent.request.featureId,
         kind: "build",
         title: "Le store",
         description: "",
       })) as Ticket;
-      await agent.call("create_ticket", {
+      await writeTicket(agent, {
         featureId: agent.request.featureId,
         kind: "build",
         title: "Les outils MCP",
@@ -479,7 +480,7 @@ describe("launching a ticket, failing, and resuming", () => {
 
   it("refuses to launch a decision, which is settled and never implemented", async () => {
     const { featureId, stream } = await start(async (agent) => {
-      await agent.call("create_ticket", {
+      await writeTicket(agent, {
         featureId: agent.request.featureId,
         kind: "decision",
         title: "Quelle base",

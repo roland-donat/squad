@@ -345,9 +345,16 @@ body {
 }
 
 /* What the map is of, and what drives it, on one line above it. */
+/*
+ * The map's chrome steps aside for the session bar, folded or not. `--obstructed`
+ * is the bar's width when it is open and zero when it is closed, but a closed
+ * bar still shows its handle: measured at 29px, enough to cut the "recadrer"
+ * link in half. The allowance below is that handle, and it is added rather than
+ * maximised so an open bar gets its own width plus a little air.
+ */
 .graph__header,
 .panel--graph .graph__legend {
-  padding-right: var(--obstructed, 0px);
+  padding-right: calc(var(--obstructed, 0px) + 2.25rem);
 }
 
 .graph__header {
@@ -1462,11 +1469,24 @@ button[disabled] {
  * than a badge: reading that the mode stopped and starting it again are the
  * same gesture.
  */
+/*
+ * The one standing decision of this screen, and it must stay one line.
+ *
+ * What stopped the mode is prose an agent wrote, of no bounded length: measured
+ * on a real instance, a scope question's wording made this span 1842px wide,
+ * which is the whole window, and pushed the connection badge, the theme control
+ * and the settings link onto a third row. The header went from one line to 175
+ * pixels, and every line it takes is a line the map does not have.
+ *
+ * So it shrinks rather than pushes, exactly as the feature title and the list of
+ * repositories beside it already do.
+ */
 .autonomy {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  flex-wrap: wrap;
+  min-width: 0;
+  flex: 0 1 auto;
 }
 
 .autonomy button.chip {
@@ -1482,9 +1502,43 @@ button[disabled] {
   background: var(--accent-soft);
 }
 
+/*
+ * One line, cut where it stops fitting, and never wider than a share of the
+ * window. The share is the part that matters: letting flex resolve it was tried
+ * and measured, and the span still asked for 2798px, which the page granted by
+ * scrolling sideways by 932. A shrink factor only decides how a line is shared;
+ * it does not stop an item from demanding more than there is.
+ *
+ * The whole of the account is on the element, so hovering gives back what did
+ * not fit, and the thread of the session that raised it keeps it in full.
+ */
 .autonomy__halt {
   color: var(--ink-soft);
   font-size: 0.85rem;
+  min-width: 0;
+  max-width: min(52ch, 38vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * And below the width where the waiting column already steps out of the row,
+ * the account steps out of the header entirely. Measured at 1100px: it cost the
+ * header a third row, 98px against 66, for prose the button's own tooltip still
+ * gives back. What must never leave is the button, which is what acts.
+ */
+@media (max-width: 1180px) {
+  .autonomy__halt {
+    display: none;
+  }
+}
+
+/* And the chips beside it never shrink: what is cut is the account, never the
+   button that acts on it. */
+.autonomy > .chip,
+.autonomy > button {
+  flex: 0 0 auto;
 }
 
 /*

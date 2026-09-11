@@ -1,4 +1,4 @@
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type {
@@ -283,6 +283,60 @@ describe("launching a ticket, failing, and resuming", () => {
     expect(await pathExists(where)).toBe(true);
     expect(repertoires[1]).toBe(where);
     expect(await readFile(join(where, "fait.ts"), "utf8")).toBe("le travail\n");
+    reprise.open();
+  });
+
+  it("rouvre un checkout dont l'entrée git a disparu, et met l'ancien de côté", async () => {
+    // Le répertoire survit à son entrée administrative, et c'est squad qui le
+    // produit : `createWorktree` élague les entrées dont le répertoire est
+    // absent, et le répertoire de données voyage d'une machine à l'autre par la
+    // synchronisation du poste. Un checkout absent au moment de l'élagage et
+    // revenu avec la synchro est un répertoire que git ne connaît plus, dont
+    // tout appel échoue sur un message qui parle du dépôt.
+    const reprise = gate();
+    const repertoires: string[] = [];
+    const { featureId, repository, stream } = await start(writeOneTicket, async (agent) => {
+      repertoires.push(agent.request.workingDirectory);
+      await agent.awaitMessage();
+      if (repertoires.length === 1) {
+        await commitFile(agent.request.workingDirectory, "fait.ts", "le travail\n", "feat: le travail");
+        throw new Error("interrompu");
+      }
+      await reprise.passed;
+    });
+
+    await squad.request("POST", mainSessionRoute(featureId), { prompt: "/to-tickets" });
+    await waitForEvent(stream, "graph-changed");
+    const ready = await readTicket(featureId, "Le store");
+    await launch(ready.id);
+    const failed = await waitForState(stream, featureId, ready.id, "failed");
+    const where = failed.worktree?.path ?? "";
+    const branch = failed.worktree?.branch ?? "";
+
+    // La sortie de compilation que personne ne suit, qui est tout ce qu'un tel
+    // répertoire porte de plus que sa branche, et ce qu'une reprise ne doit pas
+    // détruire sans le dire.
+    await writeFile(join(where, "sortie-de-compilation.bin"), "coûteux\n");
+    // Ce que fait la synchronisation : le répertoire part, l'élagage passe,
+    // le répertoire revient. L'entrée, elle, ne revient pas.
+    const deCote = `${where}.parti`;
+    await rename(where, deCote);
+    await pruneWorktrees(repository);
+    await rename(deCote, where);
+    expect(await pathExists(where)).toBe(true);
+    expect(await listBranches(repository)).toContain(branch);
+
+    await launch(ready.id);
+    await waitForState(stream, featureId, ready.id, "running");
+    // Rouvert au même endroit, sur la même branche, avec le travail dedans.
+    expect(repertoires[1]).toBe(where);
+    expect(await readFile(join(where, "fait.ts"), "utf8")).toBe("le travail\n");
+    // Et l'ancien n'est pas détruit : ce qu'il portait n'était plus lisible,
+    // donc squad ne pouvait pas distinguer une sortie de compilation d'un
+    // travail que personne n'avait commité.
+    expect(await readFile(join(`${where}.orphaned`, "sortie-de-compilation.bin"), "utf8")).toBe(
+      "coûteux\n",
+    );
     reprise.open();
   });
 

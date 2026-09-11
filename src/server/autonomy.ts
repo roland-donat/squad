@@ -45,6 +45,12 @@ export interface AutonomyDependencies {
    * writing on a test sheet.
    */
   decisions: { takeOpen(featureId: string): void };
+  /**
+   * What takes the questions a feature has left open, declared by what is
+   * needed of it. Held by the module that asks them, since answering one is
+   * releasing the call that is waiting on it.
+   */
+  questions: { takeOpen(featureId: string): void };
   store: Store;
   bus: EventBus;
   alerts: Alerts;
@@ -177,6 +183,11 @@ export class Autonomy {
       // arbitration had frozen seven implementation ones, every one of which
       // squad was allowed to take.
       this.dependencies.decisions.takeOpen(featureId);
+      // The questions too, and for the same reason: both are asked once, both
+      // are answered "wait" while the mode is held, and neither is ever asked
+      // again. Whichever is taken first, the other is read on the next drive,
+      // which a graph change always brings.
+      this.dependencies.questions.takeOpen(featureId);
       const graph = store.featureGraph(featureId);
       const launches = frontier(graph);
       for (const ticket of launches) store.queueLaunch(ticket.id, "implement");

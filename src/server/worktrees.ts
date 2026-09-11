@@ -1,9 +1,9 @@
-import { stat } from "node:fs/promises";
+import { rename, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Feature, Project, Ticket, Worktree } from "../shared/api";
 import type { EventBus } from "./events";
 import { SquadError } from "./errors";
-import { branchExists, createWorktree } from "./git";
+import { branchExists, createWorktree, isCheckout } from "./git";
 import type { Store } from "./store";
 
 /**
@@ -125,7 +125,11 @@ export class Worktrees {
     record: (worktree: Worktree) => void,
   ): Promise<Worktree> {
     const worktree = recorded ?? intended;
-    if (!(await exists(worktree.path))) {
+    // Usable, not merely there. A directory git no longer knows as a checkout
+    // is worse than a missing one: every command run in it fails, and the
+    // failure names the repository rather than what was being done, so squad
+    // retries a merge that cannot ever work.
+    if (!(await usable(worktree.path))) {
       // A checkout squad recorded and no longer finds is one it may rebuild,
       // but only from the branch that holds the work. If that branch is gone
       // too, the repository this ticket was built in is not the one in front of
@@ -139,6 +143,23 @@ export class Worktrees {
           409,
           `squad recorded the branch ${recorded.branch} for this checkout and ${repositoryRoot} does not have it: the work it holds is not in this repository, and squad will not open an empty branch in its place`,
         );
+      }
+      // A directory still there is set aside rather than written over: what it
+      // holds cannot be read any more, so squad cannot tell build output from a
+      // change nobody committed, and the one it would destroy is the one that
+      // matters. Set aside once, under a name that says what it is; a second
+      // orphan while the first is still there is refused rather than piled up,
+      // since these carry gigabytes of build output.
+      if (await exists(worktree.path)) {
+        const aside = `${worktree.path}.orphaned`;
+        if (await exists(aside)) {
+          throw new SquadError(
+            "orphaned_checkout",
+            409,
+            `the checkout at ${worktree.path} lost its git administrative entry, and a previous one is already set aside at ${aside}: deal with that one before squad opens another`,
+          );
+        }
+        await rename(worktree.path, aside);
       }
       await createWorktree({ repositoryRoot, startPoint, ...worktree });
     }
@@ -182,6 +203,15 @@ function slug(title: string): string {
     .slice(0, 40)
     .replace(/-+$/, "");
   return plain === "" ? "sans-titre" : plain;
+}
+
+/**
+ * Whether a path holds a checkout squad can work in: it is there, and git knows
+ * it as one of its own. The two questions are asked together because a caller
+ * only ever wants the answer to both.
+ */
+async function usable(path: string): Promise<boolean> {
+  return (await exists(path)) && (await isCheckout(path));
 }
 
 export async function exists(path: string): Promise<boolean> {

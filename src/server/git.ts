@@ -100,6 +100,26 @@ export async function createWorktree(request: WorktreeRequest): Promise<void> {
  * branches from one: a default branch that does not exist fails nowhere until
  * the first feature is launched, and then fails as a git error nobody can read.
  */
+/**
+ * Whether git still knows this directory as one of its checkouts.
+ *
+ * A directory outliving its administrative entry is not a theoretical case, and
+ * squad is what causes it: `createWorktree` prunes the entries whose directory
+ * is gone, and the data directory travels between machines by the poste's own
+ * synchronisation. A checkout absent when a prune runs and back when the sync
+ * lands is a directory git no longer knows, whose `.git` file points at nothing.
+ * Every git command run there fails, so a merge into it fails on a message
+ * about the repository rather than about the merge.
+ */
+export async function isCheckout(path: string): Promise<boolean> {
+  try {
+    await git(path, ["rev-parse", "--git-dir"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function branchExists(repositoryRoot: string, branch: string): Promise<boolean> {
   try {
     await runCommand(repositoryRoot, "git", [

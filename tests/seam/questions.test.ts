@@ -3,6 +3,7 @@ import type { FeatureGraph, Question, ThreadEntry, Ticket } from "../../src/shar
 import {
   apiRoutes,
   featureGraphRoute,
+  featureRoute,
   mainSessionRoute,
   questionAnswerRoute,
   ticketSessionRoute,
@@ -213,6 +214,57 @@ describe("a question asked from a session, and the wait it opens", () => {
     expect(questions.map((question) => question.state)).toEqual(["answered"]);
     // Nothing waits on the developer any more.
     expect(pendingActions([await readGraph(featureId)], questions)).toEqual([]);
+  });
+
+  it("répond à une question restée ouverte quand le mode est relancé", async () => {
+    // Une question est posée une fois, et une feature arrêtée à cet instant
+    // reçoit « attends » : rien ne la redemandait jamais, donc une question
+    // d'implémentation que squad avait le droit de trancher attendait le
+    // développeur. Mesuré sur l'instance : la seule session encore en cours
+    // était tenue par une question de cette sorte.
+    const alive = gate();
+    const asking = { answer: null as Question | null };
+    let returned = () => {};
+    const answered = new Promise<void>((resolve) => {
+      returned = resolve;
+    });
+
+    const { featureId, stream, ticket } = await start({
+      subSession: async (agent) => {
+        await agent.awaitMessage();
+        asking.answer = (await agent.call("ask_question", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          question: "Quel format pour les identifiants de ticket ?",
+          options: [
+            { label: "UUID v4", consequence: "Conséquence de « UUID v4 » sur l'exemple." },
+            {
+              label: "un entier croissant",
+              consequence: "Conséquence de « un entier croissant » sur l'exemple.",
+            },
+          ],
+          recommendation: "UUID v4",
+          scopeChanging: false,
+        })) as Question;
+        returned();
+        await alive.passed;
+      },
+    });
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    const asked = await waitForQuestion(stream, "pending");
+    // Le mode n'est pas armé : la question attend, et l'agent avec elle.
+    expect(asked.scopeChanging).toBe(false);
+    expect(asking.answer).toBeNull();
+
+    // L'armer, c'est redemander. Personne n'a répondu à la main.
+    expect(
+      (await squad.request("PUT", featureRoute(featureId), { goAsRecommended: true })).status,
+    ).toBe(200);
+    await answered;
+    expect(asking.answer?.state).toBe("answered");
+    expect(asking.answer?.answeredBy).toBe("squad");
+    expect(asking.answer?.answer).toBe("UUID v4");
   });
 
   it("refuses a recommendation that is not one of the options offered", async () => {

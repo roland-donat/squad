@@ -121,7 +121,15 @@ export async function startSquadServer(
   // pass records, and the pass asks the mode what it may take. Two objects that
   // call each other, declared in the order the constructors allow.
   const openDecisions = { takeOpen: (featureId: string) => settlements.takeOpen(featureId) };
-  const autonomy = new Autonomy({ store, bus, alerts, dispatch: handing, decisions: openDecisions });
+  const openQuestions = { takeOpen: (featureId: string) => questions.takeOpen(featureId) };
+  const autonomy = new Autonomy({
+    store,
+    bus,
+    alerts,
+    dispatch: handing,
+    decisions: openDecisions,
+    questions: openQuestions,
+  });
   const merges = new Merges({
     store,
     bus,

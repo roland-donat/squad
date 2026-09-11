@@ -21,7 +21,15 @@ export function TestSheet({ ticketId, report }: { ticketId: string; report: Step
   // What is asked of the developer is what is still pending: squad's settling
   // pass answers the rest before they are woken, and a point it answered is
   // read with its evidence rather than asked about again.
-  const waiting = report.sheet.filter((point) => point.verdict === "pending");
+  const pending = report.sheet.filter((point) => point.verdict === "pending");
+  // Plus what squad showed false and may no longer send back itself. Past that
+  // round they are the only one who can end it, by overriding the finding or by
+  // handing the correction back on their own word, and a sheet that offered
+  // neither would wake them for something they cannot act on.
+  const uncorrectable = report.correctable
+    ? []
+    : report.sheet.filter((point) => point.verdict === "failed");
+  const waiting = [...pending, ...uncorrectable];
   return (
     <>
       <h3 className="ticket__heading">Fin d'étape</h3>
@@ -54,7 +62,7 @@ export function TestSheet({ ticketId, report }: { ticketId: string; report: Step
         <ReviewedSheet report={report} />
       ) : report.reviewedAt === null ? (
         <>
-          <SettleFirst ticketId={ticketId} points={waiting} />
+          <SettleFirst ticketId={ticketId} points={pending} />
           <SheetForm ticketId={ticketId} points={waiting} notes={notesByCriterion(report)} />
         </>
       ) : (

@@ -581,7 +581,7 @@ describe("the settling pass, between a test sheet and the developer", () => {
     expect(((await again.json()) as ApiErrorBody).error.code).toBe("sheet_not_settleable");
   });
 
-  it("cesse de vérifier après deux tours et rend la fiche au développeur", async () => {
+  it("cesse de renvoyer après deux tours, et type tout de même la fiche qu'elle rend", async () => {
     const { featureId, ticket, passes } = await start({
       coverage: [{ verdict: "automated" }, { verdict: "automated" }],
       settle: async (points, agent) => {
@@ -602,13 +602,69 @@ describe("the settling pass, between a test sheet and the developer", () => {
     // Two passes find the same thing broken, the sub-session reports a third
     // time, and squad stops arguing with itself: the developer is woken.
     const alert = await receiver.next();
-
     expect(alert.text).toMatch(/fiche de tests/i);
-    expect(passes()).toBe(2);
+
+    // Three passes and not two: what the cap stops is the sending back, never
+    // the typing, which corrects nothing and risks nothing. So the sheet the
+    // developer reads carries what squad ran on every point rather than the
+    // bare lines the sub-session wrote.
+    await until("la troisième passe", async () => passes() === 3);
     const graph = await readGraph(featureId);
     const current = graph.tickets.find((each) => each.id === ticket.id) as Ticket;
-    expect(reportOf(current).sheet.every((point) => point.verdict === "pending")).toBe(true);
-    expect(reportOf(current).sheet.every((point) => point.settlement === null)).toBe(true);
+    expect(reportOf(current).correctable).toBe(false);
+    expect(reportOf(current).sheet.every((point) => point.verdict === "failed")).toBe(true);
+    expect(
+      reportOf(current).sheet.every((point) => point.settlement?.outcome === "broken"),
+    ).toBe(true);
+    // And it is waiting on them, which is what keeps a step squad has stopped
+    // correcting from being waited on by nobody at all.
+    expect(
+      pendingActions([graph], []).some(
+        (action) => action.ticketId === ticket.id && action.reason === "validation",
+      ),
+    ).toBe(true);
+  });
+
+  it("type encore l'arbitrage du dernier tour, et go-as-recommandé le prend", async () => {
+    // Le fond de l'affaire, mesuré sur l'instance : trois fiches non typées
+    // portaient 15 des 33 points en attente, arbitrages compris. Un arbitrage
+    // sans recommandation n'est pas prenable, donc le mode s'arrêtait sur ce
+    // que le plafond avait simplement cessé de regarder.
+    let round = 0;
+    const { featureId, stream, ticket, passes } = await start({
+      driven: true,
+      coverage: [{ verdict: "automated" }, { verdict: "automated" }],
+      suggestions: ["L'orthographe de la clé exposée, `kind` ou `type`"],
+      settle: async (points, agent) => {
+        round += 1;
+        const last = round > 2;
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: points.map((pointId) => ({
+            pointId,
+            ...(last
+              ? {
+                  outcome: "decision",
+                  note: "Rien n'est cassé : deux orthographes tiennent, il faut en choisir une.",
+                  recommendation: "Garder `kind`, aligné sur le reste du document.",
+                  scopeChanging: false,
+                }
+              : {
+                  outcome: "broken",
+                  note: "Lancé : la migration 0004 échoue sur une colonne absente.",
+                }),
+          })),
+        });
+      },
+    });
+    const receiver = await catchAlerts();
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    const merged = await waitForState(stream, featureId, ticket.id, "merged");
+    expect(passes()).toBe(3);
+    expect(reportOf(merged).sheet[0]?.settlement?.outcome).toBe("decision");
+    expect(receiver.received()).toEqual([]);
   });
 
   it("coche un critère que la sous-session avait confié à un humain, preuve à l'appui", async () => {

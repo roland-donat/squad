@@ -84,6 +84,32 @@ export class Questions {
   }
 
   /**
+   * Answers every question a feature left open that squad may answer alone.
+   *
+   * A question is answered once, when it is asked, and a feature held at that
+   * moment gets "wait": nothing ever asks again, so an implementation question
+   * squad had every right to answer sits in front of the developer until they
+   * answer it themselves. It is the same defect the arbitrations of a test
+   * sheet had, and it is the same remedy, because lifting the hold is what asks
+   * again. Measured on the instance: the only session still running was held on
+   * a question squad could have answered.
+   *
+   * Perimeter questions are left unread rather than refused, and that is not
+   * the same as taking them: reading one stops the mode, and it already stopped
+   * it when the question was asked. Stopping again on it would overwrite what
+   * squad last halted on with something older.
+   */
+  takeOpen(featureId: string): void {
+    const { store, autonomy } = this.dependencies;
+    for (const question of store.listQuestions(featureId)) {
+      if (question.state !== "pending" || question.scopeChanging) continue;
+      const verdict = autonomy.verdictFor(question);
+      if (verdict.kind !== "answer") continue;
+      this.settle(question.id, verdict.answer, "squad");
+    }
+  }
+
+  /**
    * Lets go of every question still waiting, so a shutdown does not leave a tool
    * call pending on an answer that will never come. Nothing is written: the row
    * stays pending, and the next start abandons it like any other, which is also

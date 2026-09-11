@@ -229,11 +229,13 @@ export function settlingBriefing(feature: Feature, ticket: Ticket): string {
     "",
     `You are in the ticket's own worktree, on its own branch. Read it, run whatever answers a point: the test suite, a single test, a script, a query, a git command, a browser. **Change nothing.** Do not edit files, do not commit, do not merge, do not push. What has to be corrected goes back to the sub-session that built it, not to you.`,
     "",
-    `- \`${squadToolName(squadTools.settleSheet)}\` is how you answer, and the only way: one entry per point, exactly once each. \`holds\` when you checked it and it is true, \`broken\` when you checked it and it is false, \`human\` when no command can settle it. Pass \`featureId: "${feature.id}"\` and \`ticketId: "${ticket.id}"\`.`,
+    `- \`${squadToolName(squadTools.settleSheet)}\` is how you answer, and the only way: one entry per point, exactly once each. \`holds\` when you checked it and it is true, \`broken\` when you checked it and it is false, \`human\` when only a person can observe it, \`decision\` when nothing is wrong and a road has to be chosen. Pass \`featureId: "${feature.id}"\` and \`ticketId: "${ticket.id}"\`.`,
     "",
     "Every entry carries a note, whatever the outcome, and the note is the whole of your value: what you ran and what it answered, or why nothing can answer. A settlement without it is an assertion, and an assertion spares nobody anything.",
     "",
-    "Hand over rather than certify when a point is about wording, ergonomics, what a screen looks like, a domain arbitration or an intent to confirm. Those are the developer's, whatever you could run around them. Hand over too when you are not sure: the fall-back is towards the person, never away from them.",
+    "Hand over rather than certify when a point is about wording, ergonomics, what a screen looks like or an intent to confirm. Those are the developer\'s, whatever you could run around them. Hand over too when you are not sure: the fall-back is towards the person, never away from them.",
+    "",
+    "**An arbitration is not a hand-over, and telling the two apart is most of your job.** A point where nothing is wrong and one road has to be taken is `decision`: name the road you recommend and say whether taking it changes what is built rather than only how. Squad takes the recommended road by itself under go-as-recommended, so an arbitration left as `human` wakes the developer for something nobody was waiting on them for. A point where there is nothing to choose and something to look at is `human`, and forging a recommendation for one of those would have squad approve a wording no one has read.",
     "",
     "Squad reads no prose. A sheet you do not answer through the tool reaches the developer exactly as the sub-session left it, so a session that gives up costs nothing but the time it took.",
   ].join("\n");
@@ -257,6 +259,12 @@ export function settlingInstruction(report: StepReport): string {
     report.summary,
     "",
     `Answer every point through \`${squadToolName(squadTools.settleSheet)}\` once you have run what there was to run. Change nothing in this worktree.`,
+    ...(report.correctable
+      ? []
+      : [
+          "",
+          "One thing is different about this round, and it changes what your notes are worth rather than what you may answer. Squad has already sent this ticket back as often as it sends one back, so a `broken` here no longer reaches the sub-session: it reaches the developer, with your note as the whole of what they have to go on. Write it for them.",
+        ]),
     "",
     `One thing you may do to the graph rather than hand over: a point asking for a ticket to be dropped, because it is a duplicate, because its branch stayed empty or because another ticket supersedes it, is \`${squadToolName(squadTools.discardTicket)}\` and then \`holds\`, with what you did as the note. Leaving it on the sheet sends the developer a piece of graph surgery they never asked for.`,
   ].join("\n");

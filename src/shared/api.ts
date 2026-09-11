@@ -360,6 +360,20 @@ export interface StepReport {
   coverage: CriterionCoverage[];
   /** The test sheet: uncovered criteria first, then the agent's suggestions. */
   sheet: TestSheetPoint[];
+  /**
+   * Whether squad may still hand this step back to the sub-session that built
+   * it. It falls to false once squad has settled the same ticket as many times
+   * as it settles one at all: from there a sheet reaches the developer whatever
+   * it says, because a further round is two agents disagreeing and a person
+   * ends that faster than another pass would.
+   *
+   * Declared on the report rather than worked out again wherever it matters.
+   * Three places read it, the pass that is told what it may answer, the chain
+   * that decides what follows a sheet, and the list of what waits on the
+   * developer, and a step they disagreed about would be a step that is either
+   * corrected for ever or lost.
+   */
+  correctable: boolean;
   /** The developer's general return, written when they went through the sheet. */
   feedback: string | null;
   /** When the developer went through the sheet; null while it is still waiting. */

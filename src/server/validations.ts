@@ -70,9 +70,19 @@ export class Validations {
    * Measured on the ten sheets that opened this: five of them held both, and
    * the order below is 15 points of judgement the developer does not spend on
    * work already known to be changing.
+   *
+   * **The sending back stops where `correctable` stops**, and the sheet then
+   * reaches the developer with what squad found rather than going round a third
+   * time. The pass itself never stops: it typed this sheet like the others, so
+   * what the developer reads carries a note on every point and a recommended
+   * road on every arbitration.
    */
   async afterSettling(ticket: Ticket): Promise<void> {
-    if (failedPoints(ticket.stepReport).length > 0) {
+    // What is broken goes back, as long as squad may still send it back. Past
+    // that, the same evidence reaches the developer instead: `sheetIsWaiting`
+    // reads the very same property, so a step squad has stopped correcting
+    // cannot fall between the two and never be looked at by anyone.
+    if (failedPoints(ticket.stepReport).length > 0 && ticket.stepReport?.correctable === true) {
       await this.dependencies.subSessions.correct(ticket);
       return;
     }

@@ -57,6 +57,7 @@ import {
   threadEntries,
   tickets,
 } from "./db/schema";
+import { settlingRounds } from "../shared/validation";
 import { SquadError } from "./errors";
 import {
   branchExists,
@@ -1823,20 +1824,6 @@ export class Store {
   }
 
   /**
-   * How many steps a ticket has reported. What bounds the settling pass: a
-   * sheet answered, corrected and reported again has already had squad's word
-   * once, and a third round is a disagreement between two agents that a person
-   * should be the one to end.
-   */
-  reportedSteps(ticketId: string): number {
-    return this.db
-      .select()
-      .from(stepReports)
-      .where(eq(stepReports.ticketId, ticketId))
-      .all().length;
-  }
-
-  /**
    * The latest step report of each ticket, with its coverage and its sheet. The
    * latest one and not all of them: a ticket corrected after a red sheet reports
    * again, and what the graph shows is where it stands now.
@@ -1896,8 +1883,13 @@ export class Store {
       sheets.set(row.reportId, list);
     }
 
-    // Insertion order, so the last row read for a ticket is its latest report.
+    // Insertion order, so the last row read for a ticket is its latest report,
+    // and its rank among that ticket's reports is what says whether squad may
+    // still send the step back.
+    const reported = new Map<string, number>();
     for (const row of rows) {
+      const rank = (reported.get(row.ticketId) ?? 0) + 1;
+      reported.set(row.ticketId, rank);
       latest.set(row.ticketId, {
         id: row.id,
         ticketId: row.ticketId,
@@ -1906,6 +1898,7 @@ export class Store {
         recommendation: row.recommendation,
         coverage: coverage.get(row.id) ?? [],
         sheet: sheets.get(row.id) ?? [],
+        correctable: rank <= settlingRounds,
         feedback: row.feedback,
         reviewedAt: row.reviewedAt,
         createdAt: row.createdAt,

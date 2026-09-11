@@ -78,14 +78,6 @@ export class Settlements {
   constructor(private readonly dependencies: SettlementDependencies) {}
 
   /**
-   * How many times squad settles the same ticket before handing it over. A
-   * sheet answered, corrected and reported again has had squad's word once; a
-   * third round is two agents disagreeing, and a person ends that faster than
-   * another pass would.
-   */
-  private static readonly rounds = 2;
-
-  /**
    * Settles the sheet of a reported step, then hands the ticket to whatever
    * follows. Awaited by nobody: a report returns as soon as it is written, and
    * the pass then waits its turn under the caps like any other session.
@@ -96,12 +88,10 @@ export class Settlements {
    */
   settle(ticket: Ticket): void {
     const { store, dispatch } = this.dependencies;
-    if (store.reportedSteps(ticket.id) > Settlements.rounds) {
-      // Squad has had its word twice; a third pass is two agents disagreeing.
-      // The ticket goes straight on, which hands the sheet to the developer.
-      void this.dependencies.validations.afterSettling(this.reread(ticket));
-      return;
-    }
+    // Every round is settled, the last one included. What the cap bounds is the
+    // sending back, decided once the pass has answered: a sheet reaching the
+    // developer untyped hands them arbitrations as bare lines, which is the one
+    // thing this pass exists to prevent.
     if (store.queuedService(ticket.id) !== null) return;
     store.queueService(ticket.id, "settling");
     publishGraph(store, this.dependencies.bus, ticket.featureId);
@@ -148,10 +138,11 @@ export class Settlements {
   /**
    * A pass the developer asked for, on a sheet already waiting on them.
    *
-   * Two things separate it from the one that follows a report. It ignores the
-   * round bound, which is there to stop squad arguing with itself and has
-   * nothing to say when a person is the one asking. And it answers, rather than
-   * running behind: what it refuses, it refuses in front of whoever clicked.
+   * One thing separates it from the one that follows a report: it answers,
+   * rather than running behind, so what it refuses it refuses in front of
+   * whoever clicked. It is also the way back for a sheet settled under rules
+   * that have since changed, since the pass re-reads the whole of what is still
+   * pending rather than only what no pass ever saw.
    */
   async settleOnDemand(ticketId: string): Promise<Ticket> {
     const { store } = this.dependencies;
@@ -282,7 +273,6 @@ export class Settlements {
    * the answer, so both happen before the graph goes out.
    */
   settled(ticket: Ticket): Ticket {
-    console.log("DEBUG settled", ticket.id.slice(0, 8), "waiter?", this.answering.has(ticket.id));
     const decided = this.take(ticket);
     // Its job is done and nothing else will be asked of it: waiting for it to
     // end by itself is waiting for a message nobody is going to send.

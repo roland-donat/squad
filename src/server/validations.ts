@@ -93,8 +93,17 @@ export class Validations {
     await this.afterReview(ticket);
   }
 
-  /** A sheet the developer has just been through. */
+  /**
+   * A sheet the developer has just been through.
+   *
+   * A review that took an arbitration and left the rest is not being gone
+   * through: the sheet stays open and undated, and nothing follows it yet. What
+   * follows a sheet is decided when the sheet is done, never when one point of
+   * it is, or a decision taken early would merge a step whose verifications
+   * nobody has read.
+   */
   async afterReview(ticket: Ticket): Promise<void> {
+    if (ticket.stepReport?.reviewedAt === null) return;
     if (sheetWasValidated(ticket.stepReport)) {
       this.dependencies.merges.merge(ticket);
       return;

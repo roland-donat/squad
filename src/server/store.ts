@@ -1640,17 +1640,39 @@ export class Store {
     // ones it showed false. A point the pass answered on a sheet it can still
     // correct is not among them, asking about it again being asking them to do
     // the work it spared.
-    const expected = new Set(pointsAwaitingDeveloper(report).map((point) => point.id));
+    const awaiting = pointsAwaitingDeveloper(report);
+    const expected = new Map(awaiting.map((point) => [point.id, point]));
     const given = new Set(input.points.map((point) => point.id));
-    if (expected.size !== given.size || [...expected].some((id) => !given.has(id))) {
+    const foreign = [...given].filter((id) => !expected.has(id));
+    if (foreign.length > 0) {
       throw new SquadError(
         "invalid_request",
         400,
-        `the review must answer each of the ${expected.size} point(s) of this test sheet still waiting on you, and no other`,
+        `the review answers ${foreign.length} point(s) of this test sheet that are not waiting on you`,
       );
     }
+    // A sheet is gone through in one go, with one exception, and it is the
+    // separation squad holds everywhere else: an arbitration is not a
+    // verification. Squad types them apart, answers one and not the other under
+    // go-as-recommended, and sweeps the ones it left open when the mode comes
+    // back; only here did the two become a single block to sign. Measured on
+    // the instance: five arbitrations of perimeter sat behind points asking
+    // whether a wording read well and whether a screen looked right, so taking
+    // a decision meant claiming to have read what nobody had opened.
+    const complete = given.size === expected.size;
+    if (!complete) {
+      const verifications = input.points.filter(
+        (point) => expected.get(point.id)?.settlement?.outcome !== "decision",
+      );
+      if (verifications.length > 0) {
+        throw new SquadError(
+          "not_an_arbitration",
+          400,
+          `a partial review takes arbitrations and nothing else: ${verifications.length} of the point(s) answered is a verification, and a verification is answered with the rest of the sheet`,
+        );
+      }
+    }
 
-    const reviewedAt = new Date().toISOString();
     this.db.transaction((tx) => {
       for (const point of input.points) {
         tx.update(testSheetPoints)
@@ -1661,10 +1683,18 @@ export class Store {
           .where(eq(testSheetPoints.id, point.id))
           .run();
       }
-      tx.update(stepReports)
-        .set({ feedback: input.feedback === "" ? null : input.feedback, reviewedAt })
-        .where(eq(stepReports.id, report.id))
-        .run();
+      // Dated, and its general return written, only when nothing is left: the
+      // date is what says the sheet was gone through, and the return is about
+      // the sheet rather than about the one point an arbitration answers.
+      if (complete) {
+        tx.update(stepReports)
+          .set({
+            feedback: input.feedback === "" ? null : input.feedback,
+            reviewedAt: new Date().toISOString(),
+          })
+          .where(eq(stepReports.id, report.id))
+          .run();
+      }
     });
     return this.requireTicket(ticket.id);
   }

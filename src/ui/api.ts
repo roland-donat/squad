@@ -46,6 +46,8 @@ const wording: Record<ErrorCode, string> = {
   detached_head:
     "Ce dépôt n'est sur aucune branche : squad a besoin d'une branche par défaut d'où partir.",
   branch_not_found: "Ce dépôt n'a pas de branche de ce nom.",
+  not_an_arbitration:
+    "Un arbitrage se prend seul ; une vérification se répond avec le reste de la fiche.",
   orphaned_checkout:
     "Un checkout a perdu son entrée git et un précédent est déjà mis de côté : régler celui-là avant que squad n'en rouvre un autre.",
   repository_still_used:

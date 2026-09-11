@@ -3,6 +3,7 @@ import type {
   ApiErrorBody,
   FeatureGraph,
   StepReport,
+  TestSheetPoint,
   ThreadEntry,
   Ticket,
 } from "../../src/shared/api";
@@ -527,6 +528,75 @@ describe("the settling pass, between a test sheet and the developer", () => {
       const left = reportOf(found).sheet.filter((point) => point.verdict === "pending");
       expect(left[0]?.settlement?.scopeChanging).toBe(true);
     }
+  });
+
+  it("prend un arbitrage seul, sans faire signer les vérifications de la même fiche", async () => {
+    // Mesuré sur l'instance : cinq arbitrages de périmètre attendaient derrière
+    // des points demandant si une formulation allait bien et si un écran était
+    // correct. La revue exigeant la fiche entière, prendre la décision revenait
+    // à déclarer avoir lu ce que personne n'avait ouvert.
+    const { featureId, stream, ticket, settled } = await start({
+      coverage: [{ verdict: "automated" }, { verdict: "automated" }],
+      suggestions: ["Le périmètre", "La formulation du libellé"],
+      settle: async (points, agent) => {
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: points.map((pointId, index) =>
+            index === 0
+              ? {
+                  pointId,
+                  outcome: "decision",
+                  note: "Deux voies tiennent, et celle que je recommande élargit le ticket.",
+                  recommendation: "Élargir le périmètre",
+                  scopeChanging: true,
+                }
+              : {
+                  pointId,
+                  outcome: "human",
+                  note: "Rien ne juge une formulation : à lire.",
+                },
+          ),
+        });
+      },
+    });
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    await settled;
+    // Une fiche qui porte les deux se lit comme une validation, la plus lourde
+    // des deux, puisque le développeur doit venir de toute façon.
+    const waiting = await waitForState(stream, featureId, ticket.id, "awaiting-validation");
+    const sheet = reportOf(waiting).sheet;
+    const arbitrage = sheet.find((point) => point.settlement?.outcome === "decision") as TestSheetPoint;
+    const verification = sheet.find((point) => point.settlement?.outcome === "human") as TestSheetPoint;
+
+    // Une vérification ne se prend pas seule : elle se répond avec la fiche.
+    const seule = await squad.request("POST", ticketTestSheetRoute(ticket.id), {
+      points: [{ id: verification.id, passed: true, comment: "" }],
+      feedback: "",
+    });
+    expect(seule.status).toBe(400);
+    expect(((await seule.json()) as ApiErrorBody).error.code).toBe("not_an_arbitration");
+
+    // L'arbitrage, lui, se prend seul.
+    const pris = await squad.request("POST", ticketTestSheetRoute(ticket.id), {
+      points: [{ id: arbitrage.id, passed: true, comment: "Route retenue : Élargir le périmètre" }],
+      feedback: "",
+    });
+    expect(pris.status).toBe(200);
+
+    // La décision est écrite, la vérification attend toujours, et la fiche
+    // n'est pas datée : rien ne suit une fiche tant qu'il reste quelque chose
+    // dessus, sinon une décision prise tôt ferait fusionner une étape dont
+    // personne n'a lu les vérifications.
+    const apres = (await readGraph(featureId)).tickets.find(
+      (each) => each.id === ticket.id,
+    ) as Ticket;
+    expect(apres.state).toBe("awaiting-validation");
+    const relu = reportOf(apres);
+    expect(relu.reviewedAt).toBeNull();
+    expect(relu.sheet.find((point) => point.id === arbitrage.id)?.verdict).toBe("passed");
+    expect(relu.sheet.find((point) => point.id === verification.id)?.verdict).toBe("pending");
   });
 
   it("laisse un arbitrage de périmètre au développeur, et le ticket attend une décision", async () => {

@@ -42,7 +42,7 @@ import {
   type ServiceJob,
   type TicketLifecycle,
 } from "../shared/graph";
-import { sheetWasValidated } from "../shared/validation";
+import { pointsAwaitingDeveloper, sheetIsWaiting, sheetWasValidated } from "../shared/validation";
 import type { SquadDatabase } from "./db/open";
 import {
   acceptanceCriteria,
@@ -1472,6 +1472,17 @@ export class Store {
       human: "pending",
       decision: "pending",
     };
+    // The sheet as this pass leaves it, so the question "does anything still
+    // wait on the developer" is asked of a report rather than of a diff.
+    const answers = new Map(input.points.map((entry) => [entry.pointId, entry]));
+    const settled: StepReport = {
+      ...report,
+      sheet: report.sheet.map((point) => {
+        const entry = answers.get(point.id);
+        return entry === undefined ? point : { ...point, verdict: verdicts[entry.outcome] };
+      }),
+    };
+
     this.db.transaction((tx) => {
       for (const entry of input.points) {
         tx.update(testSheetPoints)
@@ -1485,10 +1496,16 @@ export class Store {
           .where(eq(testSheetPoints.id, entry.pointId))
           .run();
       }
-      // A sheet with nothing left pending has been gone through, by squad rather
+      // A sheet with nothing left on it has been gone through, by squad rather
       // than by the developer: dating it here is what stops the interface from
       // asking them to fill in a form nobody is waiting on.
-      if (input.points.every((entry) => verdicts[entry.outcome] !== "pending")) {
+      //
+      // "Nothing left" is asked of the rule that decides it everywhere else,
+      // and not of the entries alone. A pass that breaks every point on a sheet
+      // it may no longer send back leaves nothing pending and everything
+      // waiting: dating that one announced a sheet as needing the developer and
+      // refused them when they answered it.
+      if (!sheetIsWaiting(settled)) {
         tx.update(stepReports)
           .set({ reviewedAt: new Date().toISOString() })
           .where(eq(stepReports.id, report.id))
@@ -1526,10 +1543,19 @@ export class Store {
           .where(eq(testSheetPoints.id, decision.pointId))
           .run();
       }
-      const left = report.sheet.filter(
-        (point) => point.verdict === "pending" && !taken.has(point.id),
-      );
-      if (left.length === 0) {
+      // The same question as in `settleSheet`, asked of the same rule: does
+      // anything still wait on the developer once this pass is written down?
+      // Its own answer here was "is anything still pending", which a failed
+      // point is not: a non-correctable sheet whose remaining points are broken
+      // got dated the moment the mode took its last arbitration, and the ticket
+      // was announced as waiting on someone the server then refused.
+      const settled: StepReport = {
+        ...report,
+        sheet: report.sheet.map((point) =>
+          taken.has(point.id) ? { ...point, verdict: "passed" } : point,
+        ),
+      };
+      if (!sheetIsWaiting(settled)) {
         tx.update(stepReports)
           .set({ reviewedAt: new Date().toISOString() })
           .where(eq(stepReports.id, report.id))
@@ -1598,12 +1624,12 @@ export class Store {
         `the test sheet of "${ticket.title}" was already gone through on ${report.reviewedAt}`,
       );
     }
-    // What is asked of the developer is what is still pending: a point squad's
-    // settling pass answered carries its own verdict and its evidence, and
-    // asking about it again would be asking them to do the work it spared.
-    const expected = new Set(
-      report.sheet.filter((point) => point.verdict === "pending").map((point) => point.id),
-    );
+    // What is asked of the developer is what waits on them: the points nobody
+    // has been through, plus, on a sheet squad may no longer send back, the
+    // ones it showed false. A point the pass answered on a sheet it can still
+    // correct is not among them, asking about it again being asking them to do
+    // the work it spared.
+    const expected = new Set(pointsAwaitingDeveloper(report).map((point) => point.id));
     const given = new Set(input.points.map((point) => point.id));
     if (expected.size !== given.size || [...expected].some((id) => !given.has(id))) {
       throw new SquadError(

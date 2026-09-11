@@ -41,9 +41,30 @@ export const settlingRounds = 2;
  * left for it is the developer, and this is the list they read.
  */
 export function sheetIsWaiting(report: StepReport | null): boolean {
-  if (report === null) return false;
-  if (report.sheet.some((point) => point.verdict === "pending")) return true;
-  return !report.correctable && failedPoints(report).length > 0;
+  return pointsAwaitingDeveloper(report).length > 0;
+}
+
+/**
+ * Which points those are, and not merely whether there are any.
+ *
+ * Three places need the list and not the answer: the form that offers the
+ * points, the review that is required to answer each of them and no other, and
+ * the dating of the report, which says nobody has anything left to do. Each had
+ * worked it out for itself, and they disagreed on exactly one case: a sheet
+ * squad may no longer send back, whose points it showed false. The sheet was
+ * announced as waiting on the developer, dated as gone through in the same
+ * breath, rendered read-only, and refused with a 409 when they tried to answer
+ * it anyway. A ticket that wakes someone for something they cannot act on is
+ * the one failure squad exists to prevent, so the rule is written once.
+ */
+export function pointsAwaitingDeveloper(report: StepReport | null): TestSheetPoint[] {
+  if (report === null) return [];
+  const pending = report.sheet.filter((point) => point.verdict === "pending");
+  // Past the last round a broken point is not a merge and is no longer a
+  // correction: the only place left for it is the person reading the sheet,
+  // who ends it by overriding the finding or by handing it back on their word.
+  if (report.correctable) return pending;
+  return [...pending, ...failedPoints(report)];
 }
 
 /** The points the developer left unchecked, which is what a correction is made of. */

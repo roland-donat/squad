@@ -44,9 +44,8 @@ export function useViewport({
   contentWidth,
   contentHeight,
   resetKey,
-  /** How much of the viewport's right edge the ticket drawer covers, in screen pixels. */
+  /** How much of the viewport's right edge the session bar covers, in screen pixels. */
   obstructedRight,
-  /** How much of its bottom edge the thread drawer covers, likewise. */
 }: {
   contentWidth: number;
   contentHeight: number;
@@ -74,10 +73,11 @@ export function useViewport({
     // rather than beside it: framing on the whole box would centre the map half
     // underneath them.
     const available = box.width - obstruction.current;
-    // Floored, the drawer being allowed a share of the window while this is a
-    // share of the map: a drawer taller than the map left would otherwise frame
-    // it on a negative height, which is to say entirely underneath the drawer.
-    const availableHeight = Math.max(2 * margin + 1, box.height);
+    // The map's full height: nothing covers its bottom edge any more, a ticket
+    // being treated in a modal over the whole screen rather than in a drawer
+    // along it. The floor that guarded against a drawer taller than the map
+    // went with the drawer.
+    const availableHeight = box.height;
     const scale = Math.min(
       fitCeiling,
       Math.max(

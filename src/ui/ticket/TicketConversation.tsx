@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { LaunchAngle, ThreadEntry, Ticket } from "../../shared/api";
+import type { LaunchAngle, ThreadEntry, Ticket, TicketState } from "../../shared/api";
 import { isResumable } from "../../shared/graph";
 import { launchTicket, sendTicketMessage } from "../api";
 import { Thread } from "../session/Thread";
@@ -50,17 +50,17 @@ function Empty({ ticket }: { ticket: Ticket }) {
  * What the column may do on a ticket, read from the ticket rather than guessed
  * at each button.
  *
- * `write` is the states where a sub-session is actually there to hear it, and
- * that is narrower than it looks. **A sub-session normally ends when it reports
- * its step**: squad writes "the sub-session ended after reporting its step" on
- * the thread, and the correction path opens a fresh launch rather than talking
- * to a session it expects to find. So `awaiting-validation` is not a state one
- * writes into, it is the state where the test sheet is the way back: what the
- * developer leaves unchecked is what returns to the session, and the column
- * says so rather than offering a box whose every press would be refused.
+ * `write` is every state where a sub-session is there to hear it, and that
+ * includes a step already reported. **A sub-session does not end when it
+ * reports**: the launcher runs the SDK in streaming input mode, where a result
+ * closes a turn and not the session, and the only thing that ever closes one is
+ * the merge. That is why a correction is handed straight to the session that
+ * built the ticket. Narrowing this to `running` took away the box the developer
+ * uses to ask "pourquoi as-tu changé X ?" before ticking the sheet.
  *
- * Getting this wrong offered "Envoyer" on a ticket awaiting a verdict, and the
- * refusal pointed at launching or resuming, neither of which that state allows.
+ * A session may still have died on its own, and then the server refuses and
+ * says so. That is the right place for it to be decided: the server knows which
+ * sessions it holds, and this screen does not.
  */
 type Mode = "write" | "resume" | "launch" | "closed";
 
@@ -68,43 +68,50 @@ function conversationMode(ticket: Ticket): Mode {
   if (ticket.kind === "decision") return "closed";
   if (isResumable(ticket.state)) return "resume";
   if (ticket.state === "ready") return "launch";
-  return ticket.state === "running" ? "write" : "closed";
+  switch (ticket.state) {
+    case "running":
+    case "awaiting-validation":
+    case "settling":
+    case "settling-queued":
+      return "write";
+    default:
+      return "closed";
+  }
 }
 
 /**
  * Why there is nothing to write, and where the answer is instead. Never a bare
  * "nothing to do here": every one of these states has somewhere the developer
  * acts, and naming it is the whole use of saying anything at all.
+ *
+ * An exhaustive record rather than a switch with a fallback: a twelfth ticket
+ * state would otherwise typecheck and paint an empty box, with no explanation,
+ * no way to act, and nothing red anywhere.
  */
-function closedBecause(ticket: Ticket): string {
-  // A decision ticket is settled in the feature's thread, and that is the
-  // glossary's rule, not this screen's.
-  if (ticket.kind === "decision") return "Ce ticket se tranche dans la session principale.";
-  switch (ticket.state) {
-    case "blocked":
-      return "Rien à dire encore : ce ticket part quand ses bloqueurs auront fusionné.";
-    case "queued":
-      return "Le lancement est demandé : la sous-session s'ouvrira dès qu'une place se libère.";
-    case "awaiting-validation":
-      return "L'étape est rapportée et la sous-session s'est arrêtée. C'est la fiche de tests, dans l'onglet Résumé, qui repart vers elle : ce que vous y laissez décoché est ce qu'elle corrigera.";
-    // A build or a fix ticket reads as awaiting a decision when the only points
-    // left on its sheet are arbitrations. They are taken on that sheet, a few
-    // centimètres d'ici, and not in another session.
-    case "awaiting-decision":
-      return "Il ne reste que des arbitrages sur sa fiche de tests : ils se prennent dans l'onglet Résumé.";
-    case "settling":
-    case "settling-queued":
-      return "Squad vérifie sa fiche lui-même : ce qui restera vous sera montré après, dans l'onglet Résumé.";
-    case "merging":
-      return "Sa branche revient dans la branche de feature : sa sous-session est déjà fermée.";
-    case "merged":
-      return "Ce ticket est fusionné. Son fil se relit, il ne se reprend plus.";
-    case "discarded":
-      return "Ce ticket est écarté. Son fil se relit, il ne se reprend plus.";
-    default:
-      return "";
-  }
-}
+const closedBecause: Record<TicketState, string> = {
+  blocked: "Rien à dire encore : ce ticket part quand ses bloqueurs auront fusionné.",
+  queued: "Le lancement est demandé : la sous-session s'ouvrira dès qu'une place se libère.",
+  merging: "Sa branche revient dans la branche de feature : sa sous-session est déjà fermée.",
+  // A build or a fix ticket reads as awaiting a decision when the only points
+  // left on its sheet are arbitrations. They are taken on that sheet, in the
+  // other tab of this very modal, and not in another session.
+  "awaiting-decision":
+    "Il ne reste que des arbitrages sur sa fiche de tests : ils se prennent dans l'onglet Résumé.",
+  merged: "Ce ticket est fusionné. Son fil se relit, il ne se reprend plus.",
+  discarded: "Ce ticket est écarté. Son fil se relit, il ne se reprend plus.",
+  // Every state below offers a box instead, so none of these is ever read.
+  ready: "",
+  running: "",
+  "awaiting-validation": "",
+  settling: "",
+  "settling-queued": "",
+  failed: "",
+  interrupted: "",
+  conflict: "",
+};
+
+/** What a decision ticket says instead, whatever state it is read in. */
+const decisionIsSettledElsewhere = "Ce ticket se tranche dans la session principale.";
 
 /**
  * What a draft is worth keeping in: the browser, per ticket, and squad never
@@ -173,7 +180,7 @@ function Composer({
   if (mode === "closed") {
     return (
       <p className="talk__closed">
-        {closedBecause(ticket)}
+        {ticket.kind === "decision" ? decisionIsSettledElsewhere : closedBecause[ticket.state]}
         {/* Only a decision ticket is answered somewhere else entirely, so only
             it gets a way there. Everything else is answered in this modal, on
             the other side of it, and a link would send the reader away from the

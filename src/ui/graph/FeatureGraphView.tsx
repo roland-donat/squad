@@ -95,9 +95,8 @@ export function FeatureGraphView({
   onSelect: (ticketId: string) => void;
   /** Clears the selection: a press on the background that went nowhere. */
   onDeselect: () => void;
-  /** How much of the map's right edge the ticket drawer covers, in screen pixels. */
+  /** How much of the map's right edge the session bar covers, in screen pixels. */
   obstructedRight: number;
-  /** How much of its bottom edge the thread drawer covers, likewise. */
 }) {
   const layout = layOutGraph(graph);
   const { viewport, frame, fit, zoomBy, bringIntoView, onPointerDown, onPointerMove, endDrag } =

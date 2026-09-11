@@ -34,13 +34,8 @@ const stateExplanations: Record<TicketState, string> = {
   queued:
     "En attente d'une place : le lancement est demandé, et la sous-session s'ouvrira dès qu'un plafond de concurrence le permettra.",
   running: "En cours : sa sous-session travaille dans son worktree.",
-  // Said as it happens, and not as it was once described: a sub-session ends
-  // when it reports its step. What survives is its session, which a correction
-  // takes back, and its branch, which holds the work. Claiming the session was
-  // still there contradicted, on the same screen, the conversation column
-  // saying it had stopped.
   "awaiting-validation":
-    "Étape rapportée : la fiche de tests attend d'être passée en revue. La sous-session s'est arrêtée, mais son fil, sa branche et son worktree sont conservés : ce que vous laissez décoché la reprend là où elle en était.",
+    "Étape rapportée : la fiche de tests ci-dessous attend d'être passée en revue. La sous-session n'est pas détruite, elle reste le fil où la correction se fera, et la colonne de droite lui parle.",
   settling:
     "Squad vérifie : avant de vous montrer la fiche, il lance lui-même tout ce qu'une commande, un test ou un navigateur peut trancher. Ce qui reste après est ce dont vous serez averti.",
   "settling-queued":
@@ -52,11 +47,24 @@ const stateExplanations: Record<TicketState, string> = {
   interrupted: "Interrompu : squad s'est arrêté pendant que sa sous-session travaillait.",
   conflict:
     "En conflit : la fusion de sa branche dans la branche de feature s'est heurtée aux mêmes lignes, et la session de résolution n'en est pas venue à bout. Le reprendre rouvre sa sous-session là où elle en était.",
-  "awaiting-decision": "À trancher : cela se fait dans la session principale, pas ici.",
+  // Said by the kind and not by the state alone: only a `decision` ticket is
+  // settled in the main session. A build or a fix reads as awaiting a decision
+  // when the only points left on its sheet are arbitrations, and those are
+  // taken right here. Saying otherwise contradicted, side by side, the
+  // conversation column pointing back at this tab.
+  "awaiting-decision": "",
   discarded:
     "Écarté : ce ticket ne sera pas construit, et la raison est écrite sur son fil. Il ne retient plus rien : ce qu'il bloquait est reparti.",
   merged: "Fusionné.",
 };
+
+/** Why a ticket is where it is, and for `awaiting-decision`, by whose account. */
+function explain(ticket: Ticket): string {
+  if (ticket.state !== "awaiting-decision") return stateExplanations[ticket.state];
+  return ticket.kind === "decision"
+    ? "À trancher : cela se fait dans la session principale, pas ici."
+    : "À trancher : il ne reste que des arbitrages sur sa fiche de tests, ci-dessous.";
+}
 
 type Tab = "summary" | "detail";
 
@@ -169,7 +177,7 @@ function SummaryTab({
 }) {
   return (
     <>
-      <p className="ticket__state">{stateExplanations[ticket.state]}</p>
+      <p className="ticket__state">{explain(ticket)}</p>
       <Questions questions={questions} only="waiting" />
       <RunningExample text={feature.runningExample} />
       <Summary summary={ticket.summary} />

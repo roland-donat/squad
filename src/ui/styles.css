@@ -442,9 +442,9 @@ body {
 }
 
 /*
- * The edge one pulls to give a drawer its size. Wider than it looks, because a
- * one-pixel target is a target one misses, and it carries the cursor that says
- * it can be pulled.
+ * The edge one pulls to give the session bar its width. Wider than it looks,
+ * because a one-pixel target is a target one misses, and it carries the cursor
+ * that says it can be pulled.
  */
 .grip {
   position: absolute;
@@ -1903,8 +1903,28 @@ button[disabled] {
 }
 
 /* A thread that owns its column is bounded by the column, not by the ceiling
-   meant for one read inside a page. */
+   meant for one read inside a page.
+ *
+ * Lifting the cap is only half of it, and the other half is what makes the
+ * difference between a column and a very tall page. The thread has to stay the
+ * part that flexes, or it grows to its content, the panel becomes the scroller,
+ * and two things break at once: the thread stops following a session as it
+ * writes, since it no longer overflows anything, and the box one writes into is
+ * pushed below the fold. `.talk` is already a flex column; `.panel--session`
+ * has to become one. */
 .talk .thread,
-.sidebar .thread {
+.sidebar .panel--session .thread {
   max-height: none;
+}
+
+.sidebar .panel--session {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sidebar .panel--session .thread {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }

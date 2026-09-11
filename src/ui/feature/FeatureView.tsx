@@ -341,7 +341,8 @@ function Grip({
 }: {
   size: number;
   onSize: (size: number) => void;
-  axis: "width-from-right" | "height-from-bottom";
+  /** The only axis there is: the session bar is pulled from its left edge. */
+  axis: "width-from-right";
   min: number;
   max: () => number;
   label: string;
@@ -349,9 +350,9 @@ function Grip({
   const drag = useDragSize({ size, onSize, axis, min, max });
   return (
     <span
-      className={axis === "width-from-right" ? "grip grip--width" : "grip grip--height"}
+      className="grip grip--width"
       role="separator"
-      aria-orientation={axis === "width-from-right" ? "vertical" : "horizontal"}
+      aria-orientation="vertical"
       aria-label={label}
       {...drag}
     />

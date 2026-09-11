@@ -152,15 +152,6 @@ export class SubSessions {
     // is a new attempt, not the continuation of one squad already chased.
     this.asked.delete(ticket.id);
     const queued = store.queueLaunch(ticket.id, angle, message ?? null);
-    // On the thread the moment the launch is accepted, and not when the session
-    // finally opens. Two reasons, and the first is the one that matters: an
-    // opening that fails drops the queued launch and its note with it, and the
-    // interface has already cleared its own copy, so the words would exist
-    // nowhere. The second is that a launch can wait hours for a place, and a
-    // message nobody can see is a message the developer will write twice.
-    if (message !== undefined && message !== null && message !== "") {
-      this.append(ticket, ticket.sessionId ?? "", { kind: "pilot", text: message });
-    }
     this.publishGraph(ticket.featureId);
     this.dependencies.dispatch.schedule();
     return queued;
@@ -214,6 +205,11 @@ export class SubSessions {
    */
   private abandon(ticket: Ticket, lifecycle: TicketLifecycle, failure: unknown): void {
     const { store, alerts } = this.dependencies;
+    // Read before the launch is dropped, since dropping it clears the note.
+    // What the developer wrote when asking must not vanish with the opening
+    // that failed: the interface cleared its own copy the moment squad accepted,
+    // so this is the only place it still exists.
+    const note = store.queuedLaunch(ticket.id)?.note ?? null;
     store.dropQueuedLaunch(ticket.id);
     this.publishGraph(ticket.featureId);
     const detail = failure instanceof Error ? failure.message : String(failure);
@@ -222,13 +218,18 @@ export class SubSessions {
       // A ticket that never ran has no thread to carry this, so the alert is
       // the whole of what says it, and the log is what says why.
       console.error(`no sub-session could be opened for ticket ${ticket.id}: ${detail}`);
+      if (note !== null) {
+        console.error(`what the developer wrote when asking for it: ${note}`);
+      }
     } else {
       this.append(ticket, ticket.sessionId, {
         kind: "notice",
         text: takingBack
           ? "squad could not take the sub-session back"
           : "squad could not open the sub-session",
-        detail,
+        // The words go with the failure rather than on their own line: nothing
+        // heard them, so they are part of what did not happen.
+        detail: note === null ? detail : `${detail}\n\nwhat you wrote when asking: ${note}`,
       });
     }
     alerts.raise(
@@ -419,9 +420,14 @@ export class SubSessions {
 
     const message = firstMessage(ticket, opening, note ?? null);
     // Written on the thread before it is handed over, so what the session was
-    // asked for is on the record even if it dies reading it. Squad's own
-    // instruction only: the developer's note went on the thread when the launch
-    // was accepted, and repeating it here would show it twice.
+    // asked for is on the record even if it dies reading it. Two lines and not
+    // one, because they are two utterances: what the developer said when they
+    // asked, then squad's own instruction. Written here rather than when the
+    // launch was accepted, so both carry the id of the session they belong to;
+    // a launch that never opens has its note recorded by `abandon` instead.
+    if (note !== undefined && note !== null && note !== "") {
+      this.append(ticket, session.id, { kind: "pilot", text: note });
+    }
     this.append(ticket, session.id, { kind: "pilot", text: openingInstruction(ticket, opening) });
     try {
       await session.send(message);

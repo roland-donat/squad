@@ -116,6 +116,11 @@ describe("launching a ticket, failing, and resuming", () => {
     return feature;
   }
 
+  /** The criterion ids of a ticket, in the order a report declares them under. */
+  function criterionIdsOf(ticket: Ticket): string[] {
+    return ticket.acceptanceCriteria.map((criterion) => criterion.id);
+  }
+
   async function readTicket(featureId: string, title: string): Promise<Ticket> {
     const graph = await readGraph(featureId);
     const ticket = graph.tickets.find((each) => each.title === title);
@@ -450,6 +455,52 @@ describe("launching a ticket, failing, and resuming", () => {
     expect(thread.some((entry) => entry.kind === "pilot" && entry.text.includes("0004"))).toBe(
       true,
     );
+  });
+
+  it("garde la sous-session ouverte après son rapport d'étape, et lui parle encore", async () => {
+    // Le fait dont deux relectures ont tiré des conclusions opposées, et qui
+    // décide de ce que la colonne de conversation propose : une sous-session ne
+    // se termine pas en rapportant son étape. Le lanceur travaille en entrée
+    // continue, où un résultat clôt un tour et non la session, et la seule
+    // fermeture est celle de la fusion. C'est pour ça qu'une correction repart
+    // dans la session qui a construit le ticket, et pour ça qu'on peut lui
+    // demander « pourquoi as-tu changé X ? » avant de cocher la fiche.
+    const alive = gate();
+    const heard: string[] = [];
+    const { featureId, stream } = await start(writeOneTicket, async (agent) => {
+      heard.push(await agent.awaitMessage());
+      const [opens, migrations] = criterionIdsOf(
+        (await readGraph(agent.request.featureId)).tickets[0] as Ticket,
+      );
+      await agent.call("report_step", {
+        featureId: agent.request.featureId,
+        ticketId: agent.request.ticketId,
+        work: "La base s'ouvre.",
+        coverage: [
+          { criterionId: opens, verdict: "automated" },
+          { criterionId: migrations, verdict: "judgement", note: "À regarder à l'œil." },
+        ],
+        recommendation: "Passer la fiche en revue.",
+      });
+      heard.push(await agent.awaitMessage());
+      await alive.passed;
+    });
+
+    await squad.request("POST", mainSessionRoute(featureId), { prompt: "/to-tickets" });
+    await waitForEvent(stream, "graph-changed");
+    const ready = await readTicket(featureId, "Le store");
+    await squad.request("POST", ticketSessionRoute(ready.id), {});
+    const waiting = await waitForState(stream, featureId, ready.id, "awaiting-validation");
+    expect(waiting.stepReport).not.toBeNull();
+
+    // L'étape est rapportée, la fiche attend une personne, et la session est
+    // toujours là pour entendre ce qu'on lui dit.
+    const said = await squad.request("POST", ticketMessagesRoute(ready.id), {
+      text: "Pourquoi avoir déplacé la transaction ?",
+    });
+    expect(said.status).toBe(202);
+    await expect.poll(() => heard.length, { timeout: 5_000 }).toBe(2);
+    expect(heard[1]).toContain("déplacé la transaction");
   });
 
   it("refuses a message to a ticket no sub-session is running on, rather than opening one", async () => {

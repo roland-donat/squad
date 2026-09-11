@@ -81,10 +81,14 @@ describe("the settling pass, between a test sheet and the developer", () => {
     settle?: (points: string[], agent: ScriptedAgent) => Promise<void>;
     /** Whether the feature runs in go-as-recommended. */
     driven?: boolean;
+    /** The tickets the main session writes, by title. One, unless said otherwise. */
+    titles?: string[];
   }): Promise<{
     featureId: string;
     stream: EventStream;
     ticket: Ticket;
+    /** Every ticket the main session wrote, in the order it wrote them. */
+    tickets: Ticket[];
     /** Keeps until the pass has had its say: every state below follows it. */
     settled: Promise<void>;
     /** How many passes squad has opened so far, which is bounded. */
@@ -100,13 +104,15 @@ describe("the settling pass, between a test sheet and the developer", () => {
       launcher: createScriptedLauncher(async (agent) => {
         if (agent.request.role === "main") {
           await agent.awaitMessage();
-          await agent.call("create_ticket", {
-            featureId: agent.request.featureId,
-            kind: "build",
-            title: "Le store",
-            description: "La base et ses migrations.",
-            acceptanceCriteria: ["La base s'ouvre", "Les migrations s'appliquent"],
-          });
+          for (const title of options.titles ?? ["Le store"]) {
+            await agent.call("create_ticket", {
+              featureId: agent.request.featureId,
+              kind: "build",
+              title,
+              description: "La base et ses migrations.",
+              acceptanceCriteria: ["La base s'ouvre", "Les migrations s'appliquent"],
+            });
+          }
           return;
         }
         if (agent.request.role === "settling") {
@@ -120,7 +126,9 @@ describe("the settling pass, between a test sheet and the developer", () => {
         // after it are corrections, and a sub-session stays available for them.
         for (;;) {
           await agent.awaitMessage();
-          const ticket = (await readGraph(agent.request.featureId)).tickets[0] as Ticket;
+          const ticket = (await readGraph(agent.request.featureId)).tickets.find(
+            (each) => each.id === agent.request.ticketId,
+          ) as Ticket;
           await agent.call("report_step", {
             featureId: agent.request.featureId,
             ticketId: agent.request.ticketId,
@@ -144,10 +152,12 @@ describe("the settling pass, between a test sheet and the developer", () => {
     expect((await stream.next()).type).toBe("snapshot");
     await squad.request("POST", mainSessionRoute(feature.id), { prompt: "/to-tickets" });
     await waitForEvent(stream, "graph-changed");
+    const written = (await readGraph(feature.id)).tickets;
     return {
       featureId: feature.id,
       stream,
-      ticket: await readTicket(feature.id),
+      ticket: written[0] as Ticket,
+      tickets: written,
       settled: passed.passed,
       passes: () => passes,
     };
@@ -171,12 +181,6 @@ describe("the settling pass, between a test sheet and the developer", () => {
 
   async function readGraph(featureId: string): Promise<FeatureGraph> {
     return (await (await squad.request("GET", featureGraphRoute(featureId))).json()) as FeatureGraph;
-  }
-
-  async function readTicket(featureId: string): Promise<Ticket> {
-    const ticket = (await readGraph(featureId)).tickets.find((each) => each.title === "Le store");
-    if (!ticket) throw new Error("the ticket the main session wrote is missing from the graph");
-    return ticket;
   }
 
   async function readTicketThread(ticketId: string): Promise<ThreadEntry[]> {
@@ -454,6 +458,67 @@ describe("the settling pass, between a test sheet and the developer", () => {
     expect(sheet.find((point) => point.verdict === "passed")?.settlement?.note).toContain(
       "go-as-recommandé",
     );
+  });
+
+  it("prend les arbitrages ordinaires de tous les tickets, pas du seul premier lu", async () => {
+    // Le tri par ticket ne suffit pas, et c'est mesuré sur l'instance : deux
+    // tickets portaient chacun un arbitrage de périmètre et un ordinaire. Le
+    // premier lu prenait le sien, s'arrêtait sur son point de périmètre, et le
+    // second repartait avec un arbitrage que squad avait le droit de prendre.
+    // Aucun ordre entre tickets n'y répond, puisque celui qui passe en premier
+    // gèle les suivants : il faut lire tous les points ordinaires avant qu'un
+    // seul point de périmètre ne soit lu.
+    const { featureId, stream, tickets, passes } = await start({
+      titles: ["Le store", "Le flux"],
+      coverage: [{ verdict: "automated" }, { verdict: "automated" }],
+      suggestions: ["Le périmètre", "L'orthographe de la clé"],
+      settle: async (points, agent) => {
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: points.map((pointId, index) => ({
+            pointId,
+            outcome: "decision",
+            note: "Deux voies tiennent.",
+            recommendation: index === 0 ? "Élargir le périmètre" : "Garder `kind`",
+            scopeChanging: index === 0,
+          })),
+        });
+      },
+    });
+
+    for (const ticket of tickets) {
+      await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    }
+    await until("les deux passes", async () => passes() === 2);
+    for (const ticket of tickets) {
+      await waitForState(stream, featureId, ticket.id, "awaiting-decision");
+    }
+
+    // Le mode n'était pas armé : les quatre arbitrages dorment. L'armer, c'est
+    // les redemander tous, et chacun des deux tickets ne doit garder que celui
+    // que squad ne prend jamais.
+    expect(
+      (await squad.request("PUT", featureRoute(featureId), { goAsRecommended: true })).status,
+    ).toBe(200);
+    await until("les deux arbitrages ordinaires pris", async () => {
+      const graph = await readGraph(featureId);
+      return tickets.every((ticket) => {
+        const found = graph.tickets.find((each) => each.id === ticket.id) as Ticket;
+        const sheet = reportOf(found).sheet;
+        return (
+          sheet.filter((point) => point.verdict === "pending").length === 1 &&
+          sheet.some((point) => point.verdict === "passed")
+        );
+      });
+    });
+    // Et celui qui reste est bien le point de périmètre, sur les deux.
+    const graph = await readGraph(featureId);
+    for (const ticket of tickets) {
+      const found = graph.tickets.find((each) => each.id === ticket.id) as Ticket;
+      const left = reportOf(found).sheet.filter((point) => point.verdict === "pending");
+      expect(left[0]?.settlement?.scopeChanging).toBe(true);
+    }
   });
 
   it("laisse un arbitrage de périmètre au développeur, et le ticket attend une décision", async () => {

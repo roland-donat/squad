@@ -443,7 +443,10 @@ describe("ending a step, its test sheet and its alerts", () => {
 
     await expect.poll(() => refusal, { timeout: 5_000 }).toContain(String(textBounds.work));
     expect(running.stepReport).toBeNull();
-    alive.open();
+    // The gate is left for `afterEach` to open, just before the database is
+    // closed. Opening it here lets the sub-session drain against a connection
+    // that is about to go, which surfaced as an unhandled rejection and a
+    // non-zero exit while every test still reported as passing.
   });
 
   it("refuses a report that does not say something about every criterion", async () => {

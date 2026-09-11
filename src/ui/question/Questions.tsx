@@ -69,10 +69,10 @@ function AskedQuestion({ question }: { question: Question }) {
             {/* What the road costs, under the road itself. Absent only on the
                 options written before the agents were asked for it; padding
                 that gap would read as "this one costs nothing". */}
-            {option?.consequence != null && (
+            {option !== null && option.consequence !== null && (
               <p className="question__consequence">{option.consequence}</p>
             )}
-            {option?.illustration != null && (
+            {option !== null && option.illustration !== null && (
               <p className="question__illustration">{option.illustration}</p>
             )}
           </li>

@@ -1,4 +1,5 @@
 import type { FeatureGraph, Ticket } from "../shared/api";
+import { textBounds } from "./mcp";
 import type { CreateTicketInput } from "./store";
 import type { IntegrationCheck } from "./integration";
 
@@ -27,8 +28,19 @@ export function fixTicketFor(
     // prose, which squad does not do: everything below is what squad just saw
     // happen. No example, as on any fix ticket: what broke is a red command.
     summary: {
-      context: `La branche de feature du dépôt vient de recevoir « ${merged.title} », et squad y a lancé la vérification du projet comme après chaque fusion.`,
-      problem: `La commande \`${command}\` ne passe plus sur la branche de feature depuis cette fusion.`,
+      // Coupés aux mêmes bornes que celles imposées aux agents. Un titre de
+      // ticket n'est pas borné et une commande de vérification non plus : sans
+      // cette coupe, squad écrirait ici un résumé qu'il refuserait de n'importe
+      // qui d'autre, ce qui est la dispense que ce résumé existe pour éviter,
+      // dans l'autre sens.
+      context: cutTo(
+        textBounds.context,
+        `La branche de feature vient de recevoir « ${merged.title} », et squad y a lancé la vérification du projet comme après chaque fusion.`,
+      ),
+      problem: cutTo(
+        textBounds.problem,
+        `La commande \`${command}\` ne passe plus sur la branche de feature depuis cette fusion.`,
+      ),
       example: null,
     },
     description: [
@@ -78,4 +90,16 @@ function notStarted(graph: FeatureGraph, projectId: string): string[] {
         ticket.kind !== "decision",
     )
     .map((ticket) => ticket.id);
+}
+
+/**
+ * The same length an agent is held to, applied to what squad writes itself.
+ * Cut at a word where one is near the end, so the line reads as a sentence
+ * stopped rather than a string sliced.
+ */
+function cutTo(bound: number, text: string): string {
+  if (text.length <= bound) return text;
+  const cut = text.slice(0, bound - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${space > bound - 40 ? cut.slice(0, space) : cut}…`;
 }

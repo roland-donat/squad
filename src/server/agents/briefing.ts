@@ -66,6 +66,7 @@ export function subSessionBriefing(feature: Feature, ticket: Ticket, project: Pr
     `- \`${squadToolName(squadTools.reportStep)}\` ends your step, and it is the only way to end one. It takes \`featureId: "${feature.id}"\`, \`ticketId: "${ticket.id}"\`, a short account of what you built, one coverage entry per acceptance criterion saying how it was settled, the points you suggest looking at on top of them, and what you recommend doing next.`,
     `- \`${squadToolName(squadTools.askQuestion)}\` asks the developer something you may not decide alone, with the options you see and the one you recommend, and does not return until they answer. Say whether the answer changes what is built or only how: squad answers an implementation question with your own recommendation when the developer has left it running unattended, and never answers one that changes what is built.`,
     `- \`${squadToolName(squadTools.createTicket)}\` writes a ticket for work your own uncovered and that does not belong in yours. Pass \`featureId: "${feature.id}"\` and \`bornOf: "${ticket.id}"\`, which is how squad counts the depth of a cascade and stops one that goes on too long. Do not use it to split what you were asked to build. It asks for a short summary on top of the description: the description is for whoever builds the ticket, the summary is for the developer, and it shows the problem on this feature's running example rather than restating the work.`,
+    `- \`${squadToolName(squadTools.setRunningExample)}\` writes that running example, and you will normally never need it: the main session wrote it before the first ticket. It exists here for the older features that were cut up before running examples did, where \`create_ticket\` refuses until one exists. If you are refused for that reason, write the decor of the feature as your own ticket shows it to you, then write your ticket.`,
     `- \`${squadToolName(squadTools.discardTicket)}\` drops a ticket that will not be built: a duplicate, one whose branch stayed empty, one your own work supersedes. Say why. Do this rather than leaving it on your test sheet, where it reaches the developer as work only they can do.`,
     `- \`${squadToolName(squadTools.readGraph)}\` returns the whole graph of the feature, with each ticket's state. Read it when you need to know what the tickets around yours are doing; pass \`featureId: "${feature.id}"\`.`,
     "",
@@ -105,12 +106,12 @@ export function ticketAssignment(ticket: Ticket): string {
           // shorter than the description and says why this ticket exists, which
           // a session opening on the how alone has to infer.
           "",
-          `**Contexte.** ${ticket.summary.context}`,
+          `**Context.** ${ticket.summary.context}`,
           "",
-          `**Problème.** ${ticket.summary.problem}`,
+          `**Problem.** ${ticket.summary.problem}`,
           ...(ticket.summary.example === null
             ? []
-            : ["", `**Sur l'exemple de la feature.** ${ticket.summary.example}`]),
+            : ["", `**On the feature's running example.** ${ticket.summary.example}`]),
         ]),
     "",
     ticket.description === "" ? "No description was written on this ticket." : ticket.description,
@@ -131,7 +132,7 @@ export function stepReportDemand(ticket: Ticket): string {
   return [
     "This session ended without reporting the end of its step. Squad does not conclude a ticket is done because its session stopped, so it is asking again.",
     "",
-    `If the work is finished and committed on this branch, call \`${squadToolName(squadTools.reportStep)}\` now, with \`featureId: "${ticket.featureId}"\` and \`ticketId: "${ticket.id}"\`: a summary, one coverage entry per acceptance criterion, the points you suggest looking at, and what you recommend doing next.`,
+    `If the work is finished and committed on this branch, call \`${squadToolName(squadTools.reportStep)}\` now, with \`featureId: "${ticket.featureId}"\` and \`ticketId: "${ticket.id}"\`: \`work\`, a short account of what you built, one coverage entry per acceptance criterion, the points you suggest looking at, and what you recommend doing next.`,
     "",
     "If it is not finished, carry on where you left off and report when it is. Check the state of the worktree before assuming anything about what is already done.",
   ].join("\n");
@@ -193,7 +194,7 @@ export function correctionInstruction(ticket: Ticket, report: StepReport): strin
     ...rejected,
     ...(report.feedback === null ? [] : ["", `Their general return: ${report.feedback}`]),
     "",
-    `When it is corrected and committed, call \`${squadToolName(squadTools.reportStep)}\` again, with \`featureId: "${ticket.featureId}"\` and \`ticketId: "${ticket.id}"\`: a fresh summary, one coverage entry per acceptance criterion, the points you suggest looking at, and what you recommend doing next. Nothing merges until a sheet comes back with everything checked.`,
+    `When it is corrected and committed, call \`${squadToolName(squadTools.reportStep)}\` again, with \`featureId: "${ticket.featureId}"\` and \`ticketId: "${ticket.id}"\`: a fresh \`work\`, one coverage entry per acceptance criterion, the points you suggest looking at, and what you recommend doing next. Nothing merges until a sheet comes back with everything checked.`,
   ].join("\n");
 }
 

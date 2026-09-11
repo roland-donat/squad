@@ -74,6 +74,9 @@ endroit (`textBounds`) : si des agents se mettent à boucler sur des refus, c'es
 qui est fausse et c'est là qu'elle se corrige. Ce qui n'est pas négociable est qu'une
 borne existe.
 
-Enfin, le rendu suit : deux sous-ensembles Markdown déclarés dans les champs eux-mêmes,
-en ligne seulement dans le résumé, complet dans la description. Un titre dans un champ de
-240 caractères est du bruit, et un tableau dans un résumé est du détail déguisé.
+Le rendu Markdown, lui, **ne fait pas partie de cette décision** et arrive après. Tant
+qu'aucun rendu n'existe, les champs demandent de la prose brute : dire à un agent qu'il
+peut écrire `**gras**` avant que quoi que ce soit ne le rende mettrait des astérisques
+littérales sur l'écran même que ce chantier veut rendre lisible. Ce qui est déjà demandé
+et qui ne dépend d'aucun rendu : ni titre ni tableau dans un résumé, un titre dans un
+champ de 240 caractères étant du bruit et un tableau dans un résumé du détail déguisé.

@@ -69,15 +69,16 @@ export const textBounds = {
 } as const;
 
 /**
- * What an agent may write, said in the fields themselves so that it is read
- * where it applies. Two subsets and not one: a heading inside a field of 240
- * characters is noise, and a table inside a summary is detail wearing a
- * summary's clothes. Squad's renderer honours exactly these two.
+ * What the summary is not allowed to turn into. Said in the fields themselves so
+ * that it is read where it applies: a heading inside a field of 240 characters
+ * is noise, and a table inside a summary is detail wearing a summary's clothes.
+ *
+ * Deliberately says nothing about Markdown. Squad renders none yet, and telling
+ * an agent it may write `**bold**` before anything renders it would put literal
+ * asterisks on the one screen this whole design exists to make readable. The
+ * Markdown subsets are declared here when the renderer lands.
  */
-const inlineMarkdown =
-  "Markdown, inline only: **bold**, *italic*, `code`, [links](url) and short bullet lists. No headings and no tables.";
-const fullMarkdown =
-  "Markdown in full: headings, bullet and numbered lists, tables, fenced code blocks, links.";
+const shortProse = "One short block of plain prose: no headings, no tables.";
 
 export type SquadTool = (typeof squadTools)[keyof typeof squadTools];
 
@@ -97,7 +98,7 @@ const summaryFields = {
     .min(1)
     .max(textBounds.context)
     .describe(
-      `The standing state of things this ticket starts from: what a reader needs in order to understand the problem below, and strictly nothing else. At most ${textBounds.context} characters. ${inlineMarkdown}`,
+      `The standing state of things this ticket starts from: what a reader needs in order to understand the problem below, and strictly nothing else. At most ${textBounds.context} characters. ${shortProse}`,
     ),
   problem: z
     .string()
@@ -109,7 +110,7 @@ const summaryFields = {
     ),
 };
 
-/** What every ticket carries, whatever its kind. The kind and the summary vary. */
+/** What every ticket carries. The kind and the summary sit beside it, below. */
 const createTicketCommon = {
   featureId: z.string().min(1).describe("The feature whose graph this ticket belongs to."),
   projectId: z
@@ -123,7 +124,7 @@ const createTicketCommon = {
   description: z
     .string()
     .describe(
-      `The detail, for the session that will build this: what to build, in enough depth for a fresh session, with no bound on its length. This is where everything that did not fit in the summary goes. ${fullMarkdown}`,
+      `The detail, for the session that will build this: what to build, in enough depth for a fresh session, with no bound on its length. This is where everything that did not fit in the summary goes.`,
     ),
   acceptanceCriteria: z
     .array(z.string().trim().min(1))
@@ -175,7 +176,7 @@ const createTicketShape = {
         .max(textBounds.example)
         .optional()
         .describe(
-          `The problem above shown happening, on the running example this feature already carries and which your briefing names. Required on a \`build\` or \`decision\` ticket, and refused on a \`fix\` one, whose breakage is a red command with no business example to be shown on. Never invent a second example: the developer learns one decor per feature, and a new fiction on every ticket is the cost this field exists to remove. At most ${textBounds.example} characters. ${inlineMarkdown}`,
+          `The problem above shown happening, on the running example this feature already carries and which your briefing names. Required on a \`build\` or \`decision\` ticket, and refused on a \`fix\` one, whose breakage is a red command with no business example to be shown on. Never invent a second example: the developer learns one decor per feature, and a new fiction on every ticket is the cost this field exists to remove. At most ${textBounds.example} characters. ${shortProse}`,
         ),
     })
     .describe(
@@ -202,7 +203,7 @@ const setRunningExampleShape = {
     .min(1)
     .max(textBounds.runningExample)
     .describe(
-      `The decor every ticket of this feature will illustrate its own problem on: the actors of this business and the objects they handle, named and given just enough substance to be reused. Concrete and small: two or three named actors beat an abstract description. At most ${textBounds.runningExample} characters. ${inlineMarkdown}`,
+      `The decor every ticket of this feature will illustrate its own problem on: the actors of this business and the objects they handle, named and given just enough substance to be reused. Concrete and small: two or three named actors beat an abstract description. At most ${textBounds.runningExample} characters. ${shortProse}`,
     ),
 };
 
@@ -290,7 +291,7 @@ const reportStepShape = {
     .min(1)
     .max(textBounds.work)
     .describe(
-      `What you built and how, for someone who did not watch, in at most ${textBounds.work} characters. Bounded on purpose: this is read on the same screen as the test sheet, which is the one screen where the developer has something to do, and what does not fit belongs in this thread, which they can open. ${inlineMarkdown}`,
+      `What you built and how, for someone who did not watch, in at most ${textBounds.work} characters. Bounded on purpose: this is read on the same screen as the test sheet, which is the one screen where the developer has something to do, and what does not fit belongs in this thread, which they can open.`,
     ),
   coverage: z
     .array(
@@ -486,8 +487,11 @@ function buildMcpServer({
         // than asked for in the briefing: the command that cuts a spec into
         // tickets lives in the driven project, not in squad, so a refusal is
         // the only instruction squad is sure an agent reads.
-        const example = requireExampleMatchingKind(input.kind, input.summary.example ?? null);
+        // The decor first, then the example shown on it: an agent told to show
+        // its problem on an example that does not exist yet would be sent to
+        // write the second before the first.
         if (input.kind !== "fix") requireRunningExample(store.requireFeature(input.featureId));
+        const example = requireExampleMatchingKind(input.kind, input.summary.example ?? null);
         const ticket = store.createTicket({
           ...input,
           summary: { context: input.summary.context, problem: input.summary.problem, example },

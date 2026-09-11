@@ -1574,3 +1574,33 @@ button[disabled] {
   justify-self: start;
   margin-top: 0.4rem;
 }
+
+/* The summary of a ticket: what the developer reads before the description, and
+   most of the time instead of it. The problem leads, because it is the one line
+   that says whether this ticket is worth opening; the context sets it, and the
+   example shows it happening. Set apart from the prose below by weight and by a
+   rule, not by a heading: three blocks do not need a table of contents. */
+.ticket__summary {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  padding-left: 0.85rem;
+  border-left: 3px solid var(--accent);
+}
+
+.ticket__problem {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.ticket__context,
+.ticket__example {
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.ticket__example {
+  font-style: italic;
+}

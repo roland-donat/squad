@@ -77,7 +77,6 @@ export function FeatureGraphView({
   onSelect,
   onDeselect,
   obstructedRight,
-  obstructedBottom,
 }: {
   graph: FeatureGraph;
   /**
@@ -96,10 +95,8 @@ export function FeatureGraphView({
   onSelect: (ticketId: string) => void;
   /** Clears the selection: a press on the background that went nowhere. */
   onDeselect: () => void;
-  /** How much of the map's right edge the ticket drawer covers, in screen pixels. */
+  /** How much of the map's right edge the session bar covers, in screen pixels. */
   obstructedRight: number;
-  /** How much of its bottom edge the thread drawer covers, likewise. */
-  obstructedBottom: number;
 }) {
   const layout = layOutGraph(graph);
   const { viewport, frame, fit, zoomBy, bringIntoView, onPointerDown, onPointerMove, endDrag } =
@@ -108,7 +105,6 @@ export function FeatureGraphView({
       contentHeight: layout.height,
       resetKey: graph.featureId,
       obstructedRight,
-      obstructedBottom,
     });
 
   // What the reader is pointing at, which is what its arrows are shown for. The
@@ -135,7 +131,7 @@ export function FeatureGraphView({
   useEffect(() => {
     if (selectedX === null || selectedY === null) return;
     bringIntoView({ x: selectedX, y: selectedY, width: nodeWidth, height: nodeHeight });
-  }, [bringIntoView, selectedX, selectedY, obstructedRight, obstructedBottom]);
+  }, [bringIntoView, selectedX, selectedY, obstructedRight]);
 
   // No early return before the viewport is rendered, and this is not a detail:
   // a feature is opened before its graph is written, so leaving the element out

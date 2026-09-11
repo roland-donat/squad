@@ -57,7 +57,8 @@ export function useDragSize({
   size: number;
   onSize: (size: number) => void;
   /** Which way the size grows as the pointer moves against it. */
-  axis: "width-from-right" | "height-from-bottom";
+  /** The only axis there is: the session bar is pulled from its left edge. */
+  axis: "width-from-right";
   min: number;
   max: () => number;
 }): { onPointerDown: (event: React.PointerEvent<HTMLElement>) => void } {

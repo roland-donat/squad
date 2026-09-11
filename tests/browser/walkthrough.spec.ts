@@ -195,27 +195,39 @@ test("opens a feature from the home screen and reads the graph an agent wrote", 
   const entry = waiting.getByRole("button", { name: /Quelle base/ });
   await expect(entry).toContainText("décision à trancher");
   await entry.click();
-  await expect(
-    work.getByRole("region", { name: "Ticket" }).getByText("SQLite ou autre."),
-  ).toBeVisible();
+  // Treating a ticket opens a modal of its own, with the summary it was written
+  // with on one tab and everything else on the other.
+  const modal = work.getByRole("dialog");
+  // Opened on the summary, which is what the modal is for: the description is
+  // behind the other tab, and a decision says where it is settled instead of
+  // offering a box that would write into nothing.
+  await expect(modal.getByRole("heading", { name: /Quelle base/ })).toBeVisible();
+  const talk = modal.getByRole("complementary", { name: "Sous-session du ticket" });
+  await expect(talk.getByRole("button", { name: "l'ouvrir" })).toBeVisible();
+  await modal.getByRole("tab", { name: "Détail" }).click();
+  await expect(modal.getByText("SQLite ou autre.")).toBeVisible();
+  await modal.getByRole("button", { name: "fermer" }).click();
 
-  // Clicking a node opens the ticket: what it asks for, and the thread of the
-  // sub-session that will build it. Nothing is launched here, since this
-  // walk-through runs against the real launcher.
+  // Clicking a node opens the ticket. What it asks for is on the detail tab,
+  // the conversation with its sub-session stands beside both, and nothing is
+  // launched here, since this walk-through runs against the real launcher.
   await work.getByLabel("Le store, construction, prêt").click();
-  const opened = work.getByRole("region", { name: "Ticket" });
-  await expect(opened.getByText("La base et ses migrations.")).toBeVisible();
-  await expect(opened.getByText("Aucune sous-session pour l'instant.")).toBeVisible();
-  await expect(opened.getByRole("button", { name: "Lancer le ticket" })).toBeVisible();
+  await modal.getByRole("tab", { name: "Détail" }).click();
+  await expect(modal.getByText("La base et ses migrations.")).toBeVisible();
+  await expect(modal.getByText("Aucune sous-session pour l'instant.")).toBeVisible();
+  await expect(modal.getByRole("button", { name: /^Lancer le ticket/ })).toBeVisible();
 
-  // A blocked ticket offers no launch: the arrows of the graph mean something.
+  // A blocked ticket offers no launch: the arrows of the graph mean something,
+  // and the conversation says what is being waited for instead of a box.
+  await modal.getByRole("button", { name: "fermer" }).click();
   await work.getByLabel("Les outils MCP, construction, bloqué").click();
-  await expect(opened.getByRole("button", { name: "Lancer le ticket" })).toBeHidden();
+  await expect(modal.getByRole("button", { name: /^Lancer le ticket/ })).toBeHidden();
+  await expect(modal.getByText(/quand ses bloqueurs auront fusionné/)).toBeVisible();
 
-  // The panel is the selection: closing it deselects, and there is no second
+  // The modal is the selection: closing it deselects, and there is no second
   // state left behind claiming a ticket is open.
-  await opened.getByRole("button", { name: "fermer" }).click();
-  await expect(opened).toBeHidden();
+  await modal.getByRole("button", { name: "fermer" }).click();
+  await expect(modal).toBeHidden();
   await expect(work).toHaveURL(/\/features\/[^/?]+$/);
 
   // The address says what is watched, so a reload lands back on it. A ticket has
@@ -225,7 +237,8 @@ test("opens a feature from the home screen and reads the graph an agent wrote", 
   const ticketAddress = work.url();
   expect(ticketAddress).toMatch(/\/features\/[^/]+\/tickets\/[^/?]+$/);
   await work.goto(ticketAddress);
-  await expect(opened.getByText("La base et ses migrations.")).toBeVisible();
+  await modal.getByRole("tab", { name: "Détail" }).click();
+  await expect(modal.getByText("La base et ses migrations.")).toBeVisible();
 
   // An address of the shape squad used to write is still read: alerts carrying
   // it have been sent, and they are opened days later.

@@ -14,11 +14,25 @@ export function Dialog({
   open,
   onClose,
   children,
+  variant = "panel",
+  heading,
+  headerExtra,
 }: {
   title: string;
   open: boolean;
   onClose: () => void;
   children: ReactNode;
+  /**
+   * `panel` is the small centred box squad is set up with. `full` is the one a
+   * ticket is treated in: nearly the whole window, because two tabs beside a
+   * conversation need the width, and a bounded box would only move the ticket
+   * drawer's own problem a few hundred pixels (ADR 0010).
+   */
+  variant?: "panel" | "full";
+  /** What stands in for the title when the title is not a bare string. */
+  heading?: ReactNode;
+  /** What sits in the header beside the title: the tabs of a ticket. */
+  headerExtra?: ReactNode;
 }) {
   const element = useRef<HTMLDialogElement>(null);
   // Where the press that is about to become a click started. A click fires on
@@ -36,7 +50,7 @@ export function Dialog({
 
   return (
     <dialog
-      className="dialog"
+      className={variant === "full" ? "dialog dialog--full" : "dialog"}
       ref={element}
       aria-label={title}
       onClose={onClose}
@@ -50,7 +64,8 @@ export function Dialog({
       }}
     >
       <header className="dialog__header">
-        <h2>{title}</h2>
+        <h2>{heading ?? title}</h2>
+        {headerExtra}
         <button type="button" className="link" onClick={onClose}>
           fermer
         </button>

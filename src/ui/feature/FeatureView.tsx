@@ -9,7 +9,7 @@ import { FeatureGraphView } from "../graph/FeatureGraphView";
 import { navigate } from "../route";
 import { MainSessionView } from "../session/MainSessionView";
 import { claimTabName } from "../tab";
-import { TicketPanel } from "../ticket/TicketPanel";
+import { TicketModal } from "../ticket/TicketModal";
 import {
   featureQuestionsOf,
   graphOf,
@@ -24,14 +24,18 @@ import { WaitingPanel } from "./WaitingPanel";
 
 /**
  * One feature, in a tab of its own: what waits on it down the left, the map it
- * waits in taking everything else, the ticket a node opens laid over the map's
- * right edge, and the feature's own thread in a drawer along the bottom.
+ * waits in taking everything else, and the feature's own conversation in a
+ * foldable bar down the right.
  *
- * Both drawers lie over the map rather than taking a column and a row from it.
- * That is what ADR 0006 asks for: opening one must not resize the viewport, or
- * the framing the reader has just made would be undone by the very click that
- * needed it. What they cover is handed to the map instead, which translates a
- * node back out from underneath without touching the scale.
+ * The bar lies over the map rather than taking a column from it. That is what
+ * ADR 0006 asks for: unfolding it must not resize the viewport, or the framing
+ * the reader has just made would be undone by the very click that needed it.
+ * What it covers is handed to the map instead, which translates a node back out
+ * from underneath without touching the scale.
+ *
+ * A ticket is not on this screen at all. Opening one opens a modal over the
+ * whole of it, because treating a ticket is not a glance taken while reading
+ * the map, and Escape gives the map back (ADR 0010).
  */
 
 /** Below this, the waiting column steps out of the row and onto the map. */
@@ -126,20 +130,21 @@ export function FeatureView({
     ]),
   );
 
-  const [ticketWidth, setTicketWidth] = useStoredSize("squad.ticket-width", 448);
-  const [threadHeight, setThreadHeight] = useStoredSize(
-    // Kept per feature: how much room a thread needs is a property of the piece
-    // of work being talked about, not of the browser.
-    `squad.thread-height.${feature.id}`,
-    // A share of the window rather than a number of pixels: the drawer holds a
-    // conversation and the box one writes into, and a height that fits a large
-    // screen leaves the send button off a laptop.
-    Math.max(320, Math.round(window.innerHeight * 0.44)),
+  const [threadWidth, setThreadWidth] = useStoredSize(
+    // Kept per feature: how much room a conversation needs is a property of the
+    // piece of work being talked about, not of the browser.
+    `squad.thread-width.${feature.id}`,
+    // A share of the window rather than a number of pixels: the bar holds a
+    // conversation and the box one writes into, and a width that suits a large
+    // screen leaves no map at all on a laptop.
+    Math.max(360, Math.round(window.innerWidth * 0.28)),
   );
-  // What each drawer hides of the map, so the map can bring a covered node back
-  // into what is left. In pixels, because that is what the viewport works in.
-  const obstructedRight = openedTicket === null ? 0 : ticketWidth;
-  const obstructedBottom = route.threadOpen ? threadHeight : 0;
+  // What the session bar hides of the map, so the map can bring a covered node
+  // back into what is left, and the only obstruction there is: the ticket modal
+  // covers the map entirely and gives it back on Escape, so there is nothing to
+  // translate out from under it. In pixels, because that is what the viewport
+  // works in.
+  const obstructedRight = route.threadOpen ? threadWidth : 0;
 
   const narrow = useMediaQuery(narrowScreen);
   const [waitingOpen, setWaitingOpen] = useState(false);
@@ -217,7 +222,6 @@ export function FeatureView({
         style={
           {
             "--obstructed": `${obstructedRight}px`,
-            "--obstructed-bottom": `${obstructedBottom}px`,
           } as CSSProperties
         }
       >
@@ -244,7 +248,6 @@ export function FeatureView({
             awaitingDeveloper={ticketsAwaitingDeveloper(waiting)}
             selectedId={openedTicket?.id ?? null}
             obstructedRight={obstructedRight}
-            obstructedBottom={obstructedBottom}
             onSelect={(ticketId) => go({ ticketId })}
             onDeselect={() => {
               // Only when something is open: a press on the background is the
@@ -256,58 +259,56 @@ export function FeatureView({
         </section>
 
         {openedTicket !== null && (
-          <aside className="drawer drawer--ticket" style={{ width: `${ticketWidth}px` }}>
-            <Grip
-              size={ticketWidth}
-              onSize={setTicketWidth}
-              axis="width-from-right"
-              min={320}
-              max={() => window.innerWidth / 2}
-              label="Largeur du panneau du ticket"
-            />
-            <section className="panel panel--ticket" aria-labelledby="titre-ticket">
-              <h2 id="titre-ticket">Ticket</h2>
-              <TicketPanel
-                ticket={openedTicket}
-                thread={ticketThreadOf(state, openedTicket.id)}
-                questions={ticketQuestionsOf(state, openedTicket.id)}
-                repository={
-                  repositoryNames.size > 1
-                    ? (repositoryNames.get(openedTicket.projectId) ?? null)
-                    : null
-                }
-                onClose={() => go({ ticketId: null })}
-              />
-            </section>
-          </aside>
+          <TicketModal
+            ticket={openedTicket}
+            feature={feature}
+            thread={ticketThreadOf(state, openedTicket.id)}
+            questions={ticketQuestionsOf(state, openedTicket.id)}
+            repository={
+              repositoryNames.size > 1
+                ? (repositoryNames.get(openedTicket.projectId) ?? null)
+                : null
+            }
+            onClose={() => go({ ticketId: null })}
+            onOpenMainSession={() => go({ ticketId: null, threadOpen: true })}
+          />
         )}
 
+        {/* The feature's own conversation, down the right side rather than
+            along the bottom: a ticket is now treated in a modal, so this side
+            is free, and the two conversations are told apart by where they are
+            rather than by a label. Foldable, because a bar that never folds
+            would take a third of the map for good on a laptop, which is what
+            ADR 0006 refuses (ADR 0010). */}
         <aside
-          className={route.threadOpen ? "drawer drawer--thread drawer--open" : "drawer drawer--thread"}
-          style={route.threadOpen ? { height: `${threadHeight}px` } : undefined}
+          className={
+            route.threadOpen ? "sidebar sidebar--open" : "sidebar"
+          }
+          style={route.threadOpen ? { width: `${threadWidth}px` } : undefined}
         >
           {route.threadOpen && (
             <Grip
-              size={threadHeight}
-              onSize={setThreadHeight}
-              axis="height-from-bottom"
-              min={180}
-              max={() => window.innerHeight * 0.7}
-              label="Hauteur du fil de la session principale"
+              size={threadWidth}
+              onSize={setThreadWidth}
+              axis="width-from-right"
+              min={300}
+              max={() => window.innerWidth / 2}
+              label="Largeur du fil de la session principale"
             />
           )}
-          <h2 className="drawer__bar">
+          <h2 className="sidebar__bar">
             <button
               type="button"
-              className="drawer__handle"
+              className="sidebar__handle"
               aria-expanded={route.threadOpen}
               onClick={() => go({ threadOpen: !route.threadOpen })}
             >
-              <span aria-hidden="true">{route.threadOpen ? "▾" : "▴"}</span> Session principale
+              <span aria-hidden="true">{route.threadOpen ? "▸" : "◂"}</span>
+              <span className="sidebar__label">Session principale</span>
               {/* Marked, never opened by itself: an agent blocked on a question
                   already raises an alert and already shows in the waiting list,
-                  and moving half the screen under someone who is reading a step
-                  report would buy nothing and cost them their place. */}
+                  and moving a third of the screen under someone who is reading a
+                  step report would buy nothing and cost them their place. */}
               {waiting.some((action) => action.ticketId === null) && (
                 <span className="count count--waiting">en attente</span>
               )}
@@ -340,7 +341,8 @@ function Grip({
 }: {
   size: number;
   onSize: (size: number) => void;
-  axis: "width-from-right" | "height-from-bottom";
+  /** The only axis there is: the session bar is pulled from its left edge. */
+  axis: "width-from-right";
   min: number;
   max: () => number;
   label: string;
@@ -348,9 +350,9 @@ function Grip({
   const drag = useDragSize({ size, onSize, axis, min, max });
   return (
     <span
-      className={axis === "width-from-right" ? "grip grip--width" : "grip grip--height"}
+      className="grip grip--width"
       role="separator"
-      aria-orientation={axis === "width-from-right" ? "vertical" : "horizontal"}
+      aria-orientation="vertical"
       aria-label={label}
       {...drag}
     />

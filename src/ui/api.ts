@@ -4,6 +4,7 @@ import {
   directoriesRoute,
   featureRoute,
   mainSessionMessagesRoute,
+  ticketMessagesRoute,
   mainSessionRoute,
   projectRoute,
   questionAnswerRoute,
@@ -23,6 +24,7 @@ import {
   type RegisterProjectBody,
   type ReviewTestSheetBody,
   type SendMainSessionMessageBody,
+  type SendTicketMessageBody,
   type Settings,
   type StartMainSessionBody,
   type UpdateProjectBody,
@@ -86,6 +88,8 @@ const wording: Record<ErrorCode, string> = {
   ticket_not_launchable:
     "Ce ticket ne peut pas partir : une décision se tranche, et un ticket bloqué attend la fusion de ses bloqueurs.",
   sub_session_already_running: "La sous-session de ce ticket tourne déjà.",
+  sub_session_not_running:
+    "Aucune sous-session ne tourne sur ce ticket : le lancer ou le reprendre, ce qui n'est pas la même chose que lui écrire.",
   launch_already_requested:
     "Le lancement de ce ticket est déjà demandé : il attend une place sous les plafonds de concurrence.",
   no_step_in_progress: "Aucune sous-session ne tourne sur ce ticket : il n'y a pas d'étape à clore.",
@@ -143,12 +147,31 @@ export async function sendMainSessionMessage(
 }
 
 /**
+ * Hands a message to the sub-session running on a ticket. Refused when none is
+ * running, and that refusal is the point: writing must never open a session,
+ * which costs a place under the concurrency cap and a process on the machine.
+ */
+export async function sendTicketMessage(
+  ticketId: string,
+  body: SendTicketMessageBody,
+): Promise<void> {
+  await send(ticketMessagesRoute(ticketId), body);
+}
+
+/**
  * Launches a ticket, or takes its stopped sub-session back under the angle the
  * developer chose. Nothing comes back here either: the ticket changes state on
  * the event stream, and its sub-session writes to its own thread.
  */
-export async function launchTicket(ticketId: string, angle: LaunchAngle): Promise<void> {
-  await send(ticketSessionRoute(ticketId), { angle });
+export async function launchTicket(
+  ticketId: string,
+  angle: LaunchAngle,
+  message?: string,
+): Promise<void> {
+  await send(ticketSessionRoute(ticketId), {
+    angle,
+    ...(message === undefined || message === "" ? {} : { message }),
+  });
 }
 
 /**

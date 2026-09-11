@@ -9,6 +9,7 @@ import {
   registerProjectBody,
   reviewTestSheetBody,
   sendMainSessionMessageBody,
+  sendTicketMessageBody,
   startMainSessionBody,
   updateFeatureBody,
   updateProjectBody,
@@ -150,11 +151,19 @@ export function buildApiRouter({
 
   router.post(`${apiRoutes.tickets}/:ticketId/session`, (request, response) => {
     const body = parse(launchTicketBody, request.body);
-    const ticket = subSessions.launch(request.params.ticketId, body.angle);
+    const ticket = subSessions.launch(request.params.ticketId, body.angle, body.message);
     // Accepted, not done: the launch waits for a place under the concurrency
     // caps, its sub-session runs for as long as its agent does, and everything
     // that happens next arrives on the event stream.
     response.status(202).json({ ticket });
+  });
+
+  router.post(`${apiRoutes.tickets}/:ticketId/messages`, async (request, response) => {
+    const body = parse(sendTicketMessageBody, request.body);
+    await subSessions.send(request.params.ticketId, body.text);
+    // As for the main session: the answer is not part of this response, it
+    // arrives on the event stream for as long as the session keeps writing.
+    response.status(202).json({});
   });
 
   router.post(`${apiRoutes.tickets}/:ticketId/test-sheet`, async (request, response) => {

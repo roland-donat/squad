@@ -11,10 +11,23 @@ import { Failure, useSubmission } from "../submission";
  * screen because what was answered, and by whom, is the record of what was
  * decided without the developer.
  */
-export function Questions({ questions }: { questions: Question[] }): ReactNode {
-  if (questions.length === 0) return null;
-  const waiting = questions.filter((question) => question.state === "pending");
-  const settled = questions.filter((question) => question.state !== "pending");
+export function Questions({
+  questions,
+  only,
+}: {
+  questions: Question[];
+  /**
+   * Which half to show, on a screen that separates them. The ticket modal asks
+   * for the waiting ones on the summary tab, where what is asked of the
+   * developer lives, and the settled ones on the detail tab, where the record
+   * of what was decided without them belongs. Left out, both are shown, oldest
+   * business first, which is what a single column wants.
+   */
+  only?: "waiting" | "settled";
+}): ReactNode {
+  const waiting = only === "settled" ? [] : questions.filter((q) => q.state === "pending");
+  const settled = only === "waiting" ? [] : questions.filter((q) => q.state !== "pending");
+  if (waiting.length === 0 && settled.length === 0) return null;
 
   return (
     <>

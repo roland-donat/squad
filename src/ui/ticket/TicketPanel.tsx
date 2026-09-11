@@ -10,7 +10,7 @@ import type {
 } from "../../shared/api";
 import { isResumable } from "../../shared/graph";
 import { ApiError, launchTicket } from "../api";
-import { Markdown } from "../markdown/Markdown";
+import { Markdown, MarkdownText } from "../markdown/Markdown";
 import { Questions } from "../question/Questions";
 import { Thread } from "../session/Thread";
 import { TestSheet } from "./TestSheet";
@@ -94,7 +94,12 @@ export function TicketPanel({
           <h3 className="ticket__heading">Critères d'acceptation</h3>
           <ul className="ticket__criteria">
             {ticket.acceptanceCriteria.map((criterion) => (
-              <li key={criterion.id}>{criterion.text}</li>
+              // The same string the test sheet paints, painted the same way: a
+              // criterion is copied verbatim onto its sheet point, and showing
+              // its source here and its rendering there reads as two texts.
+              <li key={criterion.id}>
+                <MarkdownText text={criterion.text} />
+              </li>
             ))}
           </ul>
         </>

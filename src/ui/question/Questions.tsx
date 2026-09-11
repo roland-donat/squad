@@ -49,7 +49,12 @@ function AskedQuestion({ question }: { question: Question }) {
   return (
     <form className="form question" onSubmit={submit}>
       <p className="question__prompt">
-        <MarkdownText text={question.prompt} />
+        {/* Wrapped: this row is a flex line, and a fragment of marks would make
+            every `strong` and every run of text a flex item of its own, each
+            free to wrap mid-sentence with a gap beside it. */}
+        <span>
+          <MarkdownText text={question.prompt} />
+        </span>
         {question.scopeChanging && <span className="chip chip--scope">périmètre</span>}
       </p>
       <ul className="list question__options">

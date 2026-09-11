@@ -1723,7 +1723,6 @@ button[disabled] {
 .sheet__points,
 .sheet__point,
 .sheet__check,
-.sheet__text,
 .question,
 .question__options,
 .ticket__summary,
@@ -1731,8 +1730,22 @@ button[disabled] {
   min-width: 0;
 }
 
+/* `.sheet__text` is deliberately absent from that list. It carries a floor of
+   12rem, and the floor is what puts a point's wording on a line of its own
+   rather than letting it be squeezed between its checkbox and its chips. The
+   same specificity later in the file would have silently undone it, which is
+   the ordinary way a floor disappears. */
+
 /* And what a scroll container must never do is size itself to its content. */
 .prose pre,
 .prose__scroll {
   max-width: 100%;
+}
+
+/* Letting a track shrink is only half of it. A long unbroken run, a 120
+   character URL among them, no longer widens its panel, so without this it
+   leaves through the side instead, and there is no scroll container on a
+   paragraph to catch it. */
+.prose {
+  overflow-wrap: anywhere;
 }

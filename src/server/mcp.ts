@@ -81,7 +81,7 @@ export const textBounds = {
  * wrote is worse than showing it plainly.
  */
 const inlineMarkdown =
-  "Markdown, inline only: **bold**, *italic*, `code`, [links](url) and short bullet lists. No headings and no tables: they are flattened here.";
+  "Markdown, inline only: **bold**, *italic*, `code`, [links](url), short bullet lists and fenced code blocks. No headings, no tables, no blockquotes: their text is kept and their structure flattened.";
 const fullMarkdown =
   "Markdown in full: headings, bullet and numbered lists, tables, fenced code blocks, blockquotes, links.";
 
@@ -111,7 +111,7 @@ const summaryFields = {
     .min(1)
     .max(textBounds.problem)
     .describe(
-      `What is wrong or missing, in ONE sentence of at most ${textBounds.problem} characters. What is wrong, not what you will do about it: what you will do is the description.`,
+      `What is wrong or missing, in ONE sentence of at most ${textBounds.problem} characters. What is wrong, not what you will do about it: what you will do is the description. ${inlineMarkdown}`,
     ),
 };
 
@@ -134,7 +134,7 @@ const createTicketCommon = {
   acceptanceCriteria: z
     .array(z.string().trim().min(1))
     .default([])
-    .describe("Checkable statements; the test sheet is built from them."),
+    .describe(`Checkable statements; the test sheet is built from them. ${inlineMarkdown}`),
   blockedBy: z
     .array(z.string().min(1))
     .default([])
@@ -242,7 +242,7 @@ const askQuestionShape = {
     .string()
     .trim()
     .min(1)
-    .describe("What you are asking, in one or two sentences, readable by someone who did not watch."),
+    .describe(`What you are asking, in one or two sentences, readable by someone who did not watch. ${inlineMarkdown}`),
   options: z
     .array(
       z.object({
@@ -252,7 +252,7 @@ const askQuestionShape = {
           .min(1)
           .max(textBounds.optionLabel)
           .describe(
-            `The road itself, in at most ${textBounds.optionLabel} characters: a line the developer can pick at a glance. What it costs does NOT go here, it goes in \`consequence\`.`,
+            `The road itself, in at most ${textBounds.optionLabel} characters: a line the developer can pick at a glance. What it costs does NOT go here, it goes in \`consequence\`. ${inlineMarkdown}`,
           ),
         consequence: z
           .string()
@@ -260,7 +260,7 @@ const askQuestionShape = {
           .min(1)
           .max(textBounds.optionConsequence)
           .describe(
-            `What taking this road entails, in at most ${textBounds.optionConsequence} characters. Required, because it is the whole difference between a list of names and a choice: without it the developer has to reconstruct what each road costs, which is the work they asked you to do.`,
+            `What taking this road entails, in at most ${textBounds.optionConsequence} characters. Required, because it is the whole difference between a list of names and a choice: without it the developer has to reconstruct what each road costs, which is the work they asked you to do. ${inlineMarkdown}`,
           ),
         illustration: z
           .string()
@@ -269,7 +269,7 @@ const askQuestionShape = {
           .max(textBounds.optionConsequence)
           .optional()
           .describe(
-            "That consequence shown on this feature's running example, when showing it sharpens it. Leave it out rather than pad: most implementation questions have nothing useful to show, and filler here costs the developer a reading for nothing.",
+            `That consequence shown on this feature's running example, when showing it sharpens it. Leave it out rather than pad: most implementation questions have nothing useful to show, and filler here costs the developer a reading for nothing. ${inlineMarkdown}`,
           ),
       }),
     )
@@ -327,13 +327,13 @@ const reportStepShape = {
     .array(z.string().trim().min(1))
     .default([])
     .describe(
-      "Points you suggest checking by hand beyond the criteria: what the ticket did not foresee and only a person can judge. The same rule holds here: what you can settle yourself, settle, and say so in what you built rather than suggesting it.",
+      `Points you suggest checking by hand beyond the criteria: what the ticket did not foresee and only a person can judge. The same rule holds here: what you can settle yourself, settle, and say so in what you built rather than suggesting it. ${inlineMarkdown}`,
     ),
   recommendation: z
     .string()
     .trim()
     .min(1)
-    .describe("What you recommend doing next, in one or two sentences."),
+    .describe(`What you recommend doing next, in one or two sentences. ${inlineMarkdown}`),
 };
 
 const discardTicketShape = {
@@ -376,7 +376,7 @@ const settleSheetShape = {
           .min(1)
           .optional()
           .describe(
-            "On a `decision`, and there only: the road you recommend, in one sentence. Required, because it is what squad takes under go-as-recommended and what the developer reads first otherwise.",
+            `On a \`decision\`, and there only: the road you recommend, in one sentence. Required, because it is what squad takes under go-as-recommended and what the developer reads first otherwise. ${inlineMarkdown}`,
           ),
         scopeChanging: z
           .boolean()
@@ -399,7 +399,7 @@ const settleDecisionShape = {
     .trim()
     .min(1)
     .describe(
-      "What was decided, in the developer's own terms, in enough detail for a fresh session to act on it without reading this thread.",
+      `What was decided, in the developer's own terms, in enough detail for a fresh session to act on it without reading this thread. ${fullMarkdown}`,
     ),
 };
 

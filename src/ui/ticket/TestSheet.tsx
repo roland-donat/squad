@@ -34,7 +34,8 @@ export function TestSheet({ ticketId, report }: { ticketId: string; report: Step
       <h3 className="ticket__heading">Fin d'étape</h3>
       <Markdown text={report.work} subset="inline" className="ticket__description" />
       <p className="sheet__recommendation">
-        <span className="chip">recommandation</span> {report.recommendation}
+        <span className="chip">recommandation</span>{" "}
+        <MarkdownText text={report.recommendation} />
       </p>
 
       <Settled

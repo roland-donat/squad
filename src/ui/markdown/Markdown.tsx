@@ -92,7 +92,7 @@ function renderBlock(token: Token, subset: MarkdownSubset, key: number): ReactNo
         <li key={index}>
           {list.loose
             ? renderBlocks(item.tokens ?? [], subset)
-            : renderInline(inlineOf(item.tokens ?? []))}
+            : renderTightItem(item.tokens ?? [], subset)}
         </li>
       ));
       return list.ordered ? <ol key={key}>{items}</ol> : <ul key={key}>{items}</ul>;
@@ -110,15 +110,25 @@ function renderBlock(token: Token, subset: MarkdownSubset, key: number): ReactNo
     }
     case "blockquote": {
       const quote = token as Tokens.Blockquote;
-      return <blockquote key={key}>{renderBlocks(quote.tokens ?? [], subset)}</blockquote>;
+      const inside = renderBlocks(quote.tokens ?? [], subset);
+      // Flattened in the bounded subset like a heading: what it says is kept,
+      // the rule down its side is not. `inlineMarkdown` promises inline marks
+      // and lists, and painting a block it never declared is a promise broken
+      // in the reader's favour, which is still a promise broken.
+      if (subset === "inline") return <Fragment key={key}>{inside}</Fragment>;
+      return <blockquote key={key}>{inside}</blockquote>;
     }
     case "table": {
       const table = token as Tokens.Table;
       if (subset === "inline") {
         // Flattened rather than dropped: the cells are what was written.
+        // The header first: the column names are exactly what makes a
+        // flattened table readable, and dropping them left bare values.
         return (
           <p key={key}>
-            {table.rows.map((row) => row.map((cell) => cell.text).join(" · ")).join(" ; ")}
+            {[table.header, ...table.rows]
+              .map((row) => row.map((cell) => cell.text).join(" · "))
+              .join(" ; ")}
           </p>
         );
       }
@@ -146,7 +156,15 @@ function renderBlock(token: Token, subset: MarkdownSubset, key: number): ReactNo
       );
     }
     case "hr":
-      return <hr key={key} />;
+      // Pure structure, no text: there is nothing of it to keep, and a rule
+      // drawn across a 240 character summary is the noise the bound exists
+      // to prevent.
+      return subset === "inline" ? null : <hr key={key} />;
+    // A link definition is plumbing for the link that uses it, and it has
+    // already been used by the time this runs: painting its source put a stray
+    // `[d]: https://...` under the paragraph that read fine.
+    case "def":
+      return null;
     default:
       // Everything else, `html` first among them, is shown as the characters it
       // is. This is the whole of the sanitising squad needs: there is no branch
@@ -155,13 +173,31 @@ function renderBlock(token: Token, subset: MarkdownSubset, key: number): ReactNo
   }
 }
 
-/** The marks inside a token that holds a line, such as a tight list item. */
-function inlineOf(tokens: Token[]): Token[] {
-  if (tokens.length === 1 && tokens[0]?.type === "text") {
-    const only = tokens[0] as Tokens.Text;
-    if (only.tokens) return only.tokens;
+/**
+ * A tight list item: the line it holds, and whatever hangs under it.
+ *
+ * The line and the sub-list are two tokens, not one. Unwrapping only the first
+ * and handing the rest to the inline renderer painted a nested bullet as its own
+ * Markdown source, glued to the end of its parent: `- un / - deux` came out as
+ * `un- deux`. Nested bullets with no blank line between them are the ordinary
+ * shape of a ticket description, so this was the common case, not the corner.
+ */
+function renderTightItem(tokens: Token[], subset: MarkdownSubset): ReactNode[] {
+  const rendered: ReactNode[] = [];
+  for (const [index, token] of tokens.entries()) {
+    if (token.type === "text") {
+      const text = token as Tokens.Text;
+      rendered.push(
+        <Fragment key={index}>
+          {text.tokens ? renderInline(text.tokens) : text.text}
+        </Fragment>,
+      );
+      continue;
+    }
+    const node = renderBlock(token, subset, index);
+    if (node !== null) rendered.push(node);
   }
-  return tokens;
+  return rendered;
 }
 
 function renderInline(tokens: Token[]): ReactNode[] {
@@ -184,6 +220,12 @@ function renderInline(tokens: Token[]): ReactNode[] {
         return <code key={key}>{(token as Tokens.Codespan).text}</code>;
       case "br":
         return <br key={key} />;
+      // Squad paints no image an agent names: it would be a request to a host
+      // squad does not vouch for, from a page that holds the developer's
+      // session. The alt text is what was meant to be conveyed, so it is what
+      // is shown, rather than the source of a picture nobody will see.
+      case "image":
+        return <Fragment key={key}>{(token as Tokens.Image).text}</Fragment>;
       case "link": {
         const link = token as Tokens.Link;
         const href = safeHref(link.href);

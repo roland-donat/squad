@@ -81,7 +81,8 @@ concurrence s'applique. Rien n'est lu dans l'environnement, de sorte que ce qui 
 en vigueur se relit par la même surface que le reste.
 
 Ce qui n'est **pas** un réglage vit dans le navigateur et n'est jamais envoyé au
-serveur : la largeur du panneau de ticket, la hauteur du tiroir, et le dernier
+serveur : la largeur de la barre de session, le brouillon en cours de frappe dans
+la conversation d'un ticket, et le dernier
 répertoire atteint en parcourant. Squad n'en lit aucun, et les deux premiers
 diffèrent légitimement d'une fenêtre à l'autre. Ce sont des commodités, pas des
 réglages, et c'est ce qui les distingue du thème, que le serveur lit pour
@@ -242,7 +243,7 @@ src/ui/geometry.ts         # les tailles de panneau, tenues par le navigateur se
 src/ui/home/               # l'accueil et la création d'une feature
 src/ui/repository/         # choisir un dépôt en le parcourant, servi par squad
 src/ui/Dialog.tsx          # le dialogue natif : état modal, piège à focus et Échap
-src/ui/feature/            # l'écran de travail : attente, carte, ticket, tiroir du fil
+src/ui/feature/            # l'écran de travail : attente, carte, barre de la session principale
 src/ui/theme.ts            # le thème sur la page, et la copie que lit le premier rendu
 src/ui/brand/              # la marque : un seul dessin, pour l'en-tête, le favicon et le README
 src/ui/fonts/              # Open Sans sous-ensemblée, la police de la charte EdgeMind
@@ -250,7 +251,7 @@ src/ui/graph/              # la carte : couches enveloppées, nœuds à glyphe e
 src/ui/graph/viewport.ts   # le pan et le zoom de la carte, et ce qui décide du cadrage
 src/ui/question/           # une question d'agent, ses options et sa réponse
 src/ui/settings/           # l'écran de réglages, machine et projets
-src/ui/ticket/             # le panneau d'un nœud du graphe, fiche de tests comprise
+src/ui/ticket/             # la modale d'un nœud : deux onglets, fiche de tests, conversation
 drizzle/                   # migrations générées, versionnées
 tests/seam/                # tests au seam : HTTP, flux d'événements et outils MCP
 tests/support/             # instance de test, dépôts git temporaires, double du lanceur
@@ -298,10 +299,21 @@ dépôts, donc la ranger sous l'un d'eux serait une approximation. Les segments
 sont en anglais comme les routes de l'API, une adresse étant un identifiant
 technique.
 
-L'ouverture du tiroir de la session principale est dans l'adresse, en paramètre
-de requête (`?thread=open`) : le tiroir est orthogonal au ticket ouvert, les
-deux peuvent l'être en même temps, et une alerte sur une question de la session
-principale doit pointer un endroit où cette question se répond.
+Un ticket s'ouvre dans une **modale** quasi plein écran, à deux onglets :
+**Résumé**, qui porte de quoi il s'agit et ce qu'on vous demande, question ou
+fiche de tests ; **Détail**, qui porte le reste. Une colonne de conversation
+avec la **sous-session** du ticket longe les deux. L'onglet n'est pas dans
+l'adresse : tout ce qui se répond vit dans le Résumé, qui est le défaut, donc
+aucune alerte n'aurait de raison de pointer l'autre. Échap ferme toujours, et le
+brouillon en cours de frappe est conservé par ticket dans le navigateur. Voir
+l'ADR 0010.
+
+L'ouverture de la **barre de la session principale**, à droite de la carte, est
+dans l'adresse, en paramètre de requête (`?thread=open`) : elle est orthogonale
+au ticket ouvert, et une alerte sur une question de la session principale doit
+pointer un endroit où cette question se répond. Deux conversations, deux
+endroits, et c'est délibéré : la sous-session connaît le worktree du ticket, la
+session principale détient le graphe.
 
 L'adresse est corrigée, jamais subie. Une adresse de l'ancienne forme,
 `/projects/<projet>/features/<feature>`, est **toujours lue** : des alertes en

@@ -114,7 +114,7 @@ export class SubSessions {
    * Nothing here awaits: the whole of the answer is written before the request
    * returns, so two clicks arriving together cannot both find the ticket free.
    */
-  launch(ticketId: string, angle: LaunchAngle): Ticket {
+  launch(ticketId: string, angle: LaunchAngle, message?: string | null): Ticket {
     const { store } = this.dependencies;
     const ticket = store.requireTicket(ticketId);
     if (
@@ -151,7 +151,7 @@ export class SubSessions {
     // A launch the developer asked for starts the count of reminders over: this
     // is a new attempt, not the continuation of one squad already chased.
     this.asked.delete(ticket.id);
-    const queued = store.queueLaunch(ticket.id, angle);
+    const queued = store.queueLaunch(ticket.id, angle, message ?? null);
     this.publishGraph(ticket.featureId);
     this.dependencies.dispatch.schedule();
     return queued;
@@ -165,7 +165,7 @@ export class SubSessions {
     if (request === null) return;
     const ticket = store.requireTicket(ticketId);
     try {
-      await this.open(ticket, this.resumeOrAssign(ticket, request));
+      await this.open(ticket, this.resumeOrAssign(ticket, request), request.note);
     } catch (failure) {
       this.abandon(ticket, request.lifecycle, failure);
     }
@@ -301,6 +301,32 @@ export class SubSessions {
   }
 
   /**
+   * Hands a message from the developer to the sub-session of a ticket.
+   *
+   * The twin of what the main session has always had, and it was the one thing
+   * missing for the ticket screen to be a place one can answer from rather than
+   * only read. Refused when no sub-session is running, and named as such: the
+   * caller offers to launch or to resume instead, and writing must never open a
+   * session by itself. A session is a place under the concurrency cap and a
+   * process on the machine, and neither is something a keystroke should spend.
+   */
+  async send(ticketId: string, text: string): Promise<void> {
+    const ticket = this.dependencies.store.requireTicket(ticketId);
+    const session = this.running.get(ticket.id);
+    if (session === undefined) {
+      throw new SquadError(
+        "sub_session_not_running",
+        409,
+        `no sub-session is running on "${ticket.title}": launch it or resume it, which is a different thing from writing to it`,
+      );
+    }
+    // Written on the thread before it is handed over, as everywhere else: what
+    // the developer said is on the record even if the session dies reading it.
+    this.append(ticket, session.id, { kind: "pilot", text });
+    await session.send(text);
+  }
+
+  /**
    * Hands a rejected test sheet back to the sub-session that reported it. The
    * session is normally still there, since a sub-session stays available after
    * reporting for exactly this; when it is not, the correction queues like any
@@ -352,7 +378,11 @@ export class SubSessions {
     });
   }
 
-  private async open(ticket: Ticket, opening: Opening): Promise<AgentSession> {
+  private async open(
+    ticket: Ticket,
+    opening: Opening,
+    note?: string | null,
+  ): Promise<AgentSession> {
     const { store, launcher, worktrees, mcpUrl } = this.dependencies;
     const feature = store.requireFeature(ticket.featureId);
     // Before the session, since it is the session's working directory. A ticket
@@ -378,7 +408,7 @@ export class SubSessions {
     // its way up can be emitted into an audience that is not listening yet.
     this.hold(ticket.id, this.drain(ticket, session));
 
-    const message = firstMessage(ticket, opening);
+    const message = firstMessage(ticket, opening, note ?? null);
     // Written on the thread before it is handed over, so what the session was
     // asked for is on the record even if it dies reading it.
     this.append(ticket, session.id, { kind: "pilot", text: message });
@@ -527,8 +557,29 @@ export class SubSessions {
   }
 }
 
-/** The first thing squad hands a session it has just opened. */
-function firstMessage(ticket: Ticket, opening: Opening): string {
+/**
+ * The first thing squad hands a session it has just opened, and what the
+ * developer said when they asked for it.
+ *
+ * Appended rather than replacing: squad's own instruction says what sort of
+ * opening this is, which a session taken back after a failure cannot work out
+ * for itself, and the developer's words say what to do about it. A session that
+ * got only one of the two would either not know it was being resumed or not
+ * know why.
+ */
+function firstMessage(ticket: Ticket, opening: Opening, note: string | null): string {
+  const instruction = openingInstruction(ticket, opening);
+  if (note === null) return instruction;
+  return [
+    instruction,
+    "",
+    "The developer wrote this when they asked for this launch:",
+    "",
+    note,
+  ].join("\n");
+}
+
+function openingInstruction(ticket: Ticket, opening: Opening): string {
   switch (opening.kind) {
     case "assign":
       return ticketAssignment(ticket);

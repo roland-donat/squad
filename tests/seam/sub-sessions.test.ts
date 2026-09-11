@@ -2,6 +2,7 @@ import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type {
+  ApiErrorBody,
   Feature,
   FeatureGraph,
   ThreadEntry,
@@ -11,6 +12,7 @@ import {
   apiRoutes,
   featureGraphRoute,
   mainSessionRoute,
+  ticketMessagesRoute,
   ticketSessionRoute,
 } from "../../src/shared/api";
 import {
@@ -415,6 +417,91 @@ describe("launching a ticket, failing, and resuming", () => {
     // The angle is what the second message says, and it is not the first one.
     expect(openings[1]?.message).toMatch(/diagnos/i);
     expect(openings[0]?.message).not.toMatch(/diagnos/i);
+  });
+
+  it("hands the developer's message to the sub-session that is running", async () => {
+    // The twin of what the main session has always had, and the one thing that
+    // was missing for a ticket's screen to be somewhere one can answer from
+    // rather than only read.
+    const alive = gate();
+    const heard: string[] = [];
+    const { featureId, stream } = await start(writeOneTicket, async (agent) => {
+      heard.push(await agent.awaitMessage());
+      heard.push(await agent.awaitMessage());
+      await alive.passed;
+    });
+
+    await squad.request("POST", mainSessionRoute(featureId), { prompt: "/to-tickets" });
+    await waitForEvent(stream, "graph-changed");
+    const ready = await readTicket(featureId, "Le store");
+    await launch(ready.id);
+    await waitForState(stream, featureId, ready.id, "running");
+
+    const said = await squad.request("POST", ticketMessagesRoute(ready.id), {
+      text: "Prends la migration 0004 d'abord.",
+    });
+    expect(said.status).toBe(202);
+    await expect.poll(() => heard.length, { timeout: 5_000 }).toBe(2);
+    expect(heard[1]).toContain("migration 0004");
+
+    // And it is on the thread before it is handed over, so what was said is on
+    // the record even if the session dies reading it.
+    const thread = await readTicketThread(ready.id);
+    expect(thread.some((entry) => entry.kind === "pilot" && entry.text.includes("0004"))).toBe(
+      true,
+    );
+  });
+
+  it("refuses a message to a ticket no sub-session is running on, rather than opening one", async () => {
+    // Writing must never open a session: that costs a place under the
+    // concurrency cap and starts work on the machine, and a gesture with that
+    // price says so on its own button rather than happening at the keystroke.
+    const { featureId, stream } = await start(writeOneTicket, async (agent) => {
+      await agent.awaitMessage();
+    });
+
+    await squad.request("POST", mainSessionRoute(featureId), { prompt: "/to-tickets" });
+    await waitForEvent(stream, "graph-changed");
+    const ready = await readTicket(featureId, "Le store");
+
+    const refused = await squad.request("POST", ticketMessagesRoute(ready.id), {
+      text: "Commence par la base.",
+    });
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as ApiErrorBody).error.code).toBe("sub_session_not_running");
+    expect((await readTicket(featureId, "Le store")).state).toBe("ready");
+  });
+
+  it("carries what the developer wrote into the message that resumes a stopped ticket", async () => {
+    const secondRun = gate();
+    const messages: string[] = [];
+    const { featureId, stream } = await start(writeOneTicket, async (agent) => {
+      messages.push(await agent.awaitMessage());
+      if (messages.length === 1) throw new Error("les tests ne passent pas");
+      await secondRun.passed;
+    });
+
+    await squad.request("POST", mainSessionRoute(featureId), { prompt: "/to-tickets" });
+    await waitForEvent(stream, "graph-changed");
+    const ready = await readTicket(featureId, "Le store");
+    await launch(ready.id);
+    await waitForState(stream, featureId, ready.id, "failed");
+
+    // Taking the ticket back and saying what went wrong are one gesture: the
+    // message travels with the launch and reaches the session it opens, which
+    // may be minutes later if the caps were full.
+    const again = await squad.request("POST", ticketSessionRoute(ready.id), {
+      angle: "diagnose",
+      message: "Le worktree est resté sale, commence par le nettoyer.",
+    });
+    expect(again.status).toBe(202);
+    await waitForState(stream, featureId, ready.id, "running");
+
+    expect(messages).toHaveLength(2);
+    // Squad's own instruction says what sort of opening this is, the developer's
+    // words say what to do about it, and the session gets both.
+    expect(messages[1]).toMatch(/diagnos/i);
+    expect(messages[1]).toContain("resté sale");
   });
 
   it("resumes an implementation that failed, rather than starting it over", async () => {

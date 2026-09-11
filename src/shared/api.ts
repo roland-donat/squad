@@ -29,6 +29,7 @@ export const errorCodes = [
   "ticket_not_launchable",
   "ticket_not_discardable",
   "sub_session_already_running",
+  "sub_session_not_running",
   "launch_already_requested",
   "no_step_in_progress",
   "coverage_mismatch",
@@ -795,6 +796,16 @@ export const sendMainSessionMessageBody = z.object({
 export type SendMainSessionMessageBody = z.infer<typeof sendMainSessionMessageBody>;
 
 /**
+ * What the developer says to the sub-session of a ticket. The same shape as the
+ * main session's, because it is the same gesture: the difference is only which
+ * conversation the message lands in, and that is the address.
+ */
+export const sendTicketMessageBody = z.object({
+  text: z.string().trim().min(1),
+});
+export type SendTicketMessageBody = z.infer<typeof sendTicketMessageBody>;
+
+/**
  * The angle a sub-session is asked to take. A first launch is always
  * `implement`; the choice only means something on a ticket that already failed,
  * where carrying on and stepping back to diagnose are two different jobs for
@@ -805,6 +816,12 @@ export type LaunchAngle = (typeof launchAngles)[number];
 
 export const launchTicketBody = z.object({
   angle: z.enum(launchAngles).default("implement"),
+  /**
+   * What the developer wrote in the ticket's conversation when asking. Handed
+   * to the sub-session with its assignment, so taking a stopped ticket back and
+   * saying what went wrong are one gesture rather than two.
+   */
+  message: z.string().trim().min(1).optional(),
 });
 export type LaunchTicketBody = z.infer<typeof launchTicketBody>;
 
@@ -1051,6 +1068,11 @@ export function mainSessionMessagesRoute(featureId: string): string {
 /** Where a ticket's sub-session is launched, and relaunched after a failure. */
 export function ticketSessionRoute(ticketId: string): string {
   return `${apiRoutes.tickets}/${ticketId}/session`;
+}
+
+/** Where the developer writes to the sub-session that is running on a ticket. */
+export function ticketMessagesRoute(ticketId: string): string {
+  return `${apiRoutes.tickets}/${ticketId}/messages`;
 }
 
 /** Where the developer hands back the test sheet they went through. */

@@ -130,7 +130,11 @@ _Éviter_ : sous-session de conflit, agent de merge, session de rattrapage
 **Angle de lancement** (`LaunchAngle`) :
 Sous quel angle une sous-session est lancée : `implement` pour construire, `diagnose`
 pour chercher ce qui cloche avant de retoucher quoi que ce soit. L'angle ne se pose
-qu'à la reprise d'un ticket arrêté ; un premier lancement construit.
+qu'à la reprise d'un ticket arrêté ; un premier lancement construit. Un lancement
+porte facultativement **ce que le développeur a écrit en le demandant**, gardé avec
+lui jusqu'à l'ouverture et remis à la session en plus de l'instruction de squad :
+reprendre un ticket et dire ce qui n'allait pas sont un seul geste, et les
+plafonds peuvent faire attendre le second des heures après le premier.
 _Éviter_ : mode, stratégie, intention
 
 **Étape** (`Step`) :

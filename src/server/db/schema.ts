@@ -212,6 +212,17 @@ export const tickets = sqliteTable(
     queuedAt: text("queued_at"),
     queuedAngle: text("queued_angle", { enum: launchAngles }),
     /**
+     * What the developer wrote in the ticket's conversation when asking for
+     * this launch, or null when they asked for it with a bare click.
+     *
+     * Written beside the launch and cleared with it, for the same reason the
+     * two columns above are stored rather than held in memory: squad owes the
+     * developer a launch it accepted, message included, and a restart that
+     * forgot the message would open a session that never heard what it was
+     * being taken back for.
+     */
+    queuedNote: text("queued_note"),
+    /**
      * The service session squad has on this ticket, if any: which job, when it
      * was asked for, and when it was actually opened. A row with a queue time
      * and no start time is waiting for a place under the caps, exactly like a

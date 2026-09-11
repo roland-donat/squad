@@ -907,10 +907,14 @@ export class Store {
    * failed ticket waiting for a place is still known to have failed, and the
    * session it resumes is still the one written on its row.
    */
-  queueLaunch(ticketId: string, angle: LaunchAngle): Ticket {
+  queueLaunch(ticketId: string, angle: LaunchAngle, note?: string | null): Ticket {
     this.db
       .update(tickets)
-      .set({ queuedAt: new Date().toISOString(), queuedAngle: angle })
+      .set({
+        queuedAt: new Date().toISOString(),
+        queuedAngle: angle,
+        queuedNote: note ?? null,
+      })
       .where(eq(tickets.id, ticketId))
       .run();
     return this.requireTicket(ticketId);
@@ -921,11 +925,14 @@ export class Store {
    * sub-session needs both, one to know what to say to it and one to know
    * whether there is a session to take back.
    */
-  queuedLaunch(ticketId: string): { angle: LaunchAngle; lifecycle: TicketLifecycle } | null {
+  queuedLaunch(
+    ticketId: string,
+  ): { angle: LaunchAngle; lifecycle: TicketLifecycle; note: string | null } | null {
     const row = this.db
       .select({
         queuedAt: tickets.queuedAt,
         queuedAngle: tickets.queuedAngle,
+        queuedNote: tickets.queuedNote,
         lifecycle: tickets.lifecycle,
       })
       .from(tickets)
@@ -935,7 +942,11 @@ export class Store {
     // The two columns are written together and cleared together, so an angle is
     // there whenever a timestamp is. The fallback is what the type asks for,
     // and it reads as a first launch, which is what a missing angle would be.
-    return { angle: row.queuedAngle ?? "implement", lifecycle: row.lifecycle };
+    return {
+      angle: row.queuedAngle ?? "implement",
+      lifecycle: row.lifecycle,
+      note: row.queuedNote,
+    };
   }
 
   /**
@@ -946,7 +957,7 @@ export class Store {
   dropQueuedLaunch(ticketId: string): Ticket {
     this.db
       .update(tickets)
-      .set({ queuedAt: null, queuedAngle: null })
+      .set({ queuedAt: null, queuedAngle: null, queuedNote: null })
       .where(eq(tickets.id, ticketId))
       .run();
     return this.requireTicket(ticketId);
@@ -1095,7 +1106,7 @@ export class Store {
       .update(tickets)
       // The launch request is consumed here and nowhere else: what was asked
       // for has happened, and a row that still said so would be scheduled again.
-      .set({ lifecycle: "running", sessionId, queuedAt: null, queuedAngle: null })
+      .set({ lifecycle: "running", sessionId, queuedAt: null, queuedAngle: null, queuedNote: null })
       .where(eq(tickets.id, ticketId))
       .run();
     return this.requireTicket(ticketId);
@@ -1601,7 +1612,7 @@ export class Store {
     }
     this.db
       .update(tickets)
-      .set({ lifecycle: "discarded", conclusion: reason, queuedAt: null })
+      .set({ lifecycle: "discarded", conclusion: reason, queuedAt: null, queuedNote: null })
       .where(eq(tickets.id, ticket.id))
       .run();
     return this.requireTicket(ticket.id);

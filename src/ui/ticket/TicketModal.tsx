@@ -34,8 +34,13 @@ const stateExplanations: Record<TicketState, string> = {
   queued:
     "En attente d'une place : le lancement est demandé, et la sous-session s'ouvrira dès qu'un plafond de concurrence le permettra.",
   running: "En cours : sa sous-session travaille dans son worktree.",
+  // Said as it happens, and not as it was once described: a sub-session ends
+  // when it reports its step. What survives is its session, which a correction
+  // takes back, and its branch, which holds the work. Claiming the session was
+  // still there contradicted, on the same screen, the conversation column
+  // saying it had stopped.
   "awaiting-validation":
-    "Étape rapportée : la fiche de tests attend d'être passée en revue. La sous-session n'est pas détruite, elle reste le fil où la correction se fera.",
+    "Étape rapportée : la fiche de tests attend d'être passée en revue. La sous-session s'est arrêtée, mais son fil, sa branche et son worktree sont conservés : ce que vous laissez décoché la reprend là où elle en était.",
   settling:
     "Squad vérifie : avant de vous montrer la fiche, il lance lui-même tout ce qu'une commande, un test ou un navigateur peut trancher. Ce qui reste après est ce dont vous serez averti.",
   "settling-queued":

@@ -10,6 +10,7 @@ import type {
 } from "../../shared/api";
 import { isResumable } from "../../shared/graph";
 import { ApiError, launchTicket } from "../api";
+import { Markdown, MarkdownText } from "../markdown/Markdown";
 import { Questions } from "../question/Questions";
 import { Thread } from "../session/Thread";
 import { TestSheet } from "./TestSheet";
@@ -84,14 +85,21 @@ export function TicketPanel({
 
       <Summary summary={ticket.summary} />
 
-      {ticket.description !== "" && <p className="ticket__description">{ticket.description}</p>}
+      {ticket.description !== "" && (
+        <Markdown text={ticket.description} subset="full" className="ticket__description" />
+      )}
 
       {ticket.acceptanceCriteria.length > 0 && (
         <>
           <h3 className="ticket__heading">Critères d'acceptation</h3>
           <ul className="ticket__criteria">
             {ticket.acceptanceCriteria.map((criterion) => (
-              <li key={criterion.id}>{criterion.text}</li>
+              // The same string the test sheet paints, painted the same way: a
+              // criterion is copied verbatim onto its sheet point, and showing
+              // its source here and its rendering there reads as two texts.
+              <li key={criterion.id}>
+                <MarkdownText text={criterion.text} />
+              </li>
             ))}
           </ul>
         </>
@@ -100,7 +108,7 @@ export function TicketPanel({
       {ticket.conclusion !== null && (
         <>
           <h3 className="ticket__heading">Conclusion</h3>
-          <p className="ticket__description">{ticket.conclusion}</p>
+          <Markdown text={ticket.conclusion} subset="full" className="ticket__description" />
         </>
       )}
 
@@ -158,9 +166,11 @@ function Summary({ summary }: { summary: TicketSummary | null }) {
   }
   return (
     <div className="ticket__summary">
-      <p className="ticket__problem">{summary.problem}</p>
-      <p className="ticket__context">{summary.context}</p>
-      {summary.example !== null && <p className="ticket__example">{summary.example}</p>}
+      <Markdown text={summary.problem} subset="inline" className="ticket__problem" />
+      <Markdown text={summary.context} subset="inline" className="ticket__context" />
+      {summary.example !== null && (
+        <Markdown text={summary.example} subset="inline" className="ticket__example" />
+      )}
     </div>
   );
 }

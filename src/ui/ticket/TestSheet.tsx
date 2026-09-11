@@ -7,6 +7,7 @@ import type {
 } from "../../shared/api";
 import { pointsAwaitingDeveloper } from "../../shared/validation";
 import { ApiError, reviewTestSheet, settleTestSheet } from "../api";
+import { Markdown, MarkdownText } from "../markdown/Markdown";
 
 /**
  * The test sheet of a reported step: what the agent built, what a test covers,
@@ -31,9 +32,10 @@ export function TestSheet({ ticketId, report }: { ticketId: string; report: Step
   return (
     <>
       <h3 className="ticket__heading">Fin d'étape</h3>
-      <p className="ticket__description">{report.work}</p>
+      <Markdown text={report.work} subset="inline" className="ticket__description" />
       <p className="sheet__recommendation">
-        <span className="chip">recommandation</span> {report.recommendation}
+        <span className="chip">recommandation</span>{" "}
+        <MarkdownText text={report.recommendation} />
       </p>
 
       <Settled
@@ -99,7 +101,7 @@ function Settled({
             {"settlement" in entry && entry.settlement !== null && (
               <span className="chip chip--verdict">{settlementLabels[entry.settlement.outcome]}</span>
             )}{" "}
-            {entry.text}
+            <MarkdownText text={entry.text} />
             <Note entry={entry} />
           </li>
         ))}
@@ -112,7 +114,9 @@ function Settled({
 function Note({ entry }: { entry: CriterionCoverage | TestSheetPoint }) {
   const text =
     "settlement" in entry ? (entry.settlement?.note ?? null) : (entry.note ?? null);
-  return text === null ? null : <p className="sheet__comment">{text}</p>;
+  // Full subset: a note is where a command's output lands, and a fenced block
+  // is the difference between reading evidence and re-establishing it.
+  return text === null ? null : <Markdown text={text} subset="full" className="sheet__comment" />;
 }
 
 const settlementLabels: Record<SettlementOutcome, string> = {
@@ -231,7 +235,9 @@ function SheetForm({
                   setChecked((current) => ({ ...current, [point.id]: event.target.checked }))
                 }
               />
-              <span className="sheet__text">{point.text}</span>
+              <span className="sheet__text">
+                <MarkdownText text={point.text} />
+              </span>
               <span className="chip">{originLabel(point)}</span>
               {/* What squad's pass concluded on this point, next to the point
                   it hands over. Shown here and not only in the settled list
@@ -246,18 +252,24 @@ function SheetForm({
               )}
             </label>
             {point.settlement !== null && (
-              <p className="sheet__comment">{point.settlement.note}</p>
+              <Markdown text={point.settlement.note} subset="full" className="sheet__comment" />
             )}
             {point.settlement?.recommendation != null && (
               <p className="sheet__verdict">
                 <span className="chip">recommandé</span>
-                <span className="sheet__text">{point.settlement.recommendation}</span>
+                <span className="sheet__text">
+                  <MarkdownText text={point.settlement.recommendation} />
+                </span>
               </p>
             )}
             {point.settlement === null &&
               point.criterionId !== null &&
               notes[point.criterionId] !== undefined && (
-                <p className="sheet__comment">{notes[point.criterionId]}</p>
+                <Markdown
+                  text={notes[point.criterionId] ?? ""}
+                  subset="full"
+                  className="sheet__comment"
+                />
               )}
             <label className="field">
               <span>Commentaire</span>
@@ -310,7 +322,9 @@ function ReviewedSheet({ report }: { report: StepReport }) {
           </li>
         ))}
       </ul>
-      {report.feedback !== null && <p className="sheet__comment">{report.feedback}</p>}
+      {report.feedback !== null && (
+        <Markdown text={report.feedback} subset="full" className="sheet__comment" />
+      )}
       <p className="empty">
         Fiche rendue le {new Date(report.reviewedAt ?? "").toLocaleString("fr-FR")}.
       </p>

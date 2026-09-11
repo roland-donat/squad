@@ -69,16 +69,21 @@ export const textBounds = {
 } as const;
 
 /**
- * What the summary is not allowed to turn into. Said in the fields themselves so
- * that it is read where it applies: a heading inside a field of 240 characters
- * is noise, and a table inside a summary is detail wearing a summary's clothes.
+ * What an agent may write, said in the fields themselves so that it is read
+ * where it applies. Two subsets and not one: a heading inside a field of 240
+ * characters is noise, and a table inside a summary is detail wearing a
+ * summary's clothes.
  *
- * Deliberately says nothing about Markdown. Squad renders none yet, and telling
- * an agent it may write `**bold**` before anything renders it would put literal
- * asterisks on the one screen this whole design exists to make readable. The
- * Markdown subsets are declared here when the renderer lands.
+ * Squad's renderer honours exactly these two, and paints Markdown as React
+ * elements rather than as HTML, so nothing an agent writes can become markup
+ * (`src/ui/markdown/Markdown.tsx`). A block outside the subset is not dropped:
+ * its text is kept and its structure flattened, because losing what an agent
+ * wrote is worse than showing it plainly.
  */
-const shortProse = "One short block of plain prose: no headings, no tables.";
+const inlineMarkdown =
+  "Markdown, inline only: **bold**, *italic*, `code`, [links](url), short bullet lists and fenced code blocks. No headings, no tables, no blockquotes: their text is kept and their structure flattened.";
+const fullMarkdown =
+  "Markdown in full: headings, bullet and numbered lists, tables, fenced code blocks, blockquotes, links.";
 
 export type SquadTool = (typeof squadTools)[keyof typeof squadTools];
 
@@ -98,7 +103,7 @@ const summaryFields = {
     .min(1)
     .max(textBounds.context)
     .describe(
-      `The standing state of things this ticket starts from: what a reader needs in order to understand the problem below, and strictly nothing else. At most ${textBounds.context} characters. ${shortProse}`,
+      `The standing state of things this ticket starts from: what a reader needs in order to understand the problem below, and strictly nothing else. At most ${textBounds.context} characters. ${inlineMarkdown}`,
     ),
   problem: z
     .string()
@@ -106,7 +111,7 @@ const summaryFields = {
     .min(1)
     .max(textBounds.problem)
     .describe(
-      `What is wrong or missing, in ONE sentence of at most ${textBounds.problem} characters. What is wrong, not what you will do about it: what you will do is the description.`,
+      `What is wrong or missing, in ONE sentence of at most ${textBounds.problem} characters. What is wrong, not what you will do about it: what you will do is the description. ${inlineMarkdown}`,
     ),
 };
 
@@ -124,12 +129,12 @@ const createTicketCommon = {
   description: z
     .string()
     .describe(
-      `The detail, for the session that will build this: what to build, in enough depth for a fresh session, with no bound on its length. This is where everything that did not fit in the summary goes.`,
+      `The detail, for the session that will build this: what to build, in enough depth for a fresh session, with no bound on its length. This is where everything that did not fit in the summary goes. ${fullMarkdown}`,
     ),
   acceptanceCriteria: z
     .array(z.string().trim().min(1))
     .default([])
-    .describe("Checkable statements; the test sheet is built from them."),
+    .describe(`Checkable statements; the test sheet is built from them. ${inlineMarkdown}`),
   blockedBy: z
     .array(z.string().min(1))
     .default([])
@@ -176,7 +181,7 @@ const createTicketShape = {
         .max(textBounds.example)
         .optional()
         .describe(
-          `The problem above shown happening, on the running example this feature already carries and which your briefing names. Required on a \`build\` or \`decision\` ticket, and refused on a \`fix\` one, whose breakage is a red command with no business example to be shown on. Never invent a second example: the developer learns one decor per feature, and a new fiction on every ticket is the cost this field exists to remove. At most ${textBounds.example} characters. ${shortProse}`,
+          `The problem above shown happening, on the running example this feature already carries and which your briefing names. Required on a \`build\` or \`decision\` ticket, and refused on a \`fix\` one, whose breakage is a red command with no business example to be shown on. Never invent a second example: the developer learns one decor per feature, and a new fiction on every ticket is the cost this field exists to remove. At most ${textBounds.example} characters. ${inlineMarkdown}`,
         ),
     })
     .describe(
@@ -203,7 +208,7 @@ const setRunningExampleShape = {
     .min(1)
     .max(textBounds.runningExample)
     .describe(
-      `The decor every ticket of this feature will illustrate its own problem on: the actors of this business and the objects they handle, named and given just enough substance to be reused. Concrete and small: two or three named actors beat an abstract description. At most ${textBounds.runningExample} characters. ${shortProse}`,
+      `The decor every ticket of this feature will illustrate its own problem on: the actors of this business and the objects they handle, named and given just enough substance to be reused. Concrete and small: two or three named actors beat an abstract description. At most ${textBounds.runningExample} characters. ${inlineMarkdown}`,
     ),
 };
 
@@ -237,7 +242,7 @@ const askQuestionShape = {
     .string()
     .trim()
     .min(1)
-    .describe("What you are asking, in one or two sentences, readable by someone who did not watch."),
+    .describe(`What you are asking, in one or two sentences, readable by someone who did not watch. ${inlineMarkdown}`),
   options: z
     .array(
       z.object({
@@ -247,7 +252,7 @@ const askQuestionShape = {
           .min(1)
           .max(textBounds.optionLabel)
           .describe(
-            `The road itself, in at most ${textBounds.optionLabel} characters: a line the developer can pick at a glance. What it costs does NOT go here, it goes in \`consequence\`.`,
+            `The road itself, in at most ${textBounds.optionLabel} characters: a line the developer can pick at a glance. What it costs does NOT go here, it goes in \`consequence\`. ${inlineMarkdown}`,
           ),
         consequence: z
           .string()
@@ -255,7 +260,7 @@ const askQuestionShape = {
           .min(1)
           .max(textBounds.optionConsequence)
           .describe(
-            `What taking this road entails, in at most ${textBounds.optionConsequence} characters. Required, because it is the whole difference between a list of names and a choice: without it the developer has to reconstruct what each road costs, which is the work they asked you to do.`,
+            `What taking this road entails, in at most ${textBounds.optionConsequence} characters. Required, because it is the whole difference between a list of names and a choice: without it the developer has to reconstruct what each road costs, which is the work they asked you to do. ${inlineMarkdown}`,
           ),
         illustration: z
           .string()
@@ -264,7 +269,7 @@ const askQuestionShape = {
           .max(textBounds.optionConsequence)
           .optional()
           .describe(
-            "That consequence shown on this feature's running example, when showing it sharpens it. Leave it out rather than pad: most implementation questions have nothing useful to show, and filler here costs the developer a reading for nothing.",
+            `That consequence shown on this feature's running example, when showing it sharpens it. Leave it out rather than pad: most implementation questions have nothing useful to show, and filler here costs the developer a reading for nothing. ${inlineMarkdown}`,
           ),
       }),
     )
@@ -291,7 +296,7 @@ const reportStepShape = {
     .min(1)
     .max(textBounds.work)
     .describe(
-      `What you built and how, for someone who did not watch, in at most ${textBounds.work} characters. Bounded on purpose: this is read on the same screen as the test sheet, which is the one screen where the developer has something to do, and what does not fit belongs in this thread, which they can open.`,
+      `What you built and how, for someone who did not watch, in at most ${textBounds.work} characters. Bounded on purpose: this is read on the same screen as the test sheet, which is the one screen where the developer has something to do, and what does not fit belongs in this thread, which they can open. ${inlineMarkdown}`,
     ),
   coverage: z
     .array(
@@ -311,7 +316,7 @@ const reportStepShape = {
           .min(1)
           .optional()
           .describe(
-            "What you ran and what it answered. Required on a `checked` criterion: it is what the developer reads instead of doing the work again. Worth writing on a `judgement` one too, to say what you already established around the part only a person can settle; it is shown next to that point.",
+            `What you ran and what it answered. Required on a \`checked\` criterion: it is what the developer reads instead of doing the work again. Worth writing on a \`judgement\` one too, to say what you already established around the part only a person can settle; it is shown next to that point. ${fullMarkdown} Put command output in a fenced block: it is painted as one and stays readable.`,
           ),
       }),
     )
@@ -322,13 +327,13 @@ const reportStepShape = {
     .array(z.string().trim().min(1))
     .default([])
     .describe(
-      "Points you suggest checking by hand beyond the criteria: what the ticket did not foresee and only a person can judge. The same rule holds here: what you can settle yourself, settle, and say so in what you built rather than suggesting it.",
+      `Points you suggest checking by hand beyond the criteria: what the ticket did not foresee and only a person can judge. The same rule holds here: what you can settle yourself, settle, and say so in what you built rather than suggesting it. ${inlineMarkdown}`,
     ),
   recommendation: z
     .string()
     .trim()
     .min(1)
-    .describe("What you recommend doing next, in one or two sentences."),
+    .describe(`What you recommend doing next, in one or two sentences. ${inlineMarkdown}`),
 };
 
 const discardTicketShape = {
@@ -363,7 +368,7 @@ const settleSheetShape = {
           .trim()
           .min(1)
           .describe(
-            "What you ran and what it answered, or why nothing can answer. Required whatever the outcome: it is the whole of what the developer reads instead of doing the work again.",
+            `What you ran and what it answered, or why nothing can answer. Required whatever the outcome: it is the whole of what the developer reads instead of doing the work again. ${fullMarkdown} Put command output in a fenced block: it is painted as one and stays readable.`,
           ),
         recommendation: z
           .string()
@@ -371,7 +376,7 @@ const settleSheetShape = {
           .min(1)
           .optional()
           .describe(
-            "On a `decision`, and there only: the road you recommend, in one sentence. Required, because it is what squad takes under go-as-recommended and what the developer reads first otherwise.",
+            `On a \`decision\`, and there only: the road you recommend, in one sentence. Required, because it is what squad takes under go-as-recommended and what the developer reads first otherwise. ${inlineMarkdown}`,
           ),
         scopeChanging: z
           .boolean()
@@ -394,7 +399,7 @@ const settleDecisionShape = {
     .trim()
     .min(1)
     .describe(
-      "What was decided, in the developer's own terms, in enough detail for a fresh session to act on it without reading this thread.",
+      `What was decided, in the developer's own terms, in enough detail for a fresh session to act on it without reading this thread. ${fullMarkdown}`,
     ),
 };
 

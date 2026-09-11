@@ -1604,3 +1604,148 @@ button[disabled] {
 .ticket__example {
   font-style: italic;
 }
+
+/* Prose an agent wrote, painted as elements rather than as one block of text.
+   Deliberately quiet: this is read inside panels that already have their own
+   headings and rules, so it borrows their rhythm instead of setting its own.
+   The first and last blocks lose their outer margin, so a rendered paragraph
+   sits exactly where a plain one used to. */
+.prose > :first-child {
+  margin-top: 0;
+}
+
+.prose > :last-child {
+  margin-bottom: 0;
+}
+
+.prose p {
+  margin: 0 0 0.5rem;
+  line-height: 1.5;
+}
+
+.prose h4,
+.prose h5,
+.prose h6 {
+  margin: 0.9rem 0 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.prose ul,
+.prose ol {
+  margin: 0 0 0.5rem;
+  padding-left: 1.2rem;
+  line-height: 1.5;
+}
+
+.prose li {
+  margin: 0.15rem 0;
+}
+
+.prose code {
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  font-size: 0.9em;
+}
+
+/* A fenced block is nearly always the output of a command: it scrolls inside
+   its own box rather than pushing the panel sideways. */
+.prose pre {
+  margin: 0 0 0.5rem;
+  padding: 0.6rem 0.7rem;
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  overflow-x: auto;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.prose pre code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}
+
+.prose blockquote {
+  margin: 0 0 0.5rem;
+  padding-left: 0.7rem;
+  border-left: 3px solid var(--line);
+  color: var(--ink-soft);
+}
+
+.prose hr {
+  margin: 0.8rem 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+/* Wide content scrolls in its own box, so the panel never scrolls sideways. */
+.prose__scroll {
+  margin: 0 0 0.5rem;
+  overflow-x: auto;
+}
+
+.prose table {
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.prose th,
+.prose td {
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.prose th {
+  background: var(--surface-sunken);
+  font-weight: 600;
+}
+
+/* Prose may never widen the panel it sits in.
+ *
+ * A grid or flex item takes its content as its automatic minimum size, so a
+ * fenced block of command output inside a test sheet point pushed the whole
+ * ticket panel sideways: the `overflow-x: auto` on the block never got the
+ * chance to scroll, because its track had already grown to fit it. `min-width`
+ * of zero is what lets these tracks shrink, and it has to be said on every
+ * container between the panel and the prose, not only on the prose itself.
+ *
+ * Measured on a real instance before this: a 431px panel scrolling to 536px,
+ * with the sheet's own checkbox row cut off on the right. */
+.form,
+.list,
+.thread,
+.thread__entry,
+.sheet__points,
+.sheet__point,
+.sheet__check,
+.question,
+.question__options,
+.ticket__summary,
+.prose {
+  min-width: 0;
+}
+
+/* `.sheet__text` is deliberately absent from that list. It carries a floor of
+   12rem, and the floor is what puts a point's wording on a line of its own
+   rather than letting it be squeezed between its checkbox and its chips. The
+   same specificity later in the file would have silently undone it, which is
+   the ordinary way a floor disappears. */
+
+/* And what a scroll container must never do is size itself to its content. */
+.prose pre,
+.prose__scroll {
+  max-width: 100%;
+}
+
+/* Letting a track shrink is only half of it. A long unbroken run, a 120
+   character URL among them, no longer widens its panel, so without this it
+   leaves through the side instead, and there is no scroll container on a
+   paragraph to catch it. */
+.prose {
+  overflow-wrap: anywhere;
+}

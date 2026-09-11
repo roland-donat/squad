@@ -40,7 +40,17 @@ export function AutonomySwitch({ feature }: { feature: Feature }) {
       )}
       {feature.goAsRecommended && halt !== null && (
         <>
-          <button type="button" className="chip" disabled={busy} onClick={() => void arming.run()}>
+          {/* The whole account on the button, and not only on the prose beside
+              it: the line is cut where it stops fitting, and on a narrow window
+              it is not shown at all. The button is the one thing always there,
+              so it is what has to be able to give the account back. */}
+          <button
+            type="button"
+            className="chip"
+            disabled={busy}
+            title={`${haltLabels[halt.reason]} : ${halt.detail}`}
+            onClick={() => void arming.run()}
+          >
             go-as-recommandé : interrompu, relancer
           </button>
           <span className="autonomy__halt">

@@ -279,10 +279,11 @@ body {
 
 /*
  * The work, in one row filling the shell: what waits on me down the left, the
- * map it waits in taking everything else, and the drawer laid over the map's
- * right edge for the one thing being read. The drawer overlays rather than
- * takes a column of its own, so opening a ticket never resizes the viewport,
- * and the framing one has just made stays valid.
+ * map it waits in taking everything else, and the feature's conversation laid
+ * over the map's right edge. It overlays rather than takes a column of its own,
+ * so unfolding it never resizes the viewport, and the framing one has just made
+ * stays valid. A ticket is not here at all: it is treated in a modal over the
+ * whole thing (ADR 0010).
  */
 .app__work {
   position: relative;
@@ -298,9 +299,9 @@ body {
 }
 
 /*
- * Every child of the row is placed by hand, none auto: the thread drawer shares
+ * Every child of the row is placed by hand, none auto: the session bar shares
  * the map's cell, and an automatically placed map would be pushed out of a cell
- * the drawer had already claimed rather than laid underneath it.
+ * the bar had already claimed rather than laid underneath it.
  */
 .rail {
   grid-column: 1;
@@ -314,9 +315,9 @@ body {
 
 /*
  * Under a certain width the rail steps out of the row and onto the map, opened
- * by a button in the header. Three zones and a drawer do not fit side by side
- * on a laptop, and stacking them would give up the fixed height the shell is
- * built on.
+ * by a button in the header. Three zones and a session bar do not fit side by
+ * side on a laptop, and stacking them would give up the fixed height the shell
+ * is built on.
  */
 .rail--over {
   position: absolute;
@@ -459,13 +460,6 @@ body {
   cursor: col-resize;
 }
 
-.grip--height {
-  left: 0;
-  right: 0;
-  top: -4px;
-  height: 9px;
-  cursor: row-resize;
-}
 
 .grip:hover,
 .grip:focus-visible {
@@ -1157,6 +1151,10 @@ button[disabled] {
   padding: 0.25rem;
   display: grid;
   gap: 0.85rem;
+  /* A ceiling for a thread read inside a page. Where the thread owns its
+     column and its height, the column decides instead: `.talk` in the ticket
+     modal and `.sidebar` beside the map both run the full height, and the cap
+     left the rest of them empty with the composer stranded in the middle. */
   max-height: 26rem;
   overflow-y: auto;
 }
@@ -1224,12 +1222,7 @@ button[disabled] {
   margin-bottom: 0;
 }
 
-/*
- * The ticket panel: what a node opens. It takes the place of the main session
- * thread rather than sitting beside it, because they are read one at a time and
- * a third column would shrink the graph for nothing.
- */
-.panel--ticket .panel__context,
+/* Who one is talking to, above the thread one is talking in. */
 .panel--session .panel__context {
   display: flex;
   align-items: center;
@@ -1268,13 +1261,6 @@ button[disabled] {
   display: grid;
   gap: 0.15rem;
   margin: 0 0 1rem;
-}
-
-.ticket__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 1.25rem;
 }
 
 .button--secondary {
@@ -1914,4 +1900,11 @@ button[disabled] {
     border-left: 0;
     border-top: 1px solid var(--line);
   }
+}
+
+/* A thread that owns its column is bounded by the column, not by the ceiling
+   meant for one read inside a page. */
+.talk .thread,
+.sidebar .thread {
+  max-height: none;
 }

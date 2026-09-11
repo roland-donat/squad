@@ -152,6 +152,15 @@ export class SubSessions {
     // is a new attempt, not the continuation of one squad already chased.
     this.asked.delete(ticket.id);
     const queued = store.queueLaunch(ticket.id, angle, message ?? null);
+    // On the thread the moment the launch is accepted, and not when the session
+    // finally opens. Two reasons, and the first is the one that matters: an
+    // opening that fails drops the queued launch and its note with it, and the
+    // interface has already cleared its own copy, so the words would exist
+    // nowhere. The second is that a launch can wait hours for a place, and a
+    // message nobody can see is a message the developer will write twice.
+    if (message !== undefined && message !== null && message !== "") {
+      this.append(ticket, ticket.sessionId ?? "", { kind: "pilot", text: message });
+    }
     this.publishGraph(ticket.featureId);
     this.dependencies.dispatch.schedule();
     return queued;
@@ -410,8 +419,10 @@ export class SubSessions {
 
     const message = firstMessage(ticket, opening, note ?? null);
     // Written on the thread before it is handed over, so what the session was
-    // asked for is on the record even if it dies reading it.
-    this.append(ticket, session.id, { kind: "pilot", text: message });
+    // asked for is on the record even if it dies reading it. Squad's own
+    // instruction only: the developer's note went on the thread when the launch
+    // was accepted, and repeating it here would show it twice.
+    this.append(ticket, session.id, { kind: "pilot", text: openingInstruction(ticket, opening) });
     try {
       await session.send(message);
     } catch (failure) {

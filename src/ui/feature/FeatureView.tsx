@@ -24,14 +24,18 @@ import { WaitingPanel } from "./WaitingPanel";
 
 /**
  * One feature, in a tab of its own: what waits on it down the left, the map it
- * waits in taking everything else, the ticket a node opens laid over the map's
- * right edge, and the feature's own thread in a drawer along the bottom.
+ * waits in taking everything else, and the feature's own conversation in a
+ * foldable bar down the right.
  *
- * Both drawers lie over the map rather than taking a column and a row from it.
- * That is what ADR 0006 asks for: opening one must not resize the viewport, or
- * the framing the reader has just made would be undone by the very click that
- * needed it. What they cover is handed to the map instead, which translates a
- * node back out from underneath without touching the scale.
+ * The bar lies over the map rather than taking a column from it. That is what
+ * ADR 0006 asks for: unfolding it must not resize the viewport, or the framing
+ * the reader has just made would be undone by the very click that needed it.
+ * What it covers is handed to the map instead, which translates a node back out
+ * from underneath without touching the scale.
+ *
+ * A ticket is not on this screen at all. Opening one opens a modal over the
+ * whole of it, because treating a ticket is not a glance taken while reading
+ * the map, and Escape gives the map back (ADR 0010).
  */
 
 /** Below this, the waiting column steps out of the row and onto the map. */
@@ -136,11 +140,11 @@ export function FeatureView({
     Math.max(360, Math.round(window.innerWidth * 0.28)),
   );
   // What the session bar hides of the map, so the map can bring a covered node
-  // back into what is left. The ticket modal is not counted: it covers the map
-  // entirely and gives it back on Escape, so there is nothing to translate out
-  // from under. In pixels, because that is what the viewport works in.
+  // back into what is left, and the only obstruction there is: the ticket modal
+  // covers the map entirely and gives it back on Escape, so there is nothing to
+  // translate out from under it. In pixels, because that is what the viewport
+  // works in.
   const obstructedRight = route.threadOpen ? threadWidth : 0;
-  const obstructedBottom = 0;
 
   const narrow = useMediaQuery(narrowScreen);
   const [waitingOpen, setWaitingOpen] = useState(false);
@@ -218,7 +222,6 @@ export function FeatureView({
         style={
           {
             "--obstructed": `${obstructedRight}px`,
-            "--obstructed-bottom": `${obstructedBottom}px`,
           } as CSSProperties
         }
       >
@@ -245,7 +248,6 @@ export function FeatureView({
             awaitingDeveloper={ticketsAwaitingDeveloper(waiting)}
             selectedId={openedTicket?.id ?? null}
             obstructedRight={obstructedRight}
-            obstructedBottom={obstructedBottom}
             onSelect={(ticketId) => go({ ticketId })}
             onDeselect={() => {
               // Only when something is open: a press on the background is the

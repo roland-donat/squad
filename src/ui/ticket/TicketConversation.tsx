@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { LaunchAngle, ThreadEntry, Ticket, TicketState } from "../../shared/api";
+import type { LaunchAngle, ThreadEntry, Ticket } from "../../shared/api";
 import { isResumable } from "../../shared/graph";
 import { launchTicket, sendTicketMessage } from "../api";
 import { Thread } from "../session/Thread";
@@ -47,15 +47,20 @@ function Empty({ ticket }: { ticket: Ticket }) {
 }
 
 /**
- * What the column may do on a ticket, and it is read from the ticket rather
- * than guessed at each button.
+ * What the column may do on a ticket, read from the ticket rather than guessed
+ * at each button.
  *
- * `write` is every state where the sub-session is still there to hear it, and
- * that includes a step already reported: the glossary is explicit that
- * reporting does not destroy the session, since it is the thread the correction
- * will be made on. Getting this wrong told the developer a ticket awaiting
- * their verdict was finished, on the very screen where they were about to give
- * it.
+ * `write` is the states where a sub-session is actually there to hear it, and
+ * that is narrower than it looks. **A sub-session normally ends when it reports
+ * its step**: squad writes "the sub-session ended after reporting its step" on
+ * the thread, and the correction path opens a fresh launch rather than talking
+ * to a session it expects to find. So `awaiting-validation` is not a state one
+ * writes into, it is the state where the test sheet is the way back: what the
+ * developer leaves unchecked is what returns to the session, and the column
+ * says so rather than offering a box whose every press would be refused.
+ *
+ * Getting this wrong offered "Envoyer" on a ticket awaiting a verdict, and the
+ * refusal pointed at launching or resuming, neither of which that state allows.
  */
 type Mode = "write" | "resume" | "launch" | "closed";
 
@@ -63,36 +68,43 @@ function conversationMode(ticket: Ticket): Mode {
   if (ticket.kind === "decision") return "closed";
   if (isResumable(ticket.state)) return "resume";
   if (ticket.state === "ready") return "launch";
-  switch (ticket.state) {
-    case "running":
-    case "awaiting-validation":
-    case "settling":
-    case "settling-queued":
-      return "write";
-    default:
-      return "closed";
-  }
+  return ticket.state === "running" ? "write" : "closed";
 }
 
-/** Why there is nothing to write, said in the terms of the state that says so. */
-const closedBecause: Record<TicketState, string> = {
-  blocked: "Rien à dire encore : ce ticket part quand ses bloqueurs auront fusionné.",
-  queued: "Le lancement est demandé : la sous-session s'ouvrira dès qu'une place se libère.",
-  merging: "Sa branche revient dans la branche de feature : sa sous-session est déjà fermée.",
-  "awaiting-decision": "Ce ticket se tranche dans la session principale.",
-  merged: "Ce ticket est fusionné. Son fil se relit, il ne se reprend plus.",
-  discarded: "Ce ticket est écarté. Son fil se relit, il ne se reprend plus.",
-  // Reached only if a state stops being one of the above: the column says
-  // nothing rather than claiming something false about the session.
-  ready: "",
-  running: "",
-  "awaiting-validation": "",
-  settling: "",
-  "settling-queued": "",
-  failed: "",
-  interrupted: "",
-  conflict: "",
-};
+/**
+ * Why there is nothing to write, and where the answer is instead. Never a bare
+ * "nothing to do here": every one of these states has somewhere the developer
+ * acts, and naming it is the whole use of saying anything at all.
+ */
+function closedBecause(ticket: Ticket): string {
+  // A decision ticket is settled in the feature's thread, and that is the
+  // glossary's rule, not this screen's.
+  if (ticket.kind === "decision") return "Ce ticket se tranche dans la session principale.";
+  switch (ticket.state) {
+    case "blocked":
+      return "Rien à dire encore : ce ticket part quand ses bloqueurs auront fusionné.";
+    case "queued":
+      return "Le lancement est demandé : la sous-session s'ouvrira dès qu'une place se libère.";
+    case "awaiting-validation":
+      return "L'étape est rapportée et la sous-session s'est arrêtée. C'est la fiche de tests, dans l'onglet Résumé, qui repart vers elle : ce que vous y laissez décoché est ce qu'elle corrigera.";
+    // A build or a fix ticket reads as awaiting a decision when the only points
+    // left on its sheet are arbitrations. They are taken on that sheet, a few
+    // centimètres d'ici, and not in another session.
+    case "awaiting-decision":
+      return "Il ne reste que des arbitrages sur sa fiche de tests : ils se prennent dans l'onglet Résumé.";
+    case "settling":
+    case "settling-queued":
+      return "Squad vérifie sa fiche lui-même : ce qui restera vous sera montré après, dans l'onglet Résumé.";
+    case "merging":
+      return "Sa branche revient dans la branche de feature : sa sous-session est déjà fermée.";
+    case "merged":
+      return "Ce ticket est fusionné. Son fil se relit, il ne se reprend plus.";
+    case "discarded":
+      return "Ce ticket est écarté. Son fil se relit, il ne se reprend plus.";
+    default:
+      return "";
+  }
+}
 
 /**
  * What a draft is worth keeping in: the browser, per ticket, and squad never
@@ -102,10 +114,11 @@ const closedBecause: Record<TicketState, string> = {
  */
 function useDraft(ticketId: string): [string, (text: string) => void] {
   const key = `squad.ticket-draft.${ticketId}`;
+  // Read once, because this hook is remounted when the ticket changes: the
+  // column is keyed by ticket id. Resynchronising in an effect instead painted
+  // one frame of the previous ticket's draft under the new ticket's title,
+  // which is what walking back through history did.
   const [text, setText] = useState(() => window.localStorage.getItem(key) ?? "");
-  useEffect(() => {
-    setText(window.localStorage.getItem(key) ?? "");
-  }, [key]);
   return [
     text,
     (next: string) => {
@@ -116,6 +129,22 @@ function useDraft(ticketId: string): [string, (text: string) => void] {
   ];
 }
 
+/**
+ * Forgets the draft of a ticket that will never send it.
+ *
+ * A draft is written on every keystroke and cleared when it goes out. On a
+ * ticket that merges or is discarded it goes nowhere, there is no box left to
+ * empty, and nothing would ever remove it. Cleared here rather than swept from
+ * elsewhere: this is the one place that knows both the ticket and its state,
+ * and a sweep over the whole store cannot tell a live draft from a dead one.
+ */
+function useForgetDraftWhenDone(ticket: Ticket): void {
+  const done = ticket.state === "merged" || ticket.state === "discarded";
+  useEffect(() => {
+    if (done) window.localStorage.removeItem(`squad.ticket-draft.${ticket.id}`);
+  }, [done, ticket.id]);
+}
+
 function Composer({
   ticket,
   onOpenMainSession,
@@ -124,6 +153,7 @@ function Composer({
   onOpenMainSession: () => void;
 }) {
   const [text, setText] = useDraft(ticket.id);
+  useForgetDraftWhenDone(ticket);
   const mode = conversationMode(ticket);
   const running = mode === "write";
   const resumable = mode === "resume";
@@ -135,22 +165,29 @@ function Composer({
   };
   const sent = useSubmission(() => act("implement"));
   const diagnosed = useSubmission(() => act("diagnose"));
-
-  // Settled where the glossary says it is settled, and the column says so
-  // rather than offering a box that would write into nothing.
-  if (ticket.kind === "decision") {
-    return (
-      <p className="talk__closed">
-        Ce ticket se tranche dans la session principale.{" "}
-        <button type="button" className="link" onClick={onOpenMainSession}>
-          l'ouvrir
-        </button>
-      </p>
-    );
-  }
+  // One flight for the two of them: they ask for the same launch under two
+  // angles, so a second press before the first returns is refused by the server
+  // for a reason the developer never caused.
+  const busy = sent.busy || diagnosed.busy;
 
   if (mode === "closed") {
-    return <p className="talk__closed">{closedBecause[ticket.state]}</p>;
+    return (
+      <p className="talk__closed">
+        {closedBecause(ticket)}
+        {/* Only a decision ticket is answered somewhere else entirely, so only
+            it gets a way there. Everything else is answered in this modal, on
+            the other side of it, and a link would send the reader away from the
+            screen that holds their own answer. */}
+        {ticket.kind === "decision" && (
+          <>
+            {" "}
+            <button type="button" className="link" onClick={onOpenMainSession}>
+              l'ouvrir
+            </button>
+          </>
+        )}
+      </p>
+    );
   }
 
   return (
@@ -175,7 +212,7 @@ function Composer({
         />
       </label>
       <div className="talk__actions">
-        <button type="submit" disabled={sent.busy || (running && text.trim() === "")}>
+        <button type="submit" disabled={busy || (running && text.trim() === "")}>
           {running
             ? "Envoyer"
             : resumable
@@ -190,7 +227,7 @@ function Composer({
           <button
             type="button"
             className="button--secondary"
-            disabled={diagnosed.busy}
+            disabled={busy}
             onClick={() => void diagnosed.run()}
           >
             Basculer en diagnostic

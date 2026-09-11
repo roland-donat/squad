@@ -110,7 +110,11 @@ export function TicketModal({
             <DetailTab ticket={ticket} questions={questions} />
           )}
         </section>
+        {/* Keyed by ticket: walking back through history between two ticket
+            addresses changes the ticket without remounting, and a column that
+            survived it would carry the previous draft into the new box. */}
         <TicketConversation
+          key={ticket.id}
           ticket={ticket}
           thread={thread}
           onOpenMainSession={onOpenMainSession}

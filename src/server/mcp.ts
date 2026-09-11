@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { RequestHandler } from "express";
 import { z } from "zod";
-import type { Question, Ticket } from "../shared/api";
+import type { Feature, Question, Ticket, TicketKind } from "../shared/api";
 import { criterionVerdicts, settlementOutcomes, ticketKinds } from "../shared/api";
 import type { AskInput } from "./questions";
 import { SquadError } from "./errors";
@@ -28,12 +28,56 @@ export const squadTools = {
   createTicket: "create_ticket",
   discardTicket: "discard_ticket",
   carryRepository: "carry_repository",
+  setRunningExample: "set_running_example",
+  rewriteTicketSummary: "rewrite_ticket_summary",
   reportStep: "report_step",
   settleSheet: "settle_sheet",
   askQuestion: "ask_question",
   settleDecision: "settle_decision",
   readGraph: "read_graph",
 } as const;
+
+/**
+ * How long each piece of prose written for the developer may be.
+ *
+ * Bounds and not advice, and that is the whole mechanism: an agent that
+ * overruns is refused on the spot, reads the bound in the refusal and cuts its
+ * own prose down at the next call, with nobody in the loop. Asking nicely was
+ * tried by omission and measured on a real instance: descriptions written under
+ * no bound averaged 3 765 characters and reached 10 221, step reports averaged
+ * 2 856, and question options averaged 175 against a schema asking for "a line".
+ *
+ * These are first figures, not a law. If agents start looping on refusals, the
+ * bound is wrong and this is the one place to widen it. What is not adjustable
+ * is that a bound exists: see ADR 0009.
+ */
+export const textBounds = {
+  /** The standing state of things: a short paragraph. */
+  context: 400,
+  /** One sentence, and the point of the whole summary. */
+  problem: 240,
+  /** A scene needs a little more room than a claim. */
+  example: 800,
+  /** What a step built, read next to its test sheet; the rest is in the thread. */
+  work: 600,
+  /** A road, pickable at a glance. */
+  optionLabel: 120,
+  /** What taking that road entails. */
+  optionConsequence: 400,
+  /** The decor of a whole feature: a few actors and the objects they handle. */
+  runningExample: 1200,
+} as const;
+
+/**
+ * What an agent may write, said in the fields themselves so that it is read
+ * where it applies. Two subsets and not one: a heading inside a field of 240
+ * characters is noise, and a table inside a summary is detail wearing a
+ * summary's clothes. Squad's renderer honours exactly these two.
+ */
+const inlineMarkdown =
+  "Markdown, inline only: **bold**, *italic*, `code`, [links](url) and short bullet lists. No headings and no tables.";
+const fullMarkdown =
+  "Markdown in full: headings, bullet and numbered lists, tables, fenced code blocks, links.";
 
 export type SquadTool = (typeof squadTools)[keyof typeof squadTools];
 
@@ -42,7 +86,31 @@ export function squadToolName(tool: SquadTool): string {
   return `mcp__${squadMcpServerName}__${tool}`;
 }
 
-const createTicketShape = {
+/**
+ * The two fields every summary has. The example is the third, and it is the one
+ * that varies by kind, which is why it is not here.
+ */
+const summaryFields = {
+  context: z
+    .string()
+    .trim()
+    .min(1)
+    .max(textBounds.context)
+    .describe(
+      `The standing state of things this ticket starts from: what a reader needs in order to understand the problem below, and strictly nothing else. At most ${textBounds.context} characters. ${inlineMarkdown}`,
+    ),
+  problem: z
+    .string()
+    .trim()
+    .min(1)
+    .max(textBounds.problem)
+    .describe(
+      `What is wrong or missing, in ONE sentence of at most ${textBounds.problem} characters. What is wrong, not what you will do about it: what you will do is the description.`,
+    ),
+};
+
+/** What every ticket carries, whatever its kind. The kind and the summary vary. */
+const createTicketCommon = {
   featureId: z.string().min(1).describe("The feature whose graph this ticket belongs to."),
   projectId: z
     .string()
@@ -51,13 +119,12 @@ const createTicketShape = {
     .describe(
       "The repository this ticket is built in, among those the feature carries. Leave it out for the feature's home repository, which is where you are running.",
     ),
-  kind: z
-    .enum(ticketKinds)
-    .describe(
-      "build for a vertical slice to construct, decision for a question to settle, which never runs, fix for a correction born of a red check.",
-    ),
   title: z.string().trim().min(1).describe("One line, what the ticket delivers."),
-  description: z.string().describe("What to build, in enough detail for a fresh session."),
+  description: z
+    .string()
+    .describe(
+      `The detail, for the session that will build this: what to build, in enough depth for a fresh session, with no bound on its length. This is where everything that did not fit in the summary goes. ${fullMarkdown}`,
+    ),
   acceptanceCriteria: z
     .array(z.string().trim().min(1))
     .default([])
@@ -79,6 +146,43 @@ const createTicketShape = {
     ),
 };
 
+/**
+ * One flat shape, with the example optional and the kind rule enforced in the
+ * handler.
+ *
+ * A `z.discriminatedUnion` on the kind said it better, and was written first.
+ * It had to be undone: measured against a live server, the MCP SDK publishes
+ * **no properties at all** for a tool whose input is a union, so the agent saw
+ * `create_ticket` as a tool taking no arguments. Validation still worked, which
+ * is why no test caught it; what was lost was every field name, every
+ * description and every bound, that is to say the whole mechanism this schema
+ * exists for. A rule the agent can read beats a rule the schema can express.
+ */
+const createTicketShape = {
+  ...createTicketCommon,
+  kind: z
+    .enum(ticketKinds)
+    .describe(
+      "build for a vertical slice to construct, decision for a question to settle, which never runs, fix for a correction born of a red check.",
+    ),
+  summary: z
+    .object({
+      ...summaryFields,
+      example: z
+        .string()
+        .trim()
+        .min(1)
+        .max(textBounds.example)
+        .optional()
+        .describe(
+          `The problem above shown happening, on the running example this feature already carries and which your briefing names. Required on a \`build\` or \`decision\` ticket, and refused on a \`fix\` one, whose breakage is a red command with no business example to be shown on. Never invent a second example: the developer learns one decor per feature, and a new fiction on every ticket is the cost this field exists to remove. At most ${textBounds.example} characters. ${inlineMarkdown}`,
+        ),
+    })
+    .describe(
+      "The two or three lines the developer reads before anything else, and most of the time instead of everything else. Written for them and for nobody else: the session that builds this ticket reads the description. Bounded, and a call that overruns is refused rather than trimmed, so write short on purpose.",
+    ),
+};
+
 const carryRepositoryShape = {
   featureId: z.string().min(1).describe("The feature that is to carry this repository."),
   path: z
@@ -88,6 +192,37 @@ const carryRepositoryShape = {
     .describe(
       "A path inside the repository, as the project's documentation gives it. Squad resolves it to the repository root and matches it against the projects it already drives.",
     ),
+};
+
+const setRunningExampleShape = {
+  featureId: z.string().min(1).describe("The feature this running example belongs to."),
+  runningExample: z
+    .string()
+    .trim()
+    .min(1)
+    .max(textBounds.runningExample)
+    .describe(
+      `The decor every ticket of this feature will illustrate its own problem on: the actors of this business and the objects they handle, named and given just enough substance to be reused. Concrete and small: two or three named actors beat an abstract description. At most ${textBounds.runningExample} characters. ${inlineMarkdown}`,
+    ),
+};
+
+const rewriteTicketSummaryShape = {
+  featureId: z.string().min(1).describe("The feature the ticket belongs to."),
+  ticketId: z.string().min(1).describe("The ticket whose summary you are rewriting."),
+  summary: z
+    .object({
+      ...summaryFields,
+      example: z
+        .string()
+        .trim()
+        .min(1)
+        .max(textBounds.example)
+        .optional()
+        .describe(
+          "The problem shown on this feature's running example. Required on a `build` or `decision` ticket and refused on a `fix` one, exactly as when the ticket was written; squad knows which this is, so it is checked rather than asked of you.",
+        ),
+    })
+    .describe("The summary as it should now read. It replaces the previous one whole."),
 };
 
 const askQuestionShape = {
@@ -103,14 +238,42 @@ const askQuestionShape = {
     .min(1)
     .describe("What you are asking, in one or two sentences, readable by someone who did not watch."),
   options: z
-    .array(z.string().trim().min(1))
+    .array(
+      z.object({
+        label: z
+          .string()
+          .trim()
+          .min(1)
+          .max(textBounds.optionLabel)
+          .describe(
+            `The road itself, in at most ${textBounds.optionLabel} characters: a line the developer can pick at a glance. What it costs does NOT go here, it goes in \`consequence\`.`,
+          ),
+        consequence: z
+          .string()
+          .trim()
+          .min(1)
+          .max(textBounds.optionConsequence)
+          .describe(
+            `What taking this road entails, in at most ${textBounds.optionConsequence} characters. Required, because it is the whole difference between a list of names and a choice: without it the developer has to reconstruct what each road costs, which is the work they asked you to do.`,
+          ),
+        illustration: z
+          .string()
+          .trim()
+          .min(1)
+          .max(textBounds.optionConsequence)
+          .optional()
+          .describe(
+            "That consequence shown on this feature's running example, when showing it sharpens it. Leave it out rather than pad: most implementation questions have nothing useful to show, and filler here costs the developer a reading for nothing.",
+          ),
+      }),
+    )
     .min(2)
-    .describe("The answers you are offering, at least two, each one a line the developer can pick."),
+    .describe("The roads you are offering, at least two."),
   recommendation: z
     .string()
     .trim()
     .min(1)
-    .describe("The option you recommend, written exactly as one of the options above."),
+    .describe("The label of the option you recommend, written exactly as one of the labels above."),
   scopeChanging: z
     .boolean()
     .describe(
@@ -121,11 +284,14 @@ const askQuestionShape = {
 const reportStepShape = {
   featureId: z.string().min(1).describe("The feature the ticket belongs to."),
   ticketId: z.string().min(1).describe("The ticket whose step you are ending."),
-  summary: z
+  work: z
     .string()
     .trim()
     .min(1)
-    .describe("What you built and how, in a few lines, for someone who did not watch."),
+    .max(textBounds.work)
+    .describe(
+      `What you built and how, for someone who did not watch, in at most ${textBounds.work} characters. Bounded on purpose: this is read on the same screen as the test sheet, which is the one screen where the developer has something to do, and what does not fit belongs in this thread, which they can open. ${inlineMarkdown}`,
+    ),
   coverage: z
     .array(
       z.object({
@@ -155,7 +321,7 @@ const reportStepShape = {
     .array(z.string().trim().min(1))
     .default([])
     .describe(
-      "Points you suggest checking by hand beyond the criteria: what the ticket did not foresee and only a person can judge. The same rule holds here: what you can settle yourself, settle, and say so in the summary rather than suggesting it.",
+      "Points you suggest checking by hand beyond the criteria: what the ticket did not foresee and only a person can judge. The same rule holds here: what you can settle yourself, settle, and say so in what you built rather than suggesting it.",
     ),
   recommendation: z
     .string()
@@ -310,12 +476,22 @@ function buildMcpServer({
     {
       title: "Create a ticket",
       description:
-        "Adds one node to a feature graph, with its blocking edges. Blocking edges link two tickets of the same feature and must stay acyclic: an edge that would close a loop is refused, and the answer names the loop.",
+        "Adds one node to a feature graph, with its blocking edges. Blocking edges link two tickets of the same feature and must stay acyclic: an edge that would close a loop is refused, and the answer names the loop. Every ticket carries a summary written for the developer on top of the description written for the session that builds it: the summary is bounded and a call that overruns is refused, so write it short rather than trimming it afterwards.",
       inputSchema: createTicketShape,
     },
     async (input) =>
       answer(() => {
-        const ticket = store.createTicket(input);
+        // A build or decision ticket illustrates itself on the feature's decor,
+        // so the decor has to exist before the first one. Checked here rather
+        // than asked for in the briefing: the command that cuts a spec into
+        // tickets lives in the driven project, not in squad, so a refusal is
+        // the only instruction squad is sure an agent reads.
+        const example = requireExampleMatchingKind(input.kind, input.summary.example ?? null);
+        if (input.kind !== "fix") requireRunningExample(store.requireFeature(input.featureId));
+        const ticket = store.createTicket({
+          ...input,
+          summary: { context: input.summary.context, problem: input.summary.problem, example },
+        });
         // Before the graph is announced, and not after: announcing it is what
         // makes the mode look at the frontier again, and a cascade that has
         // gone as deep as the developer allows must stop the mode before it
@@ -360,6 +536,55 @@ function buildMcpServer({
   );
 
   server.registerTool(
+    squadTools.setRunningExample,
+    {
+      title: "Set the feature's running example",
+      description:
+        "Writes the one concrete example every ticket of this feature will illustrate its own problem on. Call it before writing the first ticket: `create_ticket` refuses a build or decision ticket on a feature that has none, since a ticket forced to plant its own decor cannot stay short, and a new fiction on every ticket is exactly what the summary exists to spare the developer. Call it again to correct one: a decor is settled at the same moment as the breakdown, which is when it is least certain.",
+      inputSchema: setRunningExampleShape,
+    },
+    async (input) =>
+      answer(() => {
+        const before = store.requireFeature(input.featureId).runningExample;
+        const feature = store.setRunningExample(input.featureId, input.runningExample);
+        // Announced only when it moved: rewriting the same decor is not a
+        // change, and a feature that redraws on every call would make anyone
+        // watching the stream believe something happened.
+        if (feature.runningExample !== before) bus.publish({ type: "feature-changed", feature });
+        return feature;
+      }),
+  );
+
+  server.registerTool(
+    squadTools.rewriteTicketSummary,
+    {
+      title: "Rewrite a ticket's summary",
+      description:
+        "Replaces the summary of a ticket, and only its summary. Use it on a ticket written before summaries existed, and on one whose summary reads badly. It cannot touch the description on purpose: the description is the contract handed to the sub-session as its first message, so a tool able to rewrite it could change what a running ticket was asked to build without anyone seeing it. Correcting what the developer reads must never risk what gets built.",
+      inputSchema: rewriteTicketSummaryShape,
+    },
+    async (input) =>
+      answer(() => {
+        // The kind decides whether an example belongs, and squad holds the kind:
+        // the call states the summary, not what sort of ticket it is for.
+        const ticket = store.requireTicketIn(input.featureId, input.ticketId);
+        const example = requireExampleMatchingKind(
+          ticket.kind,
+          input.summary.example ?? null,
+          ticket.title,
+        );
+        if (ticket.kind !== "fix") requireRunningExample(store.requireFeature(input.featureId));
+        const written = store.rewriteTicketSummary(input.featureId, input.ticketId, {
+          context: input.summary.context,
+          problem: input.summary.problem,
+          example,
+        });
+        bus.publish({ type: "graph-changed", graph: store.featureGraph(written.featureId) });
+        return written;
+      }),
+  );
+
+  server.registerTool(
     squadTools.askQuestion,
     {
       title: "Ask the developer",
@@ -374,7 +599,11 @@ function buildMcpServer({
             featureId: input.featureId,
             ticketId: input.ticketId ?? null,
             prompt: input.question,
-            options: input.options,
+            options: input.options.map((option) => ({
+              label: option.label,
+              consequence: option.consequence,
+              illustration: option.illustration ?? null,
+            })),
             recommendation: input.recommendation,
             scopeChanging: input.scopeChanging,
           }),
@@ -464,6 +693,55 @@ function buildMcpServer({
   );
 
   return server;
+}
+
+/**
+ * The rule the schema cannot state: a `build` or `decision` ticket shows its
+ * problem on the feature's running example, a `fix` ticket carries none.
+ *
+ * It lives here rather than in a discriminated union because a union costs the
+ * agent the whole published schema (see `createTicketShape`). The refusal is
+ * what an agent reads either way, so what moved is where the rule is written,
+ * not whether it is enforced. It is stated in the field's description too,
+ * which is published.
+ */
+function requireExampleMatchingKind(
+  kind: TicketKind,
+  example: string | null,
+  title?: string,
+): string | null {
+  const named = title === undefined ? "this ticket" : `"${title}"`;
+  if (kind === "fix") {
+    if (example === null) return null;
+    throw new SquadError(
+      "summary_example_refused",
+      400,
+      `${named} is a fix ticket: what broke is a command that went red, it carries no business example, and one invented for it would be filler`,
+    );
+  }
+  if (example !== null) return example;
+  throw new SquadError(
+    "summary_example_missing",
+    400,
+    `${named} is a ${kind} ticket: its summary must show the problem happening on this feature's running example`,
+  );
+}
+
+/**
+ * Refuses a ticket on a feature that has no decor yet, naming the tool that
+ * writes one. The refusal is the instruction: the skill that cuts a spec into
+ * tickets lives in the driven project and squad cannot change what it says, so
+ * a rule that only lived in the briefing would be a rule kept by politeness.
+ * It costs the first `create_ticket` of a feature one turn, and it is paid once
+ * per chantier (ADR 0009).
+ */
+function requireRunningExample(feature: Feature): void {
+  if (feature.runningExample !== null) return;
+  throw new SquadError(
+    "running_example_missing",
+    409,
+    `feature "${feature.title}" has no running example yet: call ${squadTools.setRunningExample} with the actors and objects of its business, then write this ticket again. Every ticket of a feature illustrates its own problem on that one example, so it has to exist before the first of them.`,
+  );
 }
 
 /**

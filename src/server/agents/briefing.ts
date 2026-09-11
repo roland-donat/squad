@@ -25,7 +25,9 @@ export function mainSessionBriefing(feature: Feature, repositories: readonly Pro
     "",
     "Squad is the pilot station this session runs under. It holds the execution plan of this feature as a graph of tickets, and that graph is the tracker: it is not GitHub, not Linear, and not a directory of markdown files. Whenever a skill or an instruction tells you to publish tickets, break work down, or record a plan, write it into squad through the MCP tools below and nowhere else.",
     "",
-    `- \`${squadToolName(squadTools.createTicket)}\` adds one ticket: its kind, title, description, acceptance criteria and blocking edges. Pass \`featureId: "${feature.id}"\` on every call. Create tickets in dependency order, blockers first, so each blocking edge can name a ticket that already exists.`,
+    `- \`${squadToolName(squadTools.setRunningExample)}\` writes the one concrete example this feature's tickets will illustrate themselves on. Call it FIRST, before any ticket: \`create_ticket\` refuses a build or decision ticket on a feature that has none.`,
+    `- \`${squadToolName(squadTools.createTicket)}\` adds one ticket: its kind, title, a summary, a description, acceptance criteria and blocking edges. Pass \`featureId: "${feature.id}"\` on every call. Create tickets in dependency order, blockers first, so each blocking edge can name a ticket that already exists.`,
+    `- \`${squadToolName(squadTools.rewriteTicketSummary)}\` replaces the summary of a ticket already written, and only its summary. Use it when the developer says one reads badly, and on the tickets written before summaries existed.`,
     `- \`${squadToolName(squadTools.readGraph)}\` returns the whole graph with each ticket's computed state. Read it before adding to a graph you did not just write.`,
     `- \`${squadToolName(squadTools.settleDecision)}\` closes a decision ticket on the conclusion the developer reached, which releases the tickets it was blocking. It takes the same \`featureId\`, and settles nothing outside this feature.`,
     `- \`${squadToolName(squadTools.askQuestion)}\` asks the developer something, with the options you see and the one you recommend, and waits for their answer. Use it for what blocks you here and now; a question the rest of the breakdown depends on is a \`decision\` ticket instead, since that one belongs in the graph.`,
@@ -34,6 +36,10 @@ export function mainSessionBriefing(feature: Feature, repositories: readonly Pro
     "This feature carries these repositories, and a ticket is built in one of them:",
     ...carried,
     `Pass \`projectId\` on a ticket built anywhere other than ${home?.name ?? "the home repository"}, which is where you are running and what a ticket falls back to. A ticket naming a repository this feature does not carry is refused: carry it first, and only what squad already drives can be carried. If the work reaches a repository squad does not drive, say so rather than working around it.`,
+    "",
+    "A ticket says two things to two readers, and they are not the same thing. The **description** is for the session that will build it: as long as it needs to be. The **summary** is for the developer: a short context, the problem in one sentence, and that problem shown happening on this feature's running example. The summary is bounded and a call that overruns is refused, so write it short on purpose rather than writing long and trimming. Never make the summary a shortened description: it says what is wrong and why anyone should care, not what you are going to do about it.",
+    "",
+    "The running example is the decor the whole feature shares: two or three named actors and the objects they handle, concrete and small. Write it once, and then every ticket illustrates its own problem inside it. Never invent a second one on a ticket: the developer learns one decor per feature, and a new fiction on every ticket is exactly the cost the summary exists to remove.",
     "",
     "A ticket carries a kind: `build` for a vertical slice to construct, `decision` for a question only the developer can answer, `fix` for a correction born of a red check. A `decision` ticket is never implemented and never opens a session of its own: it waits in the graph until the developer settles it in this thread. The moment they do, call the settle tool with their conclusion in their own terms, in enough detail for a fresh session to act on it without reading this thread. Squad parses no prose: a decision you do not write through that tool never reaches the graph.",
     "",
@@ -57,9 +63,9 @@ export function subSessionBriefing(feature: Feature, ticket: Ticket, project: Pr
     "",
     "This feature may carry other repositories, and other tickets of it may be running there at the same time, in worktrees of their own. Yours is the only place your work belongs: what another repository needs is another ticket, and squad merges each into its own repository.",
     "",
-    `- \`${squadToolName(squadTools.reportStep)}\` ends your step, and it is the only way to end one. It takes \`featureId: "${feature.id}"\`, \`ticketId: "${ticket.id}"\`, a summary of what you built, one coverage entry per acceptance criterion saying how it was settled, the points you suggest looking at on top of them, and what you recommend doing next.`,
+    `- \`${squadToolName(squadTools.reportStep)}\` ends your step, and it is the only way to end one. It takes \`featureId: "${feature.id}"\`, \`ticketId: "${ticket.id}"\`, a short account of what you built, one coverage entry per acceptance criterion saying how it was settled, the points you suggest looking at on top of them, and what you recommend doing next.`,
     `- \`${squadToolName(squadTools.askQuestion)}\` asks the developer something you may not decide alone, with the options you see and the one you recommend, and does not return until they answer. Say whether the answer changes what is built or only how: squad answers an implementation question with your own recommendation when the developer has left it running unattended, and never answers one that changes what is built.`,
-    `- \`${squadToolName(squadTools.createTicket)}\` writes a ticket for work your own uncovered and that does not belong in yours. Pass \`featureId: "${feature.id}"\` and \`bornOf: "${ticket.id}"\`, which is how squad counts the depth of a cascade and stops one that goes on too long. Do not use it to split what you were asked to build.`,
+    `- \`${squadToolName(squadTools.createTicket)}\` writes a ticket for work your own uncovered and that does not belong in yours. Pass \`featureId: "${feature.id}"\` and \`bornOf: "${ticket.id}"\`, which is how squad counts the depth of a cascade and stops one that goes on too long. Do not use it to split what you were asked to build. It asks for a short summary on top of the description: the description is for whoever builds the ticket, the summary is for the developer, and it shows the problem on this feature's running example rather than restating the work.`,
     `- \`${squadToolName(squadTools.discardTicket)}\` drops a ticket that will not be built: a duplicate, one whose branch stayed empty, one your own work supersedes. Say why. Do this rather than leaving it on your test sheet, where it reaches the developer as work only they can do.`,
     `- \`${squadToolName(squadTools.readGraph)}\` returns the whole graph of the feature, with each ticket's state. Read it when you need to know what the tickets around yours are doing; pass \`featureId: "${feature.id}"\`.`,
     "",
@@ -92,6 +98,20 @@ export function ticketAssignment(ticket: Ticket): string {
     `Build this ticket, of kind \`${ticket.kind}\`.`,
     "",
     `# ${ticket.title}`,
+    ...(ticket.summary === null
+      ? []
+      : [
+          // Handed over as well as the description, not instead of it: it is
+          // shorter than the description and says why this ticket exists, which
+          // a session opening on the how alone has to infer.
+          "",
+          `**Contexte.** ${ticket.summary.context}`,
+          "",
+          `**Problème.** ${ticket.summary.problem}`,
+          ...(ticket.summary.example === null
+            ? []
+            : ["", `**Sur l'exemple de la feature.** ${ticket.summary.example}`]),
+        ]),
     "",
     ticket.description === "" ? "No description was written on this ticket." : ticket.description,
     ...criteria,
@@ -254,7 +274,7 @@ export function settlingInstruction(report: StepReport): string {
     "",
     "What it says of its own step, for context:",
     "",
-    report.summary,
+    report.work,
     "",
     `Answer every point through \`${squadToolName(squadTools.settleSheet)}\` once you have run what there was to run. Change nothing in this worktree.`,
     "",

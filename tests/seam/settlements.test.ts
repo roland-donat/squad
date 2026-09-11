@@ -25,6 +25,7 @@ import {
   type TestSquad,
 } from "../support/squad";
 import { startWebhookReceiver, type WebhookReceiver } from "../support/webhook";
+import { writeTicket } from "../support/mcp";
 
 /**
  * Between a step report and the developer, squad runs a pass over the test
@@ -100,7 +101,7 @@ describe("the settling pass, between a test sheet and the developer", () => {
       launcher: createScriptedLauncher(async (agent) => {
         if (agent.request.role === "main") {
           await agent.awaitMessage();
-          await agent.call("create_ticket", {
+          await writeTicket(agent, {
             featureId: agent.request.featureId,
             kind: "build",
             title: "Le store",
@@ -124,7 +125,7 @@ describe("the settling pass, between a test sheet and the developer", () => {
           await agent.call("report_step", {
             featureId: agent.request.featureId,
             ticketId: agent.request.ticketId,
-            summary: "La base s'ouvre et les migrations tournent.",
+            work: "La base s'ouvre et les migrations tournent.",
             recommendation: "Fusionner une fois la fiche passée.",
             coverage: ticket.acceptanceCriteria.map((criterion, index) => ({
               criterionId: criterion.id,

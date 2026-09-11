@@ -12,8 +12,29 @@ en français, le code reste en anglais.
 **Ticket** (`Ticket`) :
 L'unité de travail de squad, et le seul type de nœud du graphe. Porte un genre déclaré
 et le **dépôt porté** dans lequel il se construit, celui d'attache de sa feature à
-défaut.
+défaut. Dit deux choses à deux lecteurs : sa **description** s'adresse à la session qui
+le construit, son **résumé** au développeur.
 _Éviter_ : issue, tâche, étape, story, carte
+
+**Résumé** (`TicketSummary`) :
+Ce qu'un ticket dit au développeur, par opposition à ce qu'il dit à la session qui le
+construit : un contexte court, la problématique en une phrase, et cette problématique
+montrée sur l'**exemple fil rouge** de la feature. Trois champs déclarés, écrits par
+l'agent au moment de l'appel d'outil, et **bornés par le schéma** : une longueur
+seulement demandée est une longueur que personne ne tient, et c'est le refus de l'appel
+qui fait recouper un agent. Mesuré avant les bornes, une description faisait 3 765
+caractères en moyenne. L'exemple est absent d'un ticket `fix`, dont la casse est une
+commande passée au rouge : un exemple métier inventé pour lui serait du remplissage. Il
+vaut `null` sur les tickets écrits avant qu'il existe, ce que l'interface annonce comme
+absent plutôt que de peindre un résumé vide. Voir l'ADR 0009.
+_Éviter_ : description courte, chapô, abstract, TL;DR
+
+**Description** (`description`) :
+Le détail d'un ticket, remis à sa sous-session comme premier message : ce qu'il y a à
+construire, aussi long qu'il le faut. C'est le **contrat avec la sous-session**, et c'est
+pourquoi rien ne peut le réécrire après coup : un résumé mal écrit se corrige, ce qui est
+en train d'être construit ne se change pas dans le dos de qui le construit.
+_Éviter_ : spec, énoncé, corps du ticket
 
 **Genre** (`TicketKind`) :
 Ce qu'un ticket demande : `build` (une tranche verticale à construire), `decision`
@@ -47,8 +68,20 @@ _Éviter_ : statut, catégorie d'état, couleur
 Un chantier, du spec jusqu'à la fusion dans les branches par défaut. Une feature
 possède un graphe et une session principale, et porte un ou plusieurs **dépôts
 portés**. Son **projet d'attache** est celui où tourne sa session principale et où
-se construisent ses tickets qui ne disent rien d'autre.
+se construisent ses tickets qui ne disent rien d'autre. Porte l'**exemple fil rouge**
+sur lequel ses tickets s'illustrent.
 _Éviter_ : chantier, epic, lot, sprint
+
+**Exemple fil rouge** (`runningExample`) :
+Le décor du métier que toute une feature partage : deux ou trois acteurs nommés et les
+objets qu'ils manipulent, concrets et peu nombreux. Écrit une fois, avant le premier
+ticket, et **`create_ticket` refuse tant qu'il manque** : la commande qui découpe un spec
+vit dans le projet piloté, donc le refus est la seule consigne dont squad soit certain
+qu'un agent la lise. Porté par la feature et non par le ticket parce que le métier est
+celui du chantier : un ticket obligé de planter son propre décor ne peut pas rester
+court, et un décor neuf à chaque ticket fait réapprendre une fiction à chaque ouverture,
+ce qui est exactement le coût que le résumé existe pour supprimer.
+_Éviter_ : décor (hors prose), scénario, cas d'usage, persona
 
 **Dépôt porté** (`FeatureRepository`) :
 Un des dépôts qu'une feature a le droit de toucher, avec ce que squad y a ouvert :
@@ -108,7 +141,9 @@ _Éviter_ : itération, phase, passe, cycle
 ## La validation
 
 **Rapport de fin d'étape** (`StepReport`) :
-Ce que remet une sous-session quand son étape se termine : ce qu'elle a construit, le
+Ce que remet une sous-session quand son étape se termine : ce qu'elle a construit
+(`work`, borné comme le résumé et pour la même raison, mesuré à 2 856 caractères avant
+la borne ; ce qui n'y tient pas va sur le fil), le
 verdict de règlement déclaré critère par critère, les points qu'elle suggère de faire
 juger, et ce qu'elle recommande de faire ensuite. Il arrive par un appel d'outil, jamais
 en prose, et c'est lui qui engendre la fiche de tests.
@@ -242,8 +277,19 @@ _Éviter_ : PR, merge request, demande de tirage
 
 ## L'autonomie
 
+**Option** (`QuestionOption`) :
+Une des voies qu'un agent propose : une étiquette courte, la **conséquence** de la
+prendre, et facultativement l'illustration de cette conséquence sur l'exemple fil rouge.
+Un objet et non une ligne, parce que la ligne était l'endroit où la conséquence devait
+tenir et n'y tenait pas : mesuré sur l'instance, les options faisaient 175 caractères en
+moyenne face à un schéma demandant « une ligne que le développeur peut choisir ». Choisir
+une voie et peser ce qu'elle coûte sont deux lectures, donc deux champs. La conséquence
+est `null` sur les options écrites avant qu'elle existe, jamais remplie d'office : une
+conséquence vide se lirait « celle-ci ne coûte rien ».
+_Éviter_ : choix, réponse, proposition
+
 **Question** (`Question`) :
-Ce qu'un agent demande au développeur : un énoncé, au moins deux options, celle qu'il
+Ce qu'un agent demande au développeur : un énoncé, au moins deux **options**, celle qu'il
 recommande, et un drapeau disant si la réponse change le périmètre. L'appel d'outil qui la
 pose ne rend la main qu'une fois la question répondue, ce qui fait de l'interface le lieu où
 elle se tranche, sans terminal ni second mécanisme. La réponse est libre : les options sont

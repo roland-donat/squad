@@ -25,7 +25,7 @@ import {
   resolveConflictWith,
 } from "../support/git";
 import { installGhStub, type GhStub } from "../support/gh";
-import { connectToSquadTools } from "../support/mcp";
+import { connectToSquadTools, writeTicket } from "../support/mcp";
 import { createScriptedLauncher, type ScriptedAgent } from "../support/scripted-launcher";
 import {
   onlyRepository,
@@ -111,7 +111,7 @@ describe("validating, merging, checking and delivering", () => {
           await agent.awaitMessage();
           const written = new Map<string, string>();
           for (const spec of options.tickets) {
-            const created = (await agent.call("create_ticket", {
+            const created = (await writeTicket(agent, {
               featureId: agent.request.featureId,
               kind: "build",
               title: spec.title,
@@ -202,12 +202,12 @@ describe("validating, merging, checking and delivering", () => {
   }
 
   /** Ends a step declaring every criterion automated: nothing for a human to do. */
-  async function reportCovered(agent: ScriptedAgent, summary: string): Promise<void> {
+  async function reportCovered(agent: ScriptedAgent, work: string): Promise<void> {
     const own = await ownTicket(agent);
     await agent.call("report_step", {
       featureId: agent.request.featureId,
       ticketId: agent.request.ticketId,
-      summary,
+      work,
       coverage: own.acceptanceCriteria.map((criterion) => ({
         criterionId: criterion.id,
         verdict: "automated",
@@ -217,12 +217,12 @@ describe("validating, merging, checking and delivering", () => {
   }
 
   /** Ends a step declaring nothing automated: every criterion becomes a point. */
-  async function reportUncovered(agent: ScriptedAgent, summary: string): Promise<void> {
+  async function reportUncovered(agent: ScriptedAgent, work: string): Promise<void> {
     const own = await ownTicket(agent);
     await agent.call("report_step", {
       featureId: agent.request.featureId,
       ticketId: agent.request.ticketId,
-      summary,
+      work,
       coverage: own.acceptanceCriteria.map((criterion) => ({
         criterionId: criterion.id,
         verdict: "judgement",
@@ -324,7 +324,7 @@ describe("validating, merging, checking and delivering", () => {
     expect(handed[1]).toContain("La base ne s'ouvre pas");
     expect(handed[1]).toContain("Le reste tient.");
     expect(merged.sessionId).toBe(waiting.sessionId);
-    expect(merged.stepReport?.summary).toContain("Corrigé");
+    expect(merged.stepReport?.work).toContain("Corrigé");
     const featureBranch = onlyRepository(await scene.feature()).worktree?.branch ?? "";
     expect(await fileOnBranch(scene.repository, featureBranch, "store.ts")).toBe("corrigé\n");
   });
@@ -712,7 +712,7 @@ describe("validating, merging, checking and delivering", () => {
     // A decision nobody has settled: it holds nothing back, and it is not
     // merged either, so the graph has not come back whole.
     const tools = await connectToSquadTools(squad.url);
-    const decision = (await tools.call("create_ticket", {
+    const decision = (await writeTicket(tools, {
       featureId: scene.featureId,
       kind: "decision",
       title: "Quelle base",
@@ -881,7 +881,7 @@ describe("validating, merging, checking and delivering", () => {
       launcher: createScriptedLauncher(async (agent) => {
         if (agent.request.role === "main") {
           const spec = await agent.awaitMessage();
-          const created = (await agent.call("create_ticket", {
+          const created = (await writeTicket(agent, {
             featureId: agent.request.featureId,
             kind: "build",
             title: `Le ticket de ${spec}`,

@@ -7,7 +7,7 @@ import {
   projectRoute,
   ticketSessionRoute,
 } from "../../src/shared/api";
-import { connectToSquadTools } from "../support/mcp";
+import { connectToSquadTools, writeTicket } from "../support/mcp";
 import { createScriptedLauncher } from "../support/scripted-launcher";
 import { openTestFeature, startTestSquad, type TestSquad } from "../support/squad";
 import {
@@ -221,7 +221,7 @@ describe("changing a project's settings", () => {
     try {
       const { project, feature } = await openTestFeature(running, "Le noyau");
       const tools = await connectToSquadTools(running.url);
-      const created = (await tools.call("create_ticket", {
+      const created = (await writeTicket(tools, {
         featureId: feature.id,
         kind: "build",
         title: "Le store",

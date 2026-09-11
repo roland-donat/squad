@@ -16,6 +16,7 @@ import type {
   OpenFeatureBody,
   Project,
   Question,
+  QuestionOption,
   RegisterProjectBody,
   Settings,
   SettlementOutcome,
@@ -27,6 +28,7 @@ import type {
   ThreadEntryKind,
   Ticket,
   TicketKind,
+  TicketSummary,
   UpdateProjectBody,
   UpdateSettingsBody,
   Worktree,
@@ -78,6 +80,15 @@ export interface CreateTicketInput {
   projectId?: string | undefined;
   kind: TicketKind;
   title: string;
+  /**
+   * The summary the developer reads first. Required of every caller, squad's
+   * own fix tickets included: what squad writes for itself is read on the same
+   * screen as what an agent writes, and an exemption would show there as a
+   * hole. What the bound is, and who is refused for overrunning it, is the
+   * tool's business, not the store's.
+   */
+  summary: TicketSummary;
+  /** The detail: what to build, in enough depth for a fresh session. */
   description: string;
   acceptanceCriteria: string[];
   /** Tickets that must be merged before this one may start. */
@@ -100,9 +111,17 @@ export interface AskQuestionInput {
   ticketId: string | null;
   sessionId: string;
   prompt: string;
-  options: string[];
+  options: QuestionOptionInput[];
+  /** The label of the recommended option, which must be one of those offered. */
   recommendation: string;
   scopeChanging: boolean;
+}
+
+/** One road an agent offers, as it hands it over. */
+export interface QuestionOptionInput {
+  label: string;
+  consequence: string;
+  illustration?: string | null;
 }
 
 /**
@@ -127,7 +146,7 @@ export interface RecordStepReportInput {
   /** The feature the ticket belongs to: a session only reports on its own graph. */
   featureId: string;
   ticketId: string;
-  summary: string;
+  work: string;
   recommendation: string;
   /** One entry per acceptance criterion of the ticket, no more and no fewer. */
   coverage: Array<{ criterionId: string; verdict: CriterionVerdict; note?: string | null }>;
@@ -599,6 +618,45 @@ export class Store {
   }
 
   /**
+   * Writes the running example this feature's tickets illustrate themselves on.
+   * Rewritable rather than written once: the decor is settled at the same
+   * moment as the breakdown, which is exactly when it is least certain, and a
+   * decor nobody can correct would be a bad one kept for the whole chantier.
+   */
+  setRunningExample(featureId: string, runningExample: string): Feature {
+    const feature = this.requireFeature(featureId);
+    this.db
+      .update(features)
+      .set({ runningExample })
+      .where(eq(features.id, feature.id))
+      .run();
+    return this.requireFeature(feature.id);
+  }
+
+  /**
+   * Rewrites the summary of a ticket, and nothing else of it.
+   *
+   * The description is deliberately out of reach here. It is the contract with
+   * the sub-session, handed to it as its first message, so a tool able to
+   * rewrite it could change what a running ticket was asked to build without
+   * the session or the developer seeing it. The summary is written for the
+   * developer alone, so correcting it costs nothing and risks nothing.
+   */
+  rewriteTicketSummary(featureId: string, ticketId: string, summary: TicketSummary): Ticket {
+    const ticket = this.requireTicketIn(featureId, ticketId);
+    this.db
+      .update(tickets)
+      .set({
+        summaryContext: summary.context,
+        summaryProblem: summary.problem,
+        summaryExample: summary.example,
+      })
+      .where(eq(tickets.id, ticket.id))
+      .run();
+    return this.requireTicket(ticket.id);
+  }
+
+  /**
    * One repository of a feature, refused when the feature does not carry it. A
    * ticket, a checkout and a pull request all hang on this pair, and reading it
    * in one place is what keeps "a feature only touches what it declared" from
@@ -684,6 +742,9 @@ export class Store {
           projectId: carried.projectId,
           kind: input.kind,
           title: input.title,
+          summaryContext: input.summary.context,
+          summaryProblem: input.summary.problem,
+          summaryExample: input.summary.example,
           description: input.description,
           lifecycle: "unstarted",
           externalId: null,
@@ -759,6 +820,7 @@ export class Store {
         projectId: row.projectId,
         kind: row.kind,
         title: row.title,
+        summary: toSummary(row),
         description: row.description,
         acceptanceCriteria: criteria.get(row.id) ?? [],
         externalId: row.externalId,
@@ -800,7 +862,7 @@ export class Store {
    * be able to reach a ticket of another. A ticket of another feature reads as
    * absent rather than as forbidden, since from where the session stands it is.
    */
-  private requireTicketIn(featureId: string, ticketId: string): Ticket {
+  requireTicketIn(featureId: string, ticketId: string): Ticket {
     const ticket = this.featureGraph(featureId).tickets.find((each) => each.id === ticketId);
     if (!ticket) {
       throw new SquadError(
@@ -1228,7 +1290,7 @@ export class Store {
           id: reportId,
           ticketId: ticket.id,
           sessionId: ticket.sessionId ?? "",
-          summary: input.summary,
+          work: input.work,
           recommendation: input.recommendation,
           feedback: null,
           reviewedAt: null,
@@ -1580,11 +1642,15 @@ export class Store {
     // Checked here rather than trusted: a session only asks about its own
     // feature, and a ticket of another one reads as absent from where it stands.
     if (input.ticketId !== null) this.requireTicketIn(feature.id, input.ticketId);
-    if (!input.options.includes(input.recommendation)) {
+    // The label and not the whole option: an option is an object now, and what
+    // squad answers with under go-as-recommended is the line the agent itself
+    // put on the table.
+    const labels = input.options.map((option) => option.label);
+    if (!labels.includes(input.recommendation)) {
       throw new SquadError(
         "recommendation_not_an_option",
         400,
-        `the recommendation must be one of the options offered: "${input.recommendation}" is not among ${input.options.map((option) => `"${option}"`).join(", ")}`,
+        `the recommendation must name one of the options offered: "${input.recommendation}" is not among ${labels.map((label) => `"${label}"`).join(", ")}`,
       );
     }
 
@@ -1607,7 +1673,15 @@ export class Store {
         })
         .run();
       tx.insert(questionOptions)
-        .values(input.options.map((text, position) => ({ questionId: id, position, text })))
+        .values(
+          input.options.map((option, position) => ({
+            questionId: id,
+            position,
+            text: option.label,
+            consequence: option.consequence,
+            illustration: option.illustration ?? null,
+          })),
+        )
         .run();
     });
     return this.requireQuestion(id);
@@ -1689,8 +1763,8 @@ export class Store {
     return rows.map((row) => ({ ...row, options: options.get(row.id) ?? [] }));
   }
 
-  private readQuestionOptions(questionIds: string[]): Map<string, string[]> {
-    const byQuestion = new Map<string, string[]>();
+  private readQuestionOptions(questionIds: string[]): Map<string, QuestionOption[]> {
+    const byQuestion = new Map<string, QuestionOption[]>();
     if (questionIds.length === 0) return byQuestion;
     for (const row of this.db
       .select()
@@ -1699,7 +1773,10 @@ export class Store {
       .orderBy(asc(questionOptions.position))
       .all()) {
       const list = byQuestion.get(row.questionId) ?? [];
-      list.push(row.text);
+      // Null on the options written before these columns existed, and said so
+      // rather than filled in: an empty consequence would read as "this costs
+      // nothing", which is the one thing it does not say.
+      list.push({ label: row.text, consequence: row.consequence, illustration: row.illustration });
       byQuestion.set(row.questionId, list);
     }
     return byQuestion;
@@ -1902,7 +1979,7 @@ export class Store {
         id: row.id,
         ticketId: row.ticketId,
         sessionId: row.sessionId,
-        summary: row.summary,
+        work: row.work,
         recommendation: row.recommendation,
         coverage: coverage.get(row.id) ?? [],
         sheet: sheets.get(row.id) ?? [],
@@ -1951,6 +2028,29 @@ function carriedRow(featureId: string, projectId: string, createdAt: string) {
 /** The settings are one row, and this is it. */
 const singleSettingsRow = 1;
 
+/**
+ * The three summary columns read back as the one thing they are, or null when
+ * there is no summary at all. Null and not an object of empty strings: the
+ * interface has to tell "nothing was written here" from "this was written
+ * short", and only one of the two is worth opening.
+ *
+ * `context` and `problem` decide it together because the tool requires them
+ * together. `example` is absent on a fix ticket by design, so its absence says
+ * nothing about whether a summary was written.
+ */
+function toSummary(row: {
+  summaryContext: string | null;
+  summaryProblem: string | null;
+  summaryExample: string | null;
+}): TicketSummary | null {
+  if (row.summaryContext === null || row.summaryProblem === null) return null;
+  return {
+    context: row.summaryContext,
+    problem: row.summaryProblem,
+    example: row.summaryExample,
+  };
+}
+
 /** A feature row, with its two worktree columns read back as the one thing they are. */
 function toFeature(
   row: {
@@ -1958,6 +2058,7 @@ function toFeature(
     projectId: string;
     title: string;
     resumedSessionId: string | null;
+    runningExample: string | null;
     goAsRecommended: boolean;
     autonomyHaltReason: AutonomyHaltReason | null;
     autonomyHaltDetail: string | null;
@@ -1972,6 +2073,7 @@ function toFeature(
     title: row.title,
     repositories,
     resumedSessionId: row.resumedSessionId,
+    runningExample: row.runningExample,
     goAsRecommended: row.goAsRecommended,
     autonomyHalt: toHalt(row),
     createdAt: row.createdAt,

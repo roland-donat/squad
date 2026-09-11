@@ -1452,6 +1452,21 @@ button[disabled] {
   accent-color: var(--accent);
 }
 
+/* What a road costs, and that cost on the feature's own example, indented under
+   the road itself. Set back and quieter than the label on purpose: the label is
+   what one picks, these are what one weighs before picking. */
+.question__consequence,
+.question__illustration {
+  margin: 0.15rem 0 0 1.6rem;
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.question__illustration {
+  font-style: italic;
+}
+
 /* What is at stake, said on the question itself: the perimeter never moves
    without the developer, whatever the mode. */
 .chip--scope {

@@ -10,7 +10,8 @@ import {
   ticketTestSheetRoute,
 } from "../../src/shared/api";
 import { pendingActions } from "../../src/shared/pending";
-import { connectToSquadTools, type ToolOutcome } from "../support/mcp";
+import { textBounds } from "../../src/server/mcp";
+import { connectToSquadTools, type ToolOutcome, writeTicket } from "../support/mcp";
 import { createScriptedLauncher, type ScriptedAgent } from "../support/scripted-launcher";
 import {
   openTestFeature,
@@ -68,7 +69,7 @@ describe("ending a step, its test sheet and its alerts", () => {
       launcher: createScriptedLauncher(async (agent) => {
         if (agent.request.role === "main") {
           await agent.awaitMessage();
-          await agent.call("create_ticket", {
+          await writeTicket(agent, {
             featureId: agent.request.featureId,
             kind: "build",
             title: "Le store",
@@ -157,7 +158,7 @@ describe("ending a step, its test sheet and its alerts", () => {
       answer = await agent.call("report_step", {
         featureId: agent.request.featureId,
         ticketId: agent.request.ticketId,
-        summary: "La base s'ouvre et les migrations tournent au démarrage.",
+        work: "La base s'ouvre et les migrations tournent au démarrage.",
         coverage: [
           { criterionId: opens, verdict: "automated" },
           {
@@ -195,7 +196,7 @@ describe("ending a step, its test sheet and its alerts", () => {
     // What the agent already established on a point it still hands over travels
     // with it: the developer judges what is left, not the whole of it again.
     expect(report.coverage[1]?.note).toContain("onze migrations passent");
-    expect(report.summary).toContain("les migrations tournent");
+    expect(report.work).toContain("les migrations tournent");
     expect(report.recommendation).toContain("Fusionner");
     expect(report.reviewedAt).toBeNull();
     // The tool hands the ticket back, so the agent sees what will be checked.
@@ -226,7 +227,7 @@ describe("ending a step, its test sheet and its alerts", () => {
       const report = {
         featureId: agent.request.featureId,
         ticketId: agent.request.ticketId,
-        summary: "La base s'ouvre, et les migrations tournent sur une base de la version d'avant.",
+        work: "La base s'ouvre, et les migrations tournent sur une base de la version d'avant.",
         recommendation: "Fusionner.",
       };
       // A criterion nobody automated but that a command answers is the agent's
@@ -281,7 +282,7 @@ describe("ending a step, its test sheet and its alerts", () => {
       await agent.call("report_step", {
         featureId: agent.request.featureId,
         ticketId: agent.request.ticketId,
-        summary: "Tout est couvert par les tests au seam.",
+        work: "Tout est couvert par les tests au seam.",
         coverage: settled,
         recommendation: "Fusionner.",
       });
@@ -316,7 +317,7 @@ describe("ending a step, its test sheet and its alerts", () => {
       await agent.call("report_step", {
         featureId: agent.request.featureId,
         ticketId: agent.request.ticketId,
-        summary: "Fini, et rapporté cette fois.",
+        work: "Fini, et rapporté cette fois.",
         coverage: settled,
         recommendation: "Fusionner.",
       });
@@ -327,7 +328,7 @@ describe("ending a step, its test sheet and its alerts", () => {
     // The second report covers every criterion, so its sheet is empty and the
     // ticket comes to rest merged rather than waiting for a reader.
     const waiting = await waitForState(stream, featureId, ticket.id, "merged");
-    expect(reportOf(waiting).summary).toContain("rapporté cette fois");
+    expect(reportOf(waiting).work).toContain("rapporté cette fois");
 
     // The same session, asked again: nothing failed, and the ticket was never
     // read as done because a process stopped.
@@ -373,7 +374,7 @@ describe("ending a step, its test sheet and its alerts", () => {
       await agent.call("report_step", {
         featureId: agent.request.featureId,
         ticketId: agent.request.ticketId,
-        summary: "Fait.",
+        work: "Fait.",
         coverage: [
           { criterionId: opens, verdict: "judgement" },
           { criterionId: migrations, verdict: "judgement" },
@@ -412,6 +413,39 @@ describe("ending a step, its test sheet and its alerts", () => {
     expect(again.status).toBe(409);
   });
 
+  it("refuses an account of the work long enough to be a wall of text", async () => {
+    const alive = gate();
+    let refusal = "";
+    const { stream, featureId, ticket } = await start(async (agent) => {
+      await agent.awaitMessage();
+      const [opens, migrations] = criterionIds(
+        (await readGraph(agent.request.featureId)).tickets[0] as Ticket,
+      );
+      const outcome = await agent.attempt("report_step", {
+        featureId: agent.request.featureId,
+        ticketId: agent.request.ticketId,
+        // Measured before the bound existed, these averaged 2 856 characters
+        // and were painted as one paragraph above the test sheet, on the one
+        // screen where the developer had something to do.
+        work: "x".repeat(textBounds.work + 1),
+        coverage: [
+          { criterionId: opens, verdict: "automated" },
+          { criterionId: migrations, verdict: "automated" },
+        ],
+        recommendation: "Fusionner.",
+      });
+      refusal = outcome.refused ? outcome.text : "";
+      await alive.passed;
+    });
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    const running = await waitForState(stream, featureId, ticket.id, "running");
+
+    await expect.poll(() => refusal, { timeout: 5_000 }).toContain(String(textBounds.work));
+    expect(running.stepReport).toBeNull();
+    alive.open();
+  });
+
   it("refuses a report that does not say something about every criterion", async () => {
     const alive = gate();
     let refusal = "";
@@ -421,7 +455,7 @@ describe("ending a step, its test sheet and its alerts", () => {
       const outcome = await agent.attempt("report_step", {
         featureId: agent.request.featureId,
         ticketId: agent.request.ticketId,
-        summary: "Fait.",
+        work: "Fait.",
         coverage: [{ criterionId: opens, verdict: "automated" }],
         recommendation: "Fusionner.",
       });
@@ -473,7 +507,7 @@ describe("ending a step, its test sheet and its alerts", () => {
     const outcome = await tools.attempt("report_step", {
       featureId,
       ticketId: ticket.id,
-      summary: "Fait.",
+      work: "Fait.",
       coverage: [],
       recommendation: "Fusionner.",
     });

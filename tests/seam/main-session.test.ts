@@ -3,6 +3,7 @@ import type { Feature, FeatureGraph, Ticket } from "../../src/shared/api";
 import { featureGraphRoute, mainSessionRoute } from "../../src/shared/api";
 import { frontier } from "../../src/shared/graph";
 import { createScriptedLauncher, type AgentScript } from "../support/scripted-launcher";
+import { aSummary, writeTicket } from "../support/mcp";
 import {
   openTestFeature,
   startTestSquad,
@@ -36,21 +37,21 @@ describe("a scripted session building the graph", () => {
       const prompt = await agent.awaitMessage();
       expect(prompt).toContain("/to-tickets");
 
-      const store = (await agent.call("create_ticket", {
+      const store = (await writeTicket(agent, {
         featureId: agent.request.featureId,
         kind: "build",
         title: "Le store",
         description: "La base et ses migrations.",
         acceptanceCriteria: ["La base s'ouvre", "Les migrations s'appliquent"],
       })) as Ticket;
-      const tools = (await agent.call("create_ticket", {
+      const tools = (await writeTicket(agent, {
         featureId: agent.request.featureId,
         kind: "build",
         title: "Les outils MCP",
         description: "Le contrat avec les agents.",
         blockedBy: [store.id],
       })) as Ticket;
-      await agent.call("create_ticket", {
+      await writeTicket(agent, {
         featureId: agent.request.featureId,
         kind: "build",
         title: "Le graphe à l'écran",
@@ -89,7 +90,7 @@ describe("a scripted session building the graph", () => {
     const { feature, stream } = await startWith(async (agent) => {
       await agent.awaitMessage();
       for (const title of ["Premier", "Deuxième"]) {
-        await agent.call("create_ticket", {
+        await writeTicket(agent, {
           featureId: agent.request.featureId,
           kind: "build",
           title,
@@ -113,13 +114,13 @@ describe("a scripted session building the graph", () => {
     let refusal = "";
     const { feature, stream } = await startWith(async (agent) => {
       await agent.awaitMessage();
-      const first = (await agent.call("create_ticket", {
+      const first = (await writeTicket(agent, {
         featureId: agent.request.featureId,
         kind: "build",
         title: "Premier",
         description: "",
       })) as Ticket;
-      const second = (await agent.call("create_ticket", {
+      const second = (await writeTicket(agent, {
         featureId: agent.request.featureId,
         kind: "build",
         title: "Second",
@@ -130,6 +131,7 @@ describe("a scripted session building the graph", () => {
         featureId: agent.request.featureId,
         kind: "build",
         title: "Troisième",
+        summary: aSummary(),
         description: "",
         blockedBy: [second.id],
         blocks: [first.id],

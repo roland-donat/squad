@@ -21,6 +21,16 @@ export function fixTicketFor(
     projectId: merged.projectId,
     kind: "fix",
     title: `Vérification d'intégration rouge après « ${merged.title} »`,
+    // Squad writes its own summary here rather than being let off it: this
+    // ticket is read on the same screen as the ones an agent wrote, and an
+    // exemption would show there as a hole. It costs no interpretation of
+    // prose, which squad does not do: everything below is what squad just saw
+    // happen. No example, as on any fix ticket: what broke is a red command.
+    summary: {
+      context: `La branche de feature du dépôt vient de recevoir « ${merged.title} », et squad y a lancé la vérification du projet comme après chaque fusion.`,
+      problem: `La commande \`${command}\` ne passe plus sur la branche de feature depuis cette fusion.`,
+      example: null,
+    },
     description: [
       `La branche de feature ne passe plus la vérification du projet depuis la fusion de « ${merged.title} ».`,
       "",

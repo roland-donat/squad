@@ -127,6 +127,13 @@
       "when": 1788991214914,
       "tag": "0017_luxuriant_doorman",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1789143368563,
+      "tag": "0018_fair_wrecker",
+      "breakpoints": true
     }
   ]
 }

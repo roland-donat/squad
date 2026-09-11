@@ -53,17 +53,28 @@ function AskedQuestion({ question }: { question: Question }) {
       </p>
       <ul className="list question__options">
         {[...question.options, null].map((option) => (
-          <li key={option ?? "autre"}>
+          <li key={option?.label ?? "autre"}>
             <label className="question__option">
               <input
                 type="radio"
                 name={`question-${question.id}`}
-                checked={choice === option}
-                onChange={() => setChoice(option)}
+                checked={choice === (option?.label ?? null)}
+                onChange={() => setChoice(option?.label ?? null)}
               />
-              <span className="sheet__text">{option ?? "Autre réponse"}</span>
-              {option === question.recommendation && <span className="chip">recommandé</span>}
+              <span className="sheet__text">{option?.label ?? "Autre réponse"}</span>
+              {option !== null && option.label === question.recommendation && (
+                <span className="chip">recommandé</span>
+              )}
             </label>
+            {/* What the road costs, under the road itself. Absent only on the
+                options written before the agents were asked for it; padding
+                that gap would read as "this one costs nothing". */}
+            {option?.consequence != null && (
+              <p className="question__consequence">{option.consequence}</p>
+            )}
+            {option?.illustration != null && (
+              <p className="question__illustration">{option.illustration}</p>
+            )}
           </li>
         ))}
       </ul>

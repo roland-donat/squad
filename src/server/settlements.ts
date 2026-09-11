@@ -293,33 +293,35 @@ export class Settlements {
       (ticket.stepReport?.sheet ?? []).some(
         (point) => point.verdict === "pending" && point.settlement?.outcome === "decision",
       );
-    const scoped = (ticket: Ticket): boolean =>
-      (ticket.stepReport?.sheet ?? []).some(
-        (point) =>
-          point.verdict === "pending" &&
-          point.settlement?.outcome === "decision" &&
-          point.settlement.scopeChanging,
-      );
-    // Across tickets for the same reason as within one: the first scope
-    // arbitration stops the mode, so every ticket holding one is left for last.
-    // Otherwise what gets taken would depend on the order the graph happens to
-    // hand its tickets out in.
-    const holders = store
-      .featureGraph(featureId)
-      .tickets.filter(holding)
-      .sort((left, right) => Number(scoped(left)) - Number(scoped(right)));
-    for (const ticket of holders) {
-      const decided = this.take(ticket);
-      if (decided.stepReport?.reviewedAt === null) continue;
+    const holders = store.featureGraph(featureId).tickets.filter(holding);
+    // Two sweeps across the tickets, and not one sweep in a chosen order. The
+    // first scope arbitration stops the mode, so a ticket holding both takes
+    // its own plain ones, halts on its own scope one, and every ticket read
+    // after it gets "wait" for arbitrations squad was allowed to take. Ordering
+    // the tickets cannot fix that: with several holding both, whichever comes
+    // first freezes the others, which is the very dependency on graph order
+    // this sweep exists to remove. Measured on the instance: one ticket holding
+    // both left a takeable arbitration on the next one.
+    const settled = new Map<string, Ticket>();
+    const sweep = (plainOnly: boolean): void => {
+      for (const ticket of holders) {
+        const decided = this.take(ticket, plainOnly);
+        if (decided.stepReport?.reviewedAt === null) continue;
+        settled.set(decided.id, decided);
+      }
+    };
+    sweep(true);
+    sweep(false);
+    for (const ticket of settled.values()) {
       // Taken here rather than by a pass, so what follows a settled sheet has to
       // be reached from here too: merged, sent back, or left waiting. Announced
       // once per ticket, since each is answered on its own.
-      publishGraph(store, bus, decided.featureId);
-      void validations.afterSettling(decided);
+      publishGraph(store, bus, ticket.featureId);
+      void validations.afterSettling(ticket);
     }
   }
 
-  private take(ticket: Ticket): Ticket {
+  private take(ticket: Ticket, plainOnly = false): Ticket {
     const { store, autonomy } = this.dependencies;
     const current = this.reread(ticket);
     // What does not change the perimeter first, and that ordering is the whole
@@ -327,8 +329,13 @@ export class Settlements {
     // point read after it gets "wait" from a mode that is no longer driving.
     // Read in sheet order, one scope point in the middle freezes what follows
     // it, which is the very thing this sweep exists to undo.
+    //
+    // `plainOnly` is that same rule taken one level up, for a caller holding
+    // more than one ticket: it leaves the scope points unread altogether, so
+    // the mode is still driving when the next ticket is reached.
     const open = (current.stepReport?.sheet ?? [])
       .filter((point) => point.verdict === "pending" && point.settlement?.outcome === "decision")
+      .filter((point) => !plainOnly || point.settlement?.scopeChanging !== true)
       .sort(
         (left, right) =>
           Number(left.settlement?.scopeChanging ?? false) -

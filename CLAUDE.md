@@ -35,6 +35,7 @@ et des jobs CI).
 | Base | SQLite (`better-sqlite3`), sous le répertoire de données de l'utilisateur |
 | Schéma et migrations | Drizzle ORM, migrations générées sous `drizzle/` |
 | Interface | React 19, Vite |
+| Rendu du Markdown | `marked` pour son lexer seul, rendu en éléments React |
 | Tests au seam | Vitest |
 | Test navigateur | Playwright |
 
@@ -234,6 +235,7 @@ src/server/command.ts      # lancer un outil en ligne de commande et rapporter c
 src/server/pull-request.ts # la description d'une pull request, écrite depuis le graphe
 src/server/fix-ticket.ts   # le ticket qu'écrit une vérification d'intégration rouge
 src/ui/                    # interface React servie par le serveur
+src/ui/markdown/           # la prose d'un agent, peinte en éléments et jamais en HTML
 src/ui/route.ts            # l'adresse : ce qui est regardé, tenu dans l'URL
 src/ui/tab.ts              # l'onglet d'une feature, nommé d'après elle
 src/ui/geometry.ts         # les tailles de panneau, tenues par le navigateur seul
@@ -252,6 +254,7 @@ src/ui/ticket/             # le panneau d'un nœud du graphe, fiche de tests com
 drizzle/                   # migrations générées, versionnées
 tests/seam/                # tests au seam : HTTP, flux d'événements et outils MCP
 tests/support/             # instance de test, dépôts git temporaires, double du lanceur
+tests/ui/                  # une exception au seam : le rendu du Markdown et sa sûreté
 tests/browser/             # test navigateur unique, parcours nominal
 docs/adr/                  # décisions d'architecture
 docs/agents/               # configuration lue par les skills d'ingénierie
@@ -381,6 +384,13 @@ non-déterminisme du modèle est retiré. Voir `tests/support/scripted-launcher.
 
 Le seul seam est l'API du serveur, flux d'événements et outils MCP compris : un test
 pilote squad comme le font l'interface et les agents, jamais en atteignant un module de
-l'intérieur. Un test qui casse à
+l'intérieur.
+
+**Une exception, et elle est argumentée dans son propre fichier** : `tests/ui/` tient le
+rendu du Markdown. Ce n'est pas un test de structure interne mais d'un **contrat déclaré**,
+les deux sous-ensembles que les outils MCP promettent aux agents, et d'une **frontière de
+sûreté**, le fait que de la prose écrite par un modèle ne puisse jamais devenir du
+balisage. Ni l'un ni l'autre n'est atteignable depuis l'API. Le composant est rendu en
+chaîne statique, donc sans jsdom ni environnement propre. Un test qui casse à
 la première réorganisation de modules teste la mauvaise chose. Le test navigateur est
 unique et prouve le câblage de l'interface, il ne duplique pas la couverture métier.

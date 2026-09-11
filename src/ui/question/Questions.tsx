@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import type { Question } from "../../shared/api";
 import { answerQuestion } from "../api";
+import { Markdown, MarkdownText } from "../markdown/Markdown";
 import { Failure, useSubmission } from "../submission";
 
 /**
@@ -48,7 +49,7 @@ function AskedQuestion({ question }: { question: Question }) {
   return (
     <form className="form question" onSubmit={submit}>
       <p className="question__prompt">
-        {question.prompt}
+        <MarkdownText text={question.prompt} />
         {question.scopeChanging && <span className="chip chip--scope">périmètre</span>}
       </p>
       <ul className="list question__options">
@@ -61,7 +62,9 @@ function AskedQuestion({ question }: { question: Question }) {
                 checked={choice === (option?.label ?? null)}
                 onChange={() => setChoice(option?.label ?? null)}
               />
-              <span className="sheet__text">{option?.label ?? "Autre réponse"}</span>
+              <span className="sheet__text">
+                {option === null ? "Autre réponse" : <MarkdownText text={option.label} />}
+              </span>
               {option !== null && option.label === question.recommendation && (
                 <span className="chip">recommandé</span>
               )}
@@ -70,10 +73,18 @@ function AskedQuestion({ question }: { question: Question }) {
                 options written before the agents were asked for it; padding
                 that gap would read as "this one costs nothing". */}
             {option !== null && option.consequence !== null && (
-              <p className="question__consequence">{option.consequence}</p>
+              <Markdown
+                text={option.consequence}
+                subset="inline"
+                className="question__consequence"
+              />
             )}
             {option !== null && option.illustration !== null && (
-              <p className="question__illustration">{option.illustration}</p>
+              <Markdown
+                text={option.illustration}
+                subset="inline"
+                className="question__illustration"
+              />
             )}
           </li>
         ))}
@@ -101,7 +112,9 @@ function AskedQuestion({ question }: { question: Question }) {
 function SettledQuestion({ question }: { question: Question }) {
   return (
     <div className="question question--settled">
-      <p className="question__prompt">{question.prompt}</p>
+      <p className="question__prompt">
+        <MarkdownText text={question.prompt} />
+      </p>
       {question.state === "abandoned" ? (
         <p className="sheet__comment">
           Abandonnée : squad s'est arrêté pendant qu'elle attendait, et la session qui l'avait posée
@@ -112,7 +125,9 @@ function SettledQuestion({ question }: { question: Question }) {
           <span className="chip chip--verdict">
             {question.answeredBy === "squad" ? "répondu par squad" : "répondu"}
           </span>
-          <span className="sheet__text">{question.answer}</span>
+          <span className="sheet__text">
+            <MarkdownText text={question.answer ?? ""} />
+          </span>
         </p>
       )}
     </div>

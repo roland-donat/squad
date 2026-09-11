@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { ThreadEntry, ThreadEntryKind } from "../../shared/api";
+import { Markdown } from "../markdown/Markdown";
 
 /**
  * The thread of a session, whichever kind: what the developer asked for, what
@@ -38,7 +39,7 @@ export function Thread({ entries, empty }: { entries: ThreadEntry[]; empty: Reac
               <pre>{entry.detail ?? "sans argument"}</pre>
             </details>
           ) : (
-            <p className="thread__text">{entry.text}</p>
+            <Markdown text={entry.text} subset="full" className="thread__text" />
           )}
           {entry.kind === "notice" && entry.detail !== null && (
             <pre className="thread__detail">{entry.detail}</pre>

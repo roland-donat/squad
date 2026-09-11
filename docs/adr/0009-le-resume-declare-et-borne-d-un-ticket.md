@@ -74,9 +74,22 @@ endroit (`textBounds`) : si des agents se mettent à boucler sur des refus, c'es
 qui est fausse et c'est là qu'elle se corrige. Ce qui n'est pas négociable est qu'une
 borne existe.
 
-Le rendu Markdown, lui, **ne fait pas partie de cette décision** et arrive après. Tant
-qu'aucun rendu n'existe, les champs demandent de la prose brute : dire à un agent qu'il
-peut écrire `**gras**` avant que quoi que ce soit ne le rende mettrait des astérisques
-littérales sur l'écran même que ce chantier veut rendre lisible. Ce qui est déjà demandé
-et qui ne dépend d'aucun rendu : ni titre ni tableau dans un résumé, un titre dans un
-champ de 240 caractères étant du bruit et un tableau dans un résumé du détail déguisé.
+Enfin le rendu, qui est arrivé dans un second temps et non avec les bornes : dire à un
+agent qu'il peut écrire `**gras**` avant que quoi que ce soit ne le rende mettrait des
+astérisques littérales sur l'écran même que ce chantier veut rendre lisible. Deux
+sous-ensembles déclarés dans les champs eux-mêmes, en ligne seulement dans le résumé,
+complet dans la description et dans les notes de preuve, où une sortie de commande a
+besoin d'un bloc. Un bloc hors du sous-ensemble n'est pas jeté : son texte est gardé et
+sa structure aplatie, perdre ce qu'un agent a écrit étant pire que le montrer platement.
+
+**Le Markdown est peint en éléments React, jamais en HTML.** Passer par une chaîne HTML
+et `dangerouslySetInnerHTML` reviendrait à maintenir un assainisseur pour toujours, sur
+du contenu produit par un modèle, dans une page qui détient la session du développeur
+face à l'API de squad. Construire des éléments supprime la question : il n'existe aucun
+chemin du texte vers du balisage, donc un `<script>` dans la source est un `<script>` à
+l'écran, en caractères. `marked` est pris pour son **lexer** seul, la partie difficile à
+écrire juste, et c'est tout ce que squad lui emprunte : le paquet n'a aucune dépendance,
+et le rendu vit chez nous, où il peut être tenu aux sous-ensembles que les outils
+promettent. Un lien dont le schéma n'est ni `http`, ni `https`, ni `mailto` n'est pas
+rendu cliquable : `javascript:` dans un href est le dernier moyen par lequel de la prose
+d'agent pourrait agir sur cette page.

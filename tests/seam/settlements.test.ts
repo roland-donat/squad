@@ -698,6 +698,55 @@ describe("the settling pass, between a test sheet and the developer", () => {
     ).toBe(true);
   });
 
+  it("laisse le développeur répondre à la fiche du dernier tour qu'il est le seul à pouvoir traiter", async () => {
+    // Le point que le test précédent ne posait pas : la fiche est bien annoncée
+    // comme attendant une personne, mais cette personne peut-elle agir ? Au
+    // dernier tour, une passe qui casse tout ne laisse aucun point `pending`,
+    // et c'est ce qui date le rapport. Un rapport daté est une fiche que
+    // l'interface rend en lecture seule et que le serveur refuse de reprendre.
+    const { featureId, ticket, passes } = await start({
+      coverage: [{ verdict: "automated" }, { verdict: "automated" }],
+      settle: async (points, agent) => {
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: points.map((pointId) => ({
+            pointId,
+            outcome: "broken",
+            note: "Lancé : la migration 0004 échoue toujours sur une colonne absente.",
+          })),
+        });
+      },
+    });
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    await until("la troisième passe", async () => passes() === 3);
+
+    const graph = await readGraph(featureId);
+    const current = graph.tickets.find((each) => each.id === ticket.id) as Ticket;
+    const report = reportOf(current);
+    expect(report.correctable).toBe(false);
+
+    // Squad dit qu'elle attend le développeur.
+    expect(
+      pendingActions([graph], []).some(
+        (action) => action.ticketId === ticket.id && action.reason === "validation",
+      ),
+    ).toBe(true);
+
+    // Donc le développeur doit pouvoir la traiter. Il répond sur les points que
+    // la passe a cassés : ce sont les seuls qui restent, et les juger est
+    // exactement ce que squad lui demande.
+    const answered = await squad.request("POST", ticketTestSheetRoute(ticket.id), {
+      points: report.sheet.map((point) => ({ id: point.id, passed: true })),
+      feedback: "Vérifié à la main : c'est bon chez moi.",
+    });
+    expect(answered.status).toBe(200);
+
+    // Et une fois répondu, plus rien ne l'attend.
+    expect(pendingActions([await readGraph(featureId)], [])).toEqual([]);
+  });
+
   it("type encore l'arbitrage du dernier tour, et go-as-recommandé le prend", async () => {
     // Le fond de l'affaire, mesuré sur l'instance : trois fiches non typées
     // portaient 15 des 33 points en attente, arbitrages compris. Un arbitrage
@@ -738,6 +787,65 @@ describe("the settling pass, between a test sheet and the developer", () => {
     expect(passes()).toBe(3);
     expect(reportOf(merged).sheet[0]?.settlement?.outcome).toBe("decision");
     expect(receiver.received()).toEqual([]);
+  });
+
+  it("laisse répondre la fiche dont le mode vient de prendre le dernier arbitrage", async () => {
+    // Le même blocage que plus haut, par l'autre porte. Au dernier tour, une
+    // passe qui casse un point et en soumet un autre à l'arbitrage laisse, une
+    // fois le mode passé, un point cassé et rien en attente. C'est ce « rien en
+    // attente » qui datait le rapport, et un rapport daté est une fiche que le
+    // serveur refuse de reprendre.
+    let round = 0;
+    const { featureId, stream, ticket, passes } = await start({
+      driven: true,
+      coverage: [{ verdict: "automated" }, { verdict: "automated" }],
+      suggestions: ["Le point qui casse", "L'orthographe de la clé exposée"],
+      settle: async (points, agent) => {
+        round += 1;
+        const last = round > 2;
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: points.map((pointId, index) => ({
+            pointId,
+            ...(last && index === 1
+              ? {
+                  outcome: "decision",
+                  note: "Rien n'est cassé : deux orthographes tiennent.",
+                  recommendation: "Garder `kind`.",
+                  scopeChanging: false,
+                }
+              : {
+                  outcome: "broken",
+                  note: "Lancé : la migration 0004 échoue sur une colonne absente.",
+                }),
+          })),
+        });
+      },
+    });
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    await until("la troisième passe", async () => passes() === 3);
+    const waiting = await waitForState(stream, featureId, ticket.id, "awaiting-validation");
+    const report = reportOf(waiting);
+    expect(report.correctable).toBe(false);
+    // Le mode a bien pris son arbitrage, et le point cassé reste.
+    expect(report.sheet.some((point) => point.verdict === "passed")).toBe(true);
+    expect(report.sheet.some((point) => point.verdict === "failed")).toBe(true);
+
+    // Donc la fiche attend une personne, et cette personne peut répondre.
+    expect(
+      pendingActions([await readGraph(featureId)], []).some(
+        (action) => action.ticketId === ticket.id && action.reason === "validation",
+      ),
+    ).toBe(true);
+    const answered = await squad.request("POST", ticketTestSheetRoute(ticket.id), {
+      points: report.sheet
+        .filter((point) => point.verdict === "failed")
+        .map((point) => ({ id: point.id, passed: true })),
+      feedback: "Vérifié à la main.",
+    });
+    expect(answered.status).toBe(200);
   });
 
   it("coche un critère que la sous-session avait confié à un humain, preuve à l'appui", async () => {

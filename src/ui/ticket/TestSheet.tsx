@@ -5,6 +5,7 @@ import type {
   StepReport,
   TestSheetPoint,
 } from "../../shared/api";
+import { pointsAwaitingDeveloper } from "../../shared/validation";
 import { ApiError, reviewTestSheet, settleTestSheet } from "../api";
 
 /**
@@ -18,18 +19,15 @@ import { ApiError, reviewTestSheet, settleTestSheet } from "../api";
  * what was said is the record the correction is based on.
  */
 export function TestSheet({ ticketId, report }: { ticketId: string; report: StepReport }) {
-  // What is asked of the developer is what is still pending: squad's settling
-  // pass answers the rest before they are woken, and a point it answered is
-  // read with its evidence rather than asked about again.
+  // What is asked of the developer is what waits on them, read from the one
+  // rule that decides it: the points nobody has been through, plus, on a sheet
+  // squad may no longer send back, the ones it showed false. Worked out here
+  // once, which is how the server and this form came to disagree about the
+  // last round.
+  const waiting = pointsAwaitingDeveloper(report);
+  // Only the pending ones can be handed to another pass: a point squad has
+  // already run something on is not one to run again.
   const pending = report.sheet.filter((point) => point.verdict === "pending");
-  // Plus what squad showed false and may no longer send back itself. Past that
-  // round they are the only one who can end it, by overriding the finding or by
-  // handing the correction back on their own word, and a sheet that offered
-  // neither would wake them for something they cannot act on.
-  const uncorrectable = report.correctable
-    ? []
-    : report.sheet.filter((point) => point.verdict === "failed");
-  const waiting = [...pending, ...uncorrectable];
   return (
     <>
       <h3 className="ticket__heading">Fin d'étape</h3>
@@ -47,9 +45,15 @@ export function TestSheet({ ticketId, report }: { ticketId: string; report: Step
         entries={report.coverage.filter((entry) => entry.verdict === "checked")}
       />
 
+      {/* What squad settled and is not handing over. A point it showed false on
+          a sheet it may no longer correct appears in the form below instead:
+          listed in both, the same point would read as two things to judge. */}
       <Settled
         title="Vérifiés par squad"
-        entries={report.sheet.filter((point) => point.settlement !== null)}
+        entries={report.sheet.filter(
+          (point) =>
+            point.settlement !== null && !waiting.some((each) => each.id === point.id),
+        )}
       />
 
       <h3 className="ticket__heading">Fiche de tests</h3>
@@ -229,10 +233,32 @@ function SheetForm({
               />
               <span className="sheet__text">{point.text}</span>
               <span className="chip">{originLabel(point)}</span>
+              {/* What squad's pass concluded on this point, next to the point
+                  it hands over. Shown here and not only in the settled list
+                  above, which no longer holds it: an arbitration without its
+                  recommended road is a bare line, which is precisely what the
+                  pass exists to replace, and a broken point without its
+                  evidence is a claim the developer has to re-establish. */}
+              {point.settlement !== null && (
+                <span className="chip chip--verdict">
+                  {settlementLabels[point.settlement.outcome]}
+                </span>
+              )}
             </label>
-            {point.criterionId !== null && notes[point.criterionId] !== undefined && (
-              <p className="sheet__comment">{notes[point.criterionId]}</p>
+            {point.settlement !== null && (
+              <p className="sheet__comment">{point.settlement.note}</p>
             )}
+            {point.settlement?.recommendation != null && (
+              <p className="sheet__verdict">
+                <span className="chip">recommandé</span>
+                <span className="sheet__text">{point.settlement.recommendation}</span>
+              </p>
+            )}
+            {point.settlement === null &&
+              point.criterionId !== null &&
+              notes[point.criterionId] !== undefined && (
+                <p className="sheet__comment">{notes[point.criterionId]}</p>
+              )}
             <label className="field">
               <span>Commentaire</span>
               <input

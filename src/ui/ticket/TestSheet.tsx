@@ -10,25 +10,52 @@ import { ApiError, reviewTestSheet, settleTestSheet } from "../api";
 import { Markdown, MarkdownText } from "../markdown/Markdown";
 
 /**
- * The test sheet of a reported step: what the agent built, what a test covers,
- * what the agent settled itself and how, and what is left for a person to
- * judge. A point is checked when it works; leaving it unchecked with a comment
- * is how the developer says what is wrong, and that comment is what goes back
- * to the sub-session.
+ * A reported step, split where the modal is split: what is **read** on the left,
+ * what is **acted on** on the right.
+ *
+ * The two used to be one column, in the order they were written: the work, then
+ * everything squad had already settled, then, at the bottom, the one point
+ * waiting on a person. Measured on the instance that opened this: taking a
+ * single arbitration meant scrolling past 11 000 characters, of which 6 700
+ * were notes on points nobody had to judge. Evidence is not the work; it is what
+ * spares doing the work again, and it belongs beside the decision rather than in
+ * front of it.
  *
  * A sheet is gone through once. Afterwards it is read back rather than edited:
  * what was said is the record the correction is based on.
  */
-export function TestSheet({ ticketId, report }: { ticketId: string; report: StepReport }) {
-  // What is asked of the developer is what waits on them, read from the one
-  // rule that decides it: the points nobody has been through, plus, on a sheet
-  // squad may no longer send back, the ones it showed false. Worked out here
-  // once, which is how the server and this form came to disagree about the
-  // last round.
+
+/**
+ * Whether anything on this sheet is still to be answered, which is what opens
+ * the action column and what the form below fills it with. Read from one place
+ * so the two cannot disagree, and a gone-through sheet is the case where they
+ * would: on a sheet squad may no longer correct, a point it showed false stays
+ * in `pointsAwaitingDeveloper` after the review, because the developer is the
+ * only one left who can act on it. They have acted on it. A column opening on
+ * that would hold nothing at all.
+ */
+export function sheetAwaitsDeveloper(report: StepReport): boolean {
+  return report.reviewedAt === null && pointsAwaitingDeveloper(report).length > 0;
+}
+
+/**
+ * What is read of a step: what the session built, what was settled without the
+ * developer, and the sheet itself once it has been gone through.
+ *
+ * Everything squad settled arrives **folded**. It is the evidence that spares
+ * re-establishing a claim, so it has to be within reach; it is also what nobody
+ * has to judge, so unfolded it is the wall that hides the one thing they do.
+ */
+export function TestSheetEvidence({ report }: { report: StepReport }) {
   const waiting = pointsAwaitingDeveloper(report);
-  // Only the pending ones can be handed to another pass: a point squad has
-  // already run something on is not one to run again.
-  const pending = report.sheet.filter((point) => point.verdict === "pending");
+  const automated = report.coverage.filter((entry) => entry.verdict === "automated");
+  const checked = report.coverage.filter((entry) => entry.verdict === "checked");
+  // What squad settled and is not handing over. A point it showed false on a
+  // sheet it may no longer correct appears in the form instead: listed in both,
+  // the same point would read as two things to judge.
+  const settled = report.sheet.filter(
+    (point) => point.settlement !== null && !waiting.some((each) => each.id === point.id),
+  );
   return (
     <>
       <h3 className="ticket__heading">Fin d'étape</h3>
@@ -38,41 +65,16 @@ export function TestSheet({ ticketId, report }: { ticketId: string; report: Step
         <MarkdownText text={report.recommendation} />
       </p>
 
-      <Settled
-        title="Couverts par un test automatique"
-        entries={report.coverage.filter((entry) => entry.verdict === "automated")}
-      />
-      <Settled
-        title="Réglés par l'agent"
-        entries={report.coverage.filter((entry) => entry.verdict === "checked")}
-      />
+      <Settled title="Couverts par un test automatique" entries={automated} />
+      <Settled title="Réglés par l'agent" entries={checked} />
+      <Settled title="Vérifiés par squad" entries={settled} />
 
-      {/* What squad settled and is not handing over. A point it showed false on
-          a sheet it may no longer correct appears in the form below instead:
-          listed in both, the same point would read as two things to judge. */}
-      <Settled
-        title="Vérifiés par squad"
-        entries={report.sheet.filter(
-          (point) =>
-            point.settlement !== null && !waiting.some((each) => each.id === point.id),
-        )}
-      />
-
-      <h3 className="ticket__heading">Fiche de tests</h3>
-      {report.sheet.length === 0 ? (
+      {report.reviewedAt !== null && <ReviewedSheet report={report} />}
+      {report.reviewedAt === null && report.sheet.length === 0 && (
         <p className="empty">
           Rien à juger : tous les critères sont couverts par un test ou réglés par l'agent, et il
           n'a rien suggéré de plus.
         </p>
-      ) : waiting.length === 0 ? (
-        <ReviewedSheet report={report} />
-      ) : report.reviewedAt === null ? (
-        <>
-          <SettleFirst ticketId={ticketId} points={pending} />
-          <SheetForm ticketId={ticketId} points={waiting} notes={notesByCriterion(report)} />
-        </>
-      ) : (
-        <ReviewedSheet report={report} />
       )}
     </>
   );
@@ -80,9 +82,10 @@ export function TestSheet({ ticketId, report }: { ticketId: string; report: Step
 
 /**
  * The criteria the developer does not have to go through, and why: a test
- * covers them, or the agent settled them itself and says what it ran. Reading
- * this is what spares doing the work again, so a checked criterion shows its
- * note rather than hiding it behind the claim.
+ * covers them, or an agent settled them itself and says what it ran.
+ *
+ * Folded, and saying how many it holds: a reader opens it when a claim
+ * surprises them, which is the only moment its notes are worth their length.
  */
 function Settled({
   title,
@@ -93,8 +96,10 @@ function Settled({
 }) {
   if (entries.length === 0) return null;
   return (
-    <>
-      <h3 className="ticket__heading">{title}</h3>
+    <details className="evidence">
+      <summary>
+        {title} <span className="evidence__count">{entries.length}</span>
+      </summary>
       <ul className="ticket__criteria">
         {entries.map((entry) => (
           <li key={"id" in entry ? entry.id : entry.criterionId}>
@@ -106,7 +111,7 @@ function Settled({
           </li>
         ))}
       </ul>
-    </>
+    </details>
   );
 }
 
@@ -125,6 +130,67 @@ const settlementLabels: Record<SettlementOutcome, string> = {
   human: "à voir",
   decision: "à trancher",
 };
+
+/**
+ * An arbitration is a road squad measured and recommends; a verification is
+ * something it is asking a person to have looked at. The two are held apart
+ * everywhere in squad, and here that difference is what decides whether a
+ * choice is offered as two roads or as a box to tick.
+ */
+function isArbitration(point: TestSheetPoint): boolean {
+  return point.settlement?.outcome === "decision" && point.settlement.recommendation !== null;
+}
+
+/**
+ * Whether the recommended road arrives already taken, which is the one place a
+ * default answer is filled in ahead of the reader.
+ *
+ * The rule is not "it is an arbitration" but "squad would take it alone", and
+ * the two differ on exactly one case. Under go-as-recommended, `verdictForDecision`
+ * answers a plain arbitration with its road and **stops the mode** on one that
+ * changes the perimeter (`autonomy.ts`). Pre-ticking a perimeter decision would
+ * therefore record, in one click, the very thing squad refuses to decide
+ * without a person. It is offered like any other road, with its badge, and
+ * nothing is chosen for them.
+ *
+ * A verification is never pre-ticked at all: it asks the developer to have
+ * looked at something, and a default there signs off a screen nobody opened.
+ */
+function startsTaken(point: TestSheetPoint): boolean {
+  return isArbitration(point) && point.settlement?.scopeChanging !== true;
+}
+
+/**
+ * What is asked of the developer on this step, and nothing else.
+ *
+ * Null when the sheet waits on nobody, which is what closes the action column:
+ * a column that stayed open holding "rien à faire" would take a third of the
+ * modal to say nothing.
+ */
+export function TestSheetForm({ ticketId, report }: { ticketId: string; report: StepReport }) {
+  // What is asked of the developer is what waits on them, read from the one
+  // rule that decides it: the points nobody has been through, plus, on a sheet
+  // squad may no longer send back, the ones it showed false. Worked out here
+  // once, which is how the server and this form came to disagree about the
+  // last round.
+  if (!sheetAwaitsDeveloper(report)) return null;
+  const waiting = pointsAwaitingDeveloper(report);
+  // Only the pending ones can be handed to another pass: a point squad has
+  // already run something on is not one to run again.
+  const pending = report.sheet.filter((point) => point.verdict === "pending");
+  return (
+    <>
+      <h3 className="ticket__heading">Fiche de tests</h3>
+      <SettleFirst ticketId={ticketId} points={pending} />
+      <SheetForm
+        key={report.id}
+        ticketId={ticketId}
+        points={waiting}
+        notes={notesByCriterion(report)}
+      />
+    </>
+  );
+}
 
 /**
  * What the agent already established on a criterion it still hands over: read
@@ -196,6 +262,10 @@ function SettleFirst({ ticketId, points }: { ticketId: string; points: TestSheet
  * back. Only the form made them one block to sign, so a decision of perimeter
  * waited behind a point asking whether a wording read well. What is left
  * untouched stays on the sheet, which is not gone through until it is empty.
+ *
+ * Offered only on a sheet that also holds verifications. Where every waiting
+ * point is an arbitration, the form below already takes them all in one click,
+ * and two buttons doing the same thing is a choice nobody asked for.
  */
 function TakeRoad({ ticketId, point }: { ticketId: string; point: TestSheetPoint }) {
   const [busy, setBusy] = useState(false);
@@ -222,7 +292,7 @@ function TakeRoad({ ticketId, point }: { ticketId: string; point: TestSheetPoint
           }
         }}
       >
-        {busy ? "squad l'enregistre…" : "Prendre cette route"}
+        {busy ? "squad l'enregistre…" : "Trancher seulement celui-ci"}
       </button>
       {error && (
         <span className="error" role="alert">
@@ -243,11 +313,51 @@ function SheetForm({
   points: TestSheetPoint[];
   notes: Record<string, string>;
 }) {
+  // Only what the developer has touched. What a point starts on is read from
+  // the point itself at every render rather than seeded once: the pass offered
+  // above this form settles the points of this very report, so a verification
+  // can become an arbitration under a form that is still mounted, and a seed
+  // would leave it on a default that was never meant for it.
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [comments, setComments] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A partial review takes arbitrations and nothing else, so taking one apart
+  // is only worth offering when there is a rest to leave behind.
+  const mixed = points.some((point) => !isArbitration(point));
+
+  /** Whether a point is on its recommended road, or ticked off. */
+  function taken(point: TestSheetPoint): boolean {
+    return checked[point.id] ?? startsTaken(point);
+  }
+
+  /**
+   * What goes back to the sub-session on a point.
+   *
+   * On an arbitration left on its recommended road, the road itself is written
+   * down, whatever sits in the box: leaving the road, typing what to do
+   * instead and then coming back would otherwise record the road that was
+   * rejected, under the verdict that accepted the other one.
+   */
+  function commentFor(point: TestSheetPoint): string {
+    if (isArbitration(point) && taken(point)) {
+      return `Route retenue : ${point.settlement?.recommendation ?? ""}`;
+    }
+    return (comments[point.id] ?? "").trim();
+  }
+
+  /**
+   * Leaving the recommended road without saying which one to take instead
+   * hands the sub-session a correction with nothing in it. The same guard an
+   * agent's question carries on its free answer, for the same reason: the
+   * choice squad did not offer is exactly the one worth being able to give,
+   * and it only exists once it is written.
+   */
+  const unsaid = points.some(
+    (point) =>
+      isArbitration(point) && !taken(point) && (comments[point.id] ?? "").trim() === "",
+  );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -258,7 +368,7 @@ function SheetForm({
         points: points.map((point) => ({
           id: point.id,
           passed: checked[point.id] === true,
-          comment: comments[point.id] ?? "",
+          comment: commentFor(point),
         })),
         feedback,
       });
@@ -272,84 +382,233 @@ function SheetForm({
   return (
     <form className="form sheet" onSubmit={submit}>
       <ul className="list sheet__points">
-        {points.map((point) => (
-          <li key={point.id} className="sheet__point">
-            <label className="sheet__check">
-              <input
-                type="checkbox"
-                checked={checked[point.id] === true}
-                onChange={(event) =>
-                  setChecked((current) => ({ ...current, [point.id]: event.target.checked }))
-                }
-              />
-              <span className="sheet__text">
-                <MarkdownText text={point.text} />
-              </span>
-              <span className="chip">{originLabel(point)}</span>
-              {/* What squad's pass concluded on this point, next to the point
-                  it hands over. Shown here and not only in the settled list
-                  above, which no longer holds it: an arbitration without its
-                  recommended road is a bare line, which is precisely what the
-                  pass exists to replace, and a broken point without its
-                  evidence is a claim the developer has to re-establish. */}
-              {point.settlement !== null && (
-                <span className="chip chip--verdict">
-                  {settlementLabels[point.settlement.outcome]}
-                </span>
-              )}
-            </label>
-            {point.settlement !== null && (
-              <Markdown text={point.settlement.note} subset="full" className="sheet__comment" />
-            )}
-            {point.settlement?.recommendation != null && (
-              <p className="sheet__verdict">
-                <span className="chip">recommandé</span>
-                <span className="sheet__text">
-                  <MarkdownText text={point.settlement.recommendation} />
-                </span>
-                <TakeRoad ticketId={ticketId} point={point} />
-              </p>
-            )}
-            {point.settlement === null &&
-              point.criterionId !== null &&
-              notes[point.criterionId] !== undefined && (
-                <Markdown
-                  text={notes[point.criterionId] ?? ""}
-                  subset="full"
-                  className="sheet__comment"
-                />
-              )}
-            <label className="field">
-              <span>Commentaire</span>
-              <input
-                value={comments[point.id] ?? ""}
-                onChange={(event) =>
-                  setComments((current) => ({ ...current, [point.id]: event.target.value }))
-                }
-                placeholder="ce qui ne va pas, si quelque chose ne va pas"
-              />
-            </label>
-          </li>
-        ))}
+        {points.map((point) =>
+          isArbitration(point) ? (
+            <Arbitration
+              key={point.id}
+              point={point}
+              ticketId={ticketId}
+              alone={!mixed}
+              taken={taken(point)}
+              onTake={(take) => setChecked((current) => ({ ...current, [point.id]: take }))}
+              comment={comments[point.id] ?? ""}
+              onComment={(text) => setComments((current) => ({ ...current, [point.id]: text }))}
+            />
+          ) : (
+            <Verification
+              key={point.id}
+              point={point}
+              note={point.criterionId === null ? undefined : notes[point.criterionId]}
+              passed={taken(point)}
+              onPass={(pass) => setChecked((current) => ({ ...current, [point.id]: pass }))}
+              comment={comments[point.id] ?? ""}
+              onComment={(text) => setComments((current) => ({ ...current, [point.id]: text }))}
+            />
+          ),
+        )}
       </ul>
       <label className="field">
         <span>Retour général</span>
         <textarea
           value={feedback}
           onChange={(event) => setFeedback(event.target.value)}
-          rows={3}
+          rows={2}
           placeholder="ce qui vaut pour la fiche entière"
         />
       </label>
-      <button type="submit" disabled={busy}>
-        Rendre la fiche
-      </button>
-      {error && (
-        <p className="error" role="alert">
-          {error}
+      {/* Held at the foot of the column rather than at the end of the prose:
+          with the recommended road already taken, agreeing is one click, and it
+          must not cost a scroll through the evidence of why it is recommended. */}
+      <div className="sheet__commit">
+        <button type="submit" disabled={busy || unsaid}>
+          Rendre la fiche
+        </button>
+        {unsaid && (
+          <span className="sheet__blocked">
+            Dites quelle route prendre à la place, et la fiche part.
+          </span>
+        )}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+    </form>
+  );
+}
+
+/**
+ * One arbitration: two roads, the recommended one already taken.
+ *
+ * The same shape as an agent's question, and for the same reason, written there
+ * first: the recommendation is the answer squad would give itself under
+ * go-as-recommended, so agreeing must cost one click and disagreeing must stay
+ * possible. Leaving the recommended road hands the point back to the
+ * sub-session with what to do instead, which is what an unchecked point has
+ * always meant.
+ */
+function Arbitration({
+  point,
+  ticketId,
+  alone,
+  taken,
+  onTake,
+  comment,
+  onComment,
+}: {
+  point: TestSheetPoint;
+  ticketId: string;
+  alone: boolean;
+  taken: boolean;
+  onTake: (taken: boolean) => void;
+  comment: string;
+  onComment: (text: string) => void;
+}) {
+  return (
+    <li className="sheet__point sheet__point--arbitration">
+      <p className="sheet__prompt">
+        <span className="sheet__text">
+          <MarkdownText text={point.text} />
+        </span>
+        <span className="chip chip--verdict">à trancher</span>
+        {/* Said the same way a question says it, and for the same reason: this
+            is the one squad stops the mode on rather than taking alone, so the
+            reader has to know before choosing that it moves the perimeter. */}
+        {point.settlement?.scopeChanging === true && (
+          <span className="chip chip--scope">périmètre</span>
+        )}
+      </p>
+      <Measured note={point.settlement?.note ?? null} />
+      <ul className="list question__options">
+        <li>
+          <label className="question__option">
+            <input
+              type="radio"
+              name={`point-${point.id}`}
+              checked={taken}
+              onChange={() => onTake(true)}
+            />
+            <span className="sheet__text">Prendre la route recommandée</span>
+            <span className="chip">recommandé</span>
+          </label>
+          <Markdown
+            text={point.settlement?.recommendation ?? ""}
+            subset="inline"
+            className="question__consequence"
+          />
+        </li>
+        <li>
+          <label className="question__option">
+            <input
+              type="radio"
+              name={`point-${point.id}`}
+              checked={!taken}
+              onChange={() => onTake(false)}
+            />
+            <span className="sheet__text">Prendre une autre route</span>
+          </label>
+          {!taken && (
+            <label className="field">
+              <span>Laquelle</span>
+              <textarea
+                value={comment}
+                onChange={(event) => onComment(event.target.value)}
+                rows={2}
+                placeholder="ce qu'il faut faire à la place ; la sous-session le reçoit tel quel"
+              />
+            </label>
+          )}
+        </li>
+      </ul>
+      {alone ? null : (
+        <p className="sheet__settle">
+          <TakeRoad ticketId={ticketId} point={point} />
         </p>
       )}
-    </form>
+    </li>
+  );
+}
+
+/**
+ * One verification: something to have looked at, checked when it holds.
+ *
+ * Nothing is ticked ahead of the reader here, and that is the whole difference
+ * with an arbitration above: a default answer on a point asking whether a
+ * screen reads right would sign off a screen nobody opened.
+ */
+function Verification({
+  point,
+  note,
+  passed,
+  onPass,
+  comment,
+  onComment,
+}: {
+  point: TestSheetPoint;
+  note: string | undefined;
+  passed: boolean;
+  onPass: (passed: boolean) => void;
+  comment: string;
+  onComment: (text: string) => void;
+}) {
+  return (
+    <li className="sheet__point">
+      <label className="sheet__check">
+        <input
+          type="checkbox"
+          checked={passed}
+          onChange={(event) => onPass(event.target.checked)}
+        />
+        <span className="sheet__text">
+          <MarkdownText text={point.text} />
+        </span>
+        <span className="chip">{originLabel(point)}</span>
+        {point.settlement !== null && (
+          <span className="chip chip--verdict">{settlementLabels[point.settlement.outcome]}</span>
+        )}
+      </label>
+      <Measured note={point.settlement?.note ?? note ?? null} />
+      {/* Shown whatever the outcome. `recommendation` is optional on every
+          settlement, not only on a decision, so a pass that hands a point over
+          as `human` may still name the road it would take. Read here rather
+          than offered as a choice: the point is a verification, and what it
+          asks is still to have looked. */}
+      {point.settlement?.recommendation != null && (
+        <p className="sheet__verdict">
+          <span className="chip">recommandé</span>
+          <span className="sheet__text">
+            <MarkdownText text={point.settlement.recommendation} />
+          </span>
+        </p>
+      )}
+      <label className="field">
+        <span>Commentaire</span>
+        <input
+          value={comment}
+          onChange={(event) => onComment(event.target.value)}
+          placeholder="ce qui ne va pas, si quelque chose ne va pas"
+        />
+      </label>
+    </li>
+  );
+}
+
+/**
+ * What squad ran on a point it still hands over, folded.
+ *
+ * It is the evidence the decision rests on, so it cannot be dropped; it also
+ * runs to several thousand characters, so unfolded it buries the two lines the
+ * developer came to read. Measured on the instance that opened this: one
+ * arbitration carried a 3 424-character note above its own choices.
+ */
+function Measured({ note }: { note: string | null }) {
+  if (note === null || note === "") return null;
+  return (
+    <details className="evidence evidence--inline">
+      <summary>Ce que squad a mesuré</summary>
+      <Markdown text={note} subset="full" className="sheet__comment" />
+    </details>
   );
 }
 
@@ -357,6 +616,7 @@ function SheetForm({
 function ReviewedSheet({ report }: { report: StepReport }) {
   return (
     <>
+      <h3 className="ticket__heading">Fiche de tests</h3>
       <ul className="list sheet__points">
         {report.sheet.map((point) => (
           <li key={point.id} className="sheet__point" data-verdict={point.verdict}>

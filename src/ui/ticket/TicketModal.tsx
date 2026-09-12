@@ -3,18 +3,28 @@ import type { Feature, Question, ThreadEntry, Ticket, TicketKind, TicketState, T
 import { Dialog } from "../Dialog";
 import { Markdown, MarkdownText } from "../markdown/Markdown";
 import { Questions } from "../question/Questions";
-import { TestSheet } from "./TestSheet";
+import { TestSheetEvidence, TestSheetForm, sheetAwaitsDeveloper } from "./TestSheet";
 import { TicketConversation } from "./TicketConversation";
 
 /**
  * Treating a ticket, in a surface of its own.
  *
- * Two tabs and a conversation, and the split between them answers one question:
- * what is being asked of me, and what is this about. **Résumé** carries that
- * answer and the thing to act on, a question or a test sheet. **Détail** carries
- * what one reads when the summary was not enough. The conversation stands beside
- * both, because reading the summary and replying to the session that wrote it
- * is one movement (ADR 0010).
+ * Three areas, and the split between them answers one question: what is being
+ * asked of me, and what is this about. **What is read** is on the left, on two
+ * tabs: **Résumé** carries the state, the context and the problem, plus the
+ * evidence of a reported step, folded; **Détail** carries what one reads when
+ * the summary was not enough. **What is acted on** is the column on the right,
+ * and nothing else is in it: the question waiting for an answer, or the points
+ * of a test sheet waiting for a verdict. The **conversation** with the
+ * sub-session runs as a band under both, because reading and replying to the
+ * session that wrote it is one movement (ADR 0010).
+ *
+ * The action used to live at the bottom of the Résumé tab, after everything
+ * already settled. Measured on the instance that opened this: taking one
+ * arbitration meant scrolling past 11 000 characters of prose nobody had to
+ * judge. A column of its own is what makes the sheet fit on a screen, and the
+ * action no longer belongs to a tab: it stays in view while the detail is
+ * consulted, which is the movement it was hiding.
  *
  * A modal and no longer a drawer: a drawer supposes that looking at a ticket is
  * a glance taken while reading the map, and treating one is not a glance. What
@@ -94,6 +104,11 @@ export function TicketModal({
   useEffect(() => {
     setTab(ticket.summary === null ? "detail" : "summary");
   }, [ticket.id, ticket.summary === null]);
+  // Whether the action column has anything to hold. Open on nothing, it would
+  // take a third of the modal to say there is nothing to do.
+  const waiting =
+    questions.some((question) => question.state === "pending") ||
+    (ticket.stepReport !== null && sheetAwaitsDeveloper(ticket.stepReport));
 
   return (
     <Dialog
@@ -115,16 +130,24 @@ export function TicketModal({
         </div>
       }
     >
-      <div className="ticket-modal">
+      <div className={waiting ? "ticket-modal ticket-modal--acting" : "ticket-modal"}>
         <section className="ticket-modal__reading" role="tabpanel" aria-label={tab === "summary" ? "Résumé" : "Détail"}>
           {tab === "summary" ? (
-            <SummaryTab ticket={ticket} feature={feature} questions={questions} />
+            <SummaryTab ticket={ticket} feature={feature} />
           ) : (
             <DetailTab ticket={ticket} questions={questions} />
           )}
         </section>
+        {waiting && (
+          <section className="ticket-modal__action" aria-label="Ce qu'on vous demande">
+            <Questions questions={questions} only="waiting" />
+            {ticket.stepReport !== null && (
+              <TestSheetForm ticketId={ticket.id} report={ticket.stepReport} />
+            )}
+          </section>
+        )}
         {/* Keyed by ticket: walking back through history between two ticket
-            addresses changes the ticket without remounting, and a column that
+            addresses changes the ticket without remounting, and a band that
             survived it would carry the previous draft into the new box. */}
         <TicketConversation
           key={ticket.id}
@@ -162,23 +185,15 @@ function Tab({
 }
 
 /**
- * What is being asked of me, and what this is about. The action comes first,
- * since an unanswered question is a session standing still where everything
- * below it is work already done.
+ * What this is about: the state in one line, the feature's decor folded, the
+ * summary, and the evidence of a reported step. What is asked of the developer
+ * is not here any more but in the column beside it, which is what lets this one
+ * be read at leisure and that one be acted on without scrolling.
  */
-function SummaryTab({
-  ticket,
-  feature,
-  questions,
-}: {
-  ticket: Ticket;
-  feature: Feature;
-  questions: Question[];
-}) {
+function SummaryTab({ ticket, feature }: { ticket: Ticket; feature: Feature }) {
   return (
     <>
       <p className="ticket__state">{explain(ticket)}</p>
-      <Questions questions={questions} only="waiting" />
       <RunningExample text={feature.runningExample} />
       <Summary summary={ticket.summary} />
       {ticket.conclusion !== null && (
@@ -187,7 +202,7 @@ function SummaryTab({
           <Markdown text={ticket.conclusion} subset="full" className="ticket__description" />
         </>
       )}
-      {ticket.stepReport !== null && <TestSheet ticketId={ticket.id} report={ticket.stepReport} />}
+      {ticket.stepReport !== null && <TestSheetEvidence report={ticket.stepReport} />}
     </>
   );
 }

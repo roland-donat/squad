@@ -1238,6 +1238,27 @@ export class Store {
     return (row?.points ?? 0) > 0;
   }
 
+  /**
+   * Records that a step was interrupted, one ticket at a time. Used when an
+   * opening squad had accepted could not be carried out: the ticket has to come
+   * back to a state it can be taken out of, and `interrupted` is what that
+   * state is called everywhere else.
+   *
+   * Scoped to the lifecycle it takes the ticket out of, and null when the row
+   * has moved on. The caller read that lifecycle before an opening that adds a
+   * worktree and starts a process, so minutes may have passed: a ticket dropped
+   * in that window would otherwise come back from the dead, holding its
+   * successors again and carrying the conclusion that says why it was dropped.
+   */
+  interruptStep(ticketId: string, from: TicketLifecycle): Ticket | null {
+    const written = this.db
+      .update(tickets)
+      .set({ lifecycle: "interrupted" })
+      .where(and(eq(tickets.id, ticketId), eq(tickets.lifecycle, from)))
+      .run();
+    return written.changes === 0 ? null : this.requireTicket(ticketId);
+  }
+
   /** Every step the store still believes is running, moved to `interrupted`. */
   interruptRunningSteps(): Ticket[] {
     const stranded = this.db

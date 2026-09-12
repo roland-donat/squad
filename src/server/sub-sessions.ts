@@ -198,10 +198,25 @@ export class SubSessions {
   }
 
   /**
-   * Drops a launch that could not be opened at all, and says so. Nothing else
-   * is written: no session was opened, so what squad recorded of this ticket's
-   * runs is still the truth, and reading the failure as a fresh one would
-   * suggest an attempt was made and lost.
+   * Drops a launch that could not be opened at all, and says so. What squad
+   * recorded of this ticket's runs is left alone: no session was opened, and
+   * reading the failure as a fresh run would suggest an attempt was made and
+   * lost.
+   *
+   * The one thing that is written is the state the ticket comes back to, and
+   * only when the state it was queued from cannot be taken out of. A correction
+   * is the case: it is the sole opening squad queues from `awaiting-validation`,
+   * since a launch is refused there. Coming back to it would park the ticket
+   * where its sheet may no longer be answered, no sub-session is running, and
+   * the waiting list has nothing to show, so the correction squad could not hand
+   * over is recorded as the interruption it is. Measured on the instance that
+   * opened this: one ticket sat there for three days, holding the release that
+   * three others waited on, and nothing anywhere said so.
+   *
+   * The mode is told, exactly as a stop tells it. `interrupted` is normally a
+   * ticket squad is about to take back, which is why the mode reads it as work
+   * in flight and waits; this one is a ticket nothing will take back, so a
+   * driven feature would sit on it for ever, with no halt and no reason given.
    */
   private abandon(ticket: Ticket, lifecycle: TicketLifecycle, failure: unknown): void {
     const { store, alerts } = this.dependencies;
@@ -211,9 +226,22 @@ export class SubSessions {
     // so this is the only place it still exists.
     const note = store.queuedLaunch(ticket.id)?.note ?? null;
     store.dropQueuedLaunch(ticket.id);
+    // A ticket that never ran stays on the frontier, where a launch is offered
+    // again; every other state squad queues from is either resumable already or
+    // a correction, and a correction has to become one. Written before the graph
+    // goes out, not after: announcing the ticket back in `awaiting-validation`
+    // and correcting it a moment later would show, however briefly, the one
+    // state this exists to keep it out of.
+    // Null when the ticket has moved since the launch was queued, a drop being
+    // the one move it can make from there: `open` adds a worktree and starts a
+    // process, so the lifecycle read before it is minutes old.
+    const owedCorrection = lifecycle === "awaiting-validation";
+    const interrupted = owedCorrection ? store.interruptStep(ticket.id, lifecycle) : null;
     this.publishGraph(ticket.featureId);
     const detail = failure instanceof Error ? failure.message : String(failure);
-    const takingBack = isResumable(lifecycle);
+    // Taking a session back, rather than opening one: what the thread and the
+    // alert say follows from there having been a run, not from the state.
+    const takingBack = isResumable(lifecycle) || owedCorrection;
     if (ticket.sessionId === null) {
       // A ticket that never ran has no thread to carry this, so the alert is
       // the whole of what says it, and the log is what says why.
@@ -237,6 +265,9 @@ export class SubSessions {
         ? alertFor.subSessionNotTakenBack(ticket)
         : alertFor.subSessionNotOpened(ticket),
     );
+    // After the alert, as a stop does: the developer is told what stopped, and
+    // then that the night stopped with it.
+    if (interrupted !== null) this.dependencies.autonomy.ticketStopped(interrupted);
   }
 
   /**

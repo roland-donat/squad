@@ -11,10 +11,14 @@ import type {
 import {
   apiRoutes,
   featureGraphRoute,
+  featureRoute,
   mainSessionRoute,
   ticketMessagesRoute,
   ticketSessionRoute,
+  ticketSettlementRoute,
+  ticketTestSheetRoute,
 } from "../../src/shared/api";
+import { pendingActions } from "../../src/shared/pending";
 import {
   commitFile,
   currentBranch,
@@ -25,6 +29,7 @@ import {
   listWorktrees,
   pathExists,
 } from "../support/git";
+import type { AgentLauncher } from "../../src/server/agents/launcher";
 import { createScriptedLauncher, type ScriptedAgent } from "../support/scripted-launcher";
 import { writeTicket } from "../support/mcp";
 import {
@@ -779,5 +784,243 @@ describe("launching a ticket, failing, and resuming", () => {
     expect(await pathExists(running.worktree?.path ?? "")).toBe(true);
     expect(await listWorktrees(repository)).toContain(running.worktree?.path);
   });
-});
+  /**
+   * A correction owed that squad could not hand over. The sheet has been gone
+   * through, it holds a point the developer left unchecked, and the opening
+   * that was to carry the correction refused: the ticket comes back to
+   * `awaiting-validation`, where its sheet may no longer be answered and no
+   * sub-session is running on it.
+   *
+   * That state is reachable, so it has to be a state squad can leave. It is
+   * also the one state a developer cannot be told about by the waiting list, a
+   * gone-through sheet waiting on nobody, which is why it is listed here as
+   * well: a ticket nothing can move and nothing announces is the one failure
+   * squad exists to prevent.
+   */
+  it("reprend une correction qu'aucune ouverture n'a pu emporter", async () => {
+    const { featureId, repository, stream } = await start(writeOneTicket, async (agent) => {
+      await agent.awaitMessage();
+      const [opens, migrations] = criterionIdsOf(await readTicket(featureId, "Le store"));
+      await agent.call("report_step", {
+        featureId: agent.request.featureId,
+        ticketId: agent.request.ticketId,
+        work: "La base s'ouvre et les migrations tournent au démarrage.",
+        coverage: [
+          { criterionId: opens, verdict: "automated" },
+          {
+            criterionId: migrations,
+            verdict: "judgement",
+            note: "Les onze migrations passent ; reste à juger le message affiché pendant leur application.",
+          },
+        ],
+        recommendation: "Fusionner une fois la fiche passée.",
+      });
+      // Ends on its report: the correction will find no session to speak to and
+      // has to queue an opening of its own, which is the path under test.
+    });
 
+    await squad.request("POST", mainSessionRoute(featureId), { prompt: "/to-tickets" });
+    await waitForEvent(stream, "graph-changed");
+    const ready = await readTicket(featureId, "Le store");
+    await launch(ready.id);
+    const waiting = await waitForState(stream, featureId, ready.id, "awaiting-validation");
+    const point = waiting.stepReport?.sheet.find((each) => each.verdict === "pending");
+    expect(point).toBeDefined();
+
+    // The repository in front of squad is no longer the one this ticket was
+    // built in: the opening the correction needs cannot happen at all.
+    const branch = waiting.worktree?.branch ?? "";
+    await rm(waiting.worktree?.path ?? "", { recursive: true, force: true });
+    await pruneWorktrees(repository);
+    await deleteBranchIn(repository, branch);
+
+    // The developer leaves the point unchecked, which is a correction owed.
+    const reviewed = await squad.request("POST", ticketTestSheetRoute(ready.id), {
+      points: [{ id: point?.id ?? "", passed: false, comment: "Le message parle d'une table, pas de la base." }],
+      feedback: "À reprendre sur le message.",
+    });
+    expect(reviewed.status).toBe(200);
+
+    // The opening refuses. What the ticket comes back to is the interruption
+    // it is, and not the state it was queued from: `awaiting-validation` there
+    // would mean a sheet that may no longer be answered, no session running on
+    // it, and nothing in the waiting list to say so.
+    const stalled = await waitForState(stream, featureId, ready.id, "interrupted");
+    expect(
+      (await readTicketThread(ready.id)).some(
+        (entry) => entry.kind === "notice" && entry.text.includes("could not take the sub-session back"),
+      ),
+    ).toBe(true);
+
+    // The correction is still owed, and the sheet still says so: nothing of what
+    // the developer wrote was thrown away with the opening that failed.
+    expect(stalled.stepReport?.reviewedAt).not.toBeNull();
+    expect(stalled.stepReport?.sheet.map((each) => each.verdict)).toContain("failed");
+    expect(stalled.stepReport?.sheet.find((each) => each.verdict === "failed")?.comment).toBe(
+      "Le message parle d'une table, pas de la base.",
+    );
+
+    // The two gestures that read a sheet still refuse it, and rightly so: it has
+    // been gone through, and there is nothing left on it to settle. So they are
+    // not the way out, and the way out has to be somewhere.
+    expect((await squad.request("POST", ticketTestSheetRoute(ready.id), { points: [] })).status).toBe(409);
+    expect((await squad.request("POST", ticketSettlementRoute(ready.id), {})).status).toBe(409);
+
+    // It is announced as waiting on the developer, and taking it back is
+    // accepted: those two together are what makes the state one squad can leave.
+    expect(
+      pendingActions([await readGraph(featureId)], []).map((action) => [action.ticketId, action.reason]),
+    ).toEqual([[ready.id, "interruption"]]);
+    expect((await launch(ready.id)).status).toBe(202);
+    expect((await readTicket(featureId, "Le store")).state).toBe("queued");
+  });
+  /**
+   * The same failure on a feature squad is driving. `interrupted` is normally a
+   * ticket squad is about to take back, which is why the mode reads it as work
+   * in flight and waits for it; this one is a ticket nothing will take back. The
+   * mode has to be told, or a feature the home screen shows as running
+   * unattended sits on it for ever, with no halt and no reason given.
+   */
+  it("arrête le mode quand la correction qu'il attendait ne peut pas repartir", async () => {
+    const { featureId, repository, stream } = await start(writeOneTicket, async (agent) => {
+      await agent.awaitMessage();
+      const [opens, migrations] = criterionIdsOf(await readTicket(featureId, "Le store"));
+      await agent.call("report_step", {
+        featureId: agent.request.featureId,
+        ticketId: agent.request.ticketId,
+        work: "La base s'ouvre et les migrations tournent au démarrage.",
+        coverage: [
+          { criterionId: opens, verdict: "automated" },
+          {
+            criterionId: migrations,
+            verdict: "judgement",
+            note: "Les onze migrations passent ; reste à juger le message affiché pendant leur application.",
+          },
+        ],
+        recommendation: "Fusionner une fois la fiche passée.",
+      });
+    });
+
+    await squad.request("POST", mainSessionRoute(featureId), { prompt: "/to-tickets" });
+    await waitForEvent(stream, "graph-changed");
+    const ready = await readTicket(featureId, "Le store");
+    await launch(ready.id);
+    const waiting = await waitForState(stream, featureId, ready.id, "awaiting-validation");
+    const point = waiting.stepReport?.sheet.find((each) => each.verdict === "pending");
+
+    const armed = await squad.request("PUT", featureRoute(featureId), { goAsRecommended: true });
+    expect(armed.status).toBe(200);
+
+    const branch = waiting.worktree?.branch ?? "";
+    await rm(waiting.worktree?.path ?? "", { recursive: true, force: true });
+    await pruneWorktrees(repository);
+    await deleteBranchIn(repository, branch);
+
+    await squad.request("POST", ticketTestSheetRoute(ready.id), {
+      points: [{ id: point?.id ?? "", passed: false, comment: "Le message parle d'une table." }],
+    });
+    await waitForState(stream, featureId, ready.id, "interrupted");
+
+    // The mode is still armed, and it says what it is stopped on: the developer
+    // reads a feature that has stopped, not one that looks like it is working.
+    await expect
+      .poll(async () => (await readFeature(featureId)).autonomyHalt?.reason, { timeout: 15_000 })
+      .toBe("failure");
+    const held = await readFeature(featureId);
+    expect(held.goAsRecommended).toBe(true);
+    expect(held.autonomyHalt?.detail).toBe("Le store");
+  });
+  /**
+   * The lifecycle the abandon works from is a snapshot: it is read before the
+   * opening, which adds a worktree and starts a process, so minutes may pass.
+   * A ticket dropped in that window must not come back from the dead, holding
+   * its successors again and carrying the conclusion that says why it was
+   * dropped. The opening is held on a gate here so the window is the test's
+   * rather than a race's.
+   */
+  it("ne ressuscite pas un ticket écarté pendant que son ouverture échouait", async () => {
+    const opening = gate();
+    // The main session stays open: it is the one that drops the ticket, and a
+    // session that has ended has no tools left to do it with.
+    const mainAlive = gate();
+    let main: ScriptedAgent | null = null;
+    const scripted = createScriptedLauncher(async (agent) => {
+      if (agent.request.role === "main") {
+        await agent.awaitMessage();
+        await writeOneTicket(agent);
+        main = agent;
+        await mainAlive.passed;
+        return;
+      }
+      if (agent.request.role === "settling") return;
+      await agent.awaitMessage();
+      const [opens, migrations] = criterionIdsOf(await readTicket(featureId, "Le store"));
+      await agent.call("report_step", {
+        featureId: agent.request.featureId,
+        ticketId: agent.request.ticketId,
+        work: "La base s'ouvre et les migrations tournent au démarrage.",
+        coverage: [
+          { criterionId: opens, verdict: "automated" },
+          { criterionId: migrations, verdict: "judgement", note: "Reste à juger le message affiché." },
+        ],
+        recommendation: "Fusionner une fois la fiche passée.",
+      });
+    });
+    // The second opening, the one carrying the correction, waits for the test
+    // and then refuses: that is the whole of the window under test.
+    let openings = 0;
+    const launcher: AgentLauncher = {
+      async open(request) {
+        if (request.role !== "sub") return scripted.open(request);
+        openings += 1;
+        if (openings === 1) return scripted.open(request);
+        await opening.passed;
+        throw new Error("le dépôt en face n'est pas celui où ce ticket a été construit");
+      },
+    };
+    squad = await startTestSquad({ launcher });
+    const { feature } = await openTestFeature(squad, "Le noyau");
+    const featureId = feature.id;
+    const stream = await squad.openEventStream();
+    expect((await stream.next()).type).toBe("snapshot");
+
+    await squad.request("POST", mainSessionRoute(featureId), { prompt: "/to-tickets" });
+    await waitForEvent(stream, "graph-changed");
+    const ready = await readTicket(featureId, "Le store");
+    await launch(ready.id);
+    const waiting = await waitForState(stream, featureId, ready.id, "awaiting-validation");
+    const point = waiting.stepReport?.sheet.find((each) => each.verdict === "pending");
+
+    // The correction is queued, and its opening is now held on the gate.
+    await squad.request("POST", ticketTestSheetRoute(ready.id), {
+      points: [{ id: point?.id ?? "", passed: false, comment: "Le message parle d'une table." }],
+    });
+
+    // The main session drops the ticket while that opening has not come back.
+    await (main as unknown as ScriptedAgent).call("discard_ticket", {
+      featureId,
+      ticketId: ready.id,
+      reason: "Doublon du ticket qui porte déjà les migrations.",
+    });
+    expect((await readTicket(featureId, "Le store")).state).toBe("discarded");
+
+    opening.open();
+
+    // The opening fails, and what it failed on stays dropped: nothing holds its
+    // successors again, and the reason it was dropped is still the only thing
+    // written on it.
+    await expect
+      .poll(
+        async () =>
+          (await readTicketThread(ready.id)).some(
+            (entry) => entry.kind === "notice" && (entry.detail ?? "").includes("le dépôt en face"),
+          ),
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+    const stillDropped = await readTicket(featureId, "Le store");
+    expect(stillDropped.state).toBe("discarded");
+    expect(stillDropped.conclusion).toBe("Doublon du ticket qui porte déjà les migrations.");
+    expect(pendingActions([await readGraph(featureId)], [])).toEqual([]);
+  });
+});

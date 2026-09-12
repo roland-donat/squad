@@ -316,6 +316,20 @@ function SheetForm({
     return "";
   }
 
+  /**
+   * Leaving the recommended road without saying which one to take instead
+   * hands the sub-session a correction with nothing in it. The same guard an
+   * agent's question carries on its free answer, for the same reason: the
+   * choice squad did not offer is exactly the one worth being able to give,
+   * and it only exists once it is written.
+   */
+  const unsaid = points.some(
+    (point) =>
+      isArbitration(point) &&
+      checked[point.id] !== true &&
+      (comments[point.id] ?? "").trim() === "",
+  );
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -377,9 +391,14 @@ function SheetForm({
           with the recommended road already taken, agreeing is one click, and it
           must not cost a scroll through the evidence of why it is recommended. */}
       <div className="sheet__commit">
-        <button type="submit" disabled={busy}>
+        <button type="submit" disabled={busy || unsaid}>
           Rendre la fiche
         </button>
+        {unsaid && (
+          <span className="sheet__blocked">
+            Dites quelle route prendre à la place, et la fiche part.
+          </span>
+        )}
         {error && (
           <p className="error" role="alert">
             {error}

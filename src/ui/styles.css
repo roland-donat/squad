@@ -1399,6 +1399,14 @@ button[disabled] {
   border-top: 1px solid var(--line);
 }
 
+/* Why the button is inert, said beside it rather than left to be guessed: a
+   disabled control with no explanation is the ordinary way a form becomes a
+   puzzle. */
+.sheet__blocked {
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+}
+
 /* Not bold: the block already carries the accent that says "this is the one to
    decide", and several hundred characters set in bold read as shouting rather
    than as a heading. */

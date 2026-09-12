@@ -251,7 +251,7 @@ src/ui/graph/              # la carte : couches enveloppées, nœuds à glyphe e
 src/ui/graph/viewport.ts   # le pan et le zoom de la carte, et ce qui décide du cadrage
 src/ui/question/           # une question d'agent, ses options et sa réponse
 src/ui/settings/           # l'écran de réglages, machine et projets
-src/ui/ticket/             # la modale d'un nœud : deux onglets, fiche de tests, conversation
+src/ui/ticket/             # la modale d'un nœud : ce qui se lit, ce qu'on vous demande, le fil
 drizzle/                   # migrations générées, versionnées
 tests/seam/                # tests au seam : HTTP, flux d'événements et outils MCP
 tests/support/             # instance de test, dépôts git temporaires, double du lanceur
@@ -299,14 +299,21 @@ dépôts, donc la ranger sous l'un d'eux serait une approximation. Les segments
 sont en anglais comme les routes de l'API, une adresse étant un identifiant
 technique.
 
-Un ticket s'ouvre dans une **modale** quasi plein écran, à deux onglets :
-**Résumé**, qui porte de quoi il s'agit et ce qu'on vous demande, question ou
-fiche de tests ; **Détail**, qui porte le reste. Une colonne de conversation
-avec la **sous-session** du ticket longe les deux. L'onglet n'est pas dans
-l'adresse : tout ce qui se répond vit dans le Résumé, qui est le défaut, donc
-aucune alerte n'aurait de raison de pointer l'autre. Échap ferme toujours, et le
-brouillon en cours de frappe est conservé par ticket dans le navigateur. Voir
-l'ADR 0010.
+Un ticket s'ouvre dans une **modale** quasi plein écran, en trois zones. À
+gauche ce qui se **lit**, sur deux onglets : **Résumé**, de quoi il s'agit, plus
+la preuve d'une étape rapportée, repliée ; **Détail**, le reste. À droite ce
+qu'on vous **demande**, et rien d'autre : la question posée, ou les points de la
+fiche qui attendent un verdict. Cette colonne n'existe que quand quelque chose
+attend. Sous les deux, une bande de **conversation** avec la sous-session, fil
+et champ côte à côte.
+
+Un **arbitrage arrive avec la route recommandée déjà prise**, une
+**vérification n'arrive cochée d'aucune façon** : squad recommande une route, il
+ne prétend pas avoir regardé un écran à votre place. L'onglet n'est pas dans
+l'adresse, et ce qui se répond ne vit plus dans un onglet du tout : une alerte
+atterrit sur ce qu'elle rapporte quel que soit l'onglet ouvert. Échap ferme
+toujours, et le brouillon en cours de frappe est conservé par ticket dans le
+navigateur. Voir les ADR 0010 et 0011.
 
 L'ouverture de la **barre de la session principale**, à droite de la carte, est
 dans l'adresse, en paramètre de requête (`?thread=open`) : elle est orthogonale

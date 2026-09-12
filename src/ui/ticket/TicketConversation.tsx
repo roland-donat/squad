@@ -94,9 +94,9 @@ const closedBecause: Record<TicketState, string> = {
   merging: "Sa branche revient dans la branche de feature : sa sous-session est déjà fermée.",
   // A build or a fix ticket reads as awaiting a decision when the only points
   // left on its sheet are arbitrations. They are taken on that sheet, in the
-  // other tab of this very modal, and not in another session.
+  // column beside this one, and not in another session.
   "awaiting-decision":
-    "Il ne reste que des arbitrages sur sa fiche de tests : ils se prennent dans l'onglet Résumé.",
+    "Il ne reste que des arbitrages sur sa fiche de tests : ils se prennent ci-dessus, dans « Ce qu'on vous demande ».",
   merged: "Ce ticket est fusionné. Son fil se relit, il ne se reprend plus.",
   discarded: "Ce ticket est écarté. Son fil se relit, il ne se reprend plus.",
   // Every state below offers a box instead, so none of these is ever read.

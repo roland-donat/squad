@@ -1375,6 +1375,42 @@ button[disabled] {
   margin: 0;
 }
 
+/* The one block on this column with the accent border, for the same reason a
+   waiting question carries it: everything else is work to confirm, this is a
+   road to choose, and squad has already said which one it would take. */
+.sheet__point--arbitration {
+  border-left: 3px solid var(--accent);
+}
+
+/* The one gesture that ends the sheet, kept in view however long the prose it
+   follows. Its own ground and a rule above it, so it reads as the foot of the
+   column and not as a button floating over the text it covers. */
+.sheet__commit {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.2rem;
+  padding: 0.7rem 0 0.2rem;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+
+/* Not bold: the block already carries the accent that says "this is the one to
+   decide", and several hundred characters set in bold read as shouting rather
+   than as a heading. */
+.sheet__prompt {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0;
+  line-height: 1.45;
+}
+
 .sheet__point[data-verdict="failed"] {
   border-color: var(--danger);
 }
@@ -1857,14 +1893,27 @@ button[disabled] {
   font-weight: 600;
 }
 
-/* What is read on the left, who one is talking to on the right. The same shape
-   as the feature screen behind it, so there is one mental model and not two. */
+/* What is read on the left, what is asked of you on the right, and under both
+   the session that wrote it. The action takes a column of its own because it is
+   the one thing on this screen with a deadline: buried under the evidence, it
+   was reached by scrolling past 11 000 characters nobody had to judge.
+
+   The band at the bottom rather than a third column: three columns in a modal
+   bounded by the viewport leaves none of them readable, and of the three it is
+   the conversation one reaches for last. */
 .ticket-modal {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(20rem, 26rem);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) clamp(9rem, 21vh, 13rem);
   gap: 1.25rem;
+}
+
+/* Only when something waits: a column open on nothing would take a third of the
+   modal to say there is nothing to do. */
+.ticket-modal--acting {
+  grid-template-columns: minmax(0, 1fr) minmax(21rem, 32rem);
 }
 
 .ticket-modal__reading {
@@ -1874,17 +1923,39 @@ button[disabled] {
   padding-right: 0.5rem;
 }
 
-.talk {
+.ticket-modal__action {
   min-width: 0;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
+  overflow-y: auto;
   padding-left: 1.25rem;
   border-left: 1px solid var(--line);
 }
 
+/* The first heading of the action column carries no top margin: it is the top
+   of its own surface, not a section following another. */
+.ticket-modal__action > .ticket__heading:first-child {
+  margin-top: 0;
+}
+
+/* A band rather than a column, so the thread and the box that writes into it
+   stand side by side: under the modal, width is what there is and height is
+   what the sheet needs. Stacked, a three-row textarea took the whole band and
+   left the thread a sliver. */
+.talk {
+  grid-column: 1 / -1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(17rem, 26rem);
+  grid-template-rows: auto minmax(0, 1fr);
+  column-gap: 1.25rem;
+  row-gap: 0.35rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
 .talk__title {
+  grid-column: 1 / -1;
   margin: 0;
   display: flex;
   align-items: center;
@@ -1895,9 +1966,18 @@ button[disabled] {
   color: var(--accent);
 }
 
+/* Sized by the row of the band it sits in, and scrolling inside it: the box
+   that writes into it is beside rather than under, so neither squeezes the
+   other out. */
 .talk .thread {
-  flex: 1;
   min-height: 0;
+  margin-bottom: 0;
+}
+
+.talk .composer {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .talk__actions {
@@ -1906,7 +1986,9 @@ button[disabled] {
   flex-wrap: wrap;
 }
 
+/* No box stands beside it, so it takes the band across. */
 .talk__closed {
+  grid-column: 1 / -1;
   margin: 0;
   padding: 0.6rem 0.7rem;
   border-radius: var(--radius);
@@ -1940,19 +2022,71 @@ button[disabled] {
   line-height: 1.5;
 }
 
-/* Below this the conversation stops taking a column of its own and goes under
-   what is being read: two columns in 900px is two columns nobody can read. */
+/* Evidence: what squad already ran, folded. Same gesture as the decor above,
+   and for a neighbouring reason: it is read when a claim surprises, which is
+   the only moment its several thousand characters are worth their length.
+   Unfolded by default it was the wall in front of the one thing to do. */
+.evidence {
+  margin: 0 0 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.evidence > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.evidence__count {
+  padding: 0 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  letter-spacing: 0;
+}
+
+.evidence > :not(summary) {
+  padding: 0 0.7rem 0.6rem;
+}
+
+/* Inside a point of the sheet, where the surface is already sunken: a second
+   sunken block on the first would read as a third level that means nothing. */
+.evidence--inline {
+  margin: 0;
+  background: transparent;
+}
+
+/* Below this the action stops taking a column of its own and goes under what is
+   being read: two columns in 900px is two columns nobody can read. It keeps its
+   place ahead of the conversation, so what is asked of the reader is still what
+   they meet first. */
 @media (max-width: 900px) {
-  .ticket-modal {
+  .ticket-modal--acting {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) clamp(9rem, 21vh, 13rem);
   }
 
-  .talk {
+  .ticket-modal__action {
     padding-left: 0;
     padding-top: 0.9rem;
     border-left: 0;
     border-top: 1px solid var(--line);
+  }
+
+  /* The band stacks too: a thread and a box side by side in what is left of
+     900px is two columns nobody can read, which is the rule this breakpoint
+     already applies to everything above it. */
+  .talk {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
   }
 }
 

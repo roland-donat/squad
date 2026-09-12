@@ -25,9 +25,17 @@ import { Markdown, MarkdownText } from "../markdown/Markdown";
  * what was said is the record the correction is based on.
  */
 
-/** Whether anything on this sheet is waiting on a person, which is what opens the action column. */
+/**
+ * Whether anything on this sheet is still to be answered, which is what opens
+ * the action column and what the form below fills it with. Read from one place
+ * so the two cannot disagree, and a gone-through sheet is the case where they
+ * would: on a sheet squad may no longer correct, a point it showed false stays
+ * in `pointsAwaitingDeveloper` after the review, because the developer is the
+ * only one left who can act on it. They have acted on it. A column opening on
+ * that would hold nothing at all.
+ */
 export function sheetAwaitsDeveloper(report: StepReport): boolean {
-  return pointsAwaitingDeveloper(report).length > 0;
+  return report.reviewedAt === null && pointsAwaitingDeveloper(report).length > 0;
 }
 
 /**
@@ -147,8 +155,8 @@ export function TestSheetForm({ ticketId, report }: { ticketId: string; report: 
   // squad may no longer send back, the ones it showed false. Worked out here
   // once, which is how the server and this form came to disagree about the
   // last round.
+  if (!sheetAwaitsDeveloper(report)) return null;
   const waiting = pointsAwaitingDeveloper(report);
-  if (waiting.length === 0 || report.reviewedAt !== null) return null;
   // Only the pending ones can be handed to another pass: a point squad has
   // already run something on is not one to run again.
   const pending = report.sheet.filter((point) => point.verdict === "pending");

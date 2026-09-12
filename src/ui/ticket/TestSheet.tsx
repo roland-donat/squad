@@ -134,12 +134,30 @@ const settlementLabels: Record<SettlementOutcome, string> = {
 /**
  * An arbitration is a road squad measured and recommends; a verification is
  * something it is asking a person to have looked at. The two are held apart
- * everywhere in squad, and here that difference is what decides whether an
- * answer may be filled in ahead of the reader: agreeing with a recommendation
- * must cost one click, and no default may ever sign off a screen nobody opened.
+ * everywhere in squad, and here that difference is what decides whether a
+ * choice is offered as two roads or as a box to tick.
  */
 function isArbitration(point: TestSheetPoint): boolean {
   return point.settlement?.outcome === "decision" && point.settlement.recommendation !== null;
+}
+
+/**
+ * Whether the recommended road arrives already taken, which is the one place a
+ * default answer is filled in ahead of the reader.
+ *
+ * The rule is not "it is an arbitration" but "squad would take it alone", and
+ * the two differ on exactly one case. Under go-as-recommended, `verdictForDecision`
+ * answers a plain arbitration with its road and **stops the mode** on one that
+ * changes the perimeter (`autonomy.ts`). Pre-ticking a perimeter decision would
+ * therefore record, in one click, the very thing squad refuses to decide
+ * without a person. It is offered like any other road, with its badge, and
+ * nothing is chosen for them.
+ *
+ * A verification is never pre-ticked at all: it asks the developer to have
+ * looked at something, and a default there signs off a screen nobody opened.
+ */
+function startsTaken(point: TestSheetPoint): boolean {
+  return isArbitration(point) && point.settlement?.scopeChanging !== true;
 }
 
 /**
@@ -295,12 +313,12 @@ function SheetForm({
   points: TestSheetPoint[];
   notes: Record<string, string>;
 }) {
-  // An arbitration starts on the road squad recommends, a verification starts
-  // on nothing. Mounted from the points rather than kept in step with them: the
-  // form is keyed by the report, so a new sheet is a new form.
-  const [checked, setChecked] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(points.filter(isArbitration).map((point) => [point.id, true])),
-  );
+  // Only what the developer has touched. What a point starts on is read from
+  // the point itself at every render rather than seeded once: the pass offered
+  // above this form settles the points of this very report, so a verification
+  // can become an arbitration under a form that is still mounted, and a seed
+  // would leave it on a default that was never meant for it.
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [comments, setComments] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState("");
   const [busy, setBusy] = useState(false);
@@ -309,19 +327,24 @@ function SheetForm({
   // is only worth offering when there is a rest to leave behind.
   const mixed = points.some((point) => !isArbitration(point));
 
+  /** Whether a point is on its recommended road, or ticked off. */
+  function taken(point: TestSheetPoint): boolean {
+    return checked[point.id] ?? startsTaken(point);
+  }
+
   /**
-   * What goes back to the sub-session on a point. What the developer typed
-   * always wins; on an arbitration left on its recommended road, the road
-   * itself is written down, so the record says which one was taken rather than
-   * that something was ticked.
+   * What goes back to the sub-session on a point.
+   *
+   * On an arbitration left on its recommended road, the road itself is written
+   * down, whatever sits in the box: leaving the road, typing what to do
+   * instead and then coming back would otherwise record the road that was
+   * rejected, under the verdict that accepted the other one.
    */
   function commentFor(point: TestSheetPoint): string {
-    const typed = (comments[point.id] ?? "").trim();
-    if (typed !== "") return typed;
-    if (isArbitration(point) && checked[point.id] === true) {
+    if (isArbitration(point) && taken(point)) {
       return `Route retenue : ${point.settlement?.recommendation ?? ""}`;
     }
-    return "";
+    return (comments[point.id] ?? "").trim();
   }
 
   /**
@@ -333,9 +356,7 @@ function SheetForm({
    */
   const unsaid = points.some(
     (point) =>
-      isArbitration(point) &&
-      checked[point.id] !== true &&
-      (comments[point.id] ?? "").trim() === "",
+      isArbitration(point) && !taken(point) && (comments[point.id] ?? "").trim() === "",
   );
 
   async function submit(event: FormEvent) {
@@ -368,7 +389,7 @@ function SheetForm({
               point={point}
               ticketId={ticketId}
               alone={!mixed}
-              taken={checked[point.id] === true}
+              taken={taken(point)}
               onTake={(take) => setChecked((current) => ({ ...current, [point.id]: take }))}
               comment={comments[point.id] ?? ""}
               onComment={(text) => setComments((current) => ({ ...current, [point.id]: text }))}
@@ -378,7 +399,7 @@ function SheetForm({
               key={point.id}
               point={point}
               note={point.criterionId === null ? undefined : notes[point.criterionId]}
-              passed={checked[point.id] === true}
+              passed={taken(point)}
               onPass={(pass) => setChecked((current) => ({ ...current, [point.id]: pass }))}
               comment={comments[point.id] ?? ""}
               onComment={(text) => setComments((current) => ({ ...current, [point.id]: text }))}
@@ -451,6 +472,12 @@ function Arbitration({
           <MarkdownText text={point.text} />
         </span>
         <span className="chip chip--verdict">à trancher</span>
+        {/* Said the same way a question says it, and for the same reason: this
+            is the one squad stops the mode on rather than taking alone, so the
+            reader has to know before choosing that it moves the perimeter. */}
+        {point.settlement?.scopeChanging === true && (
+          <span className="chip chip--scope">périmètre</span>
+        )}
       </p>
       <Measured note={point.settlement?.note ?? null} />
       <ul className="list question__options">
@@ -542,6 +569,19 @@ function Verification({
         )}
       </label>
       <Measured note={point.settlement?.note ?? note ?? null} />
+      {/* Shown whatever the outcome. `recommendation` is optional on every
+          settlement, not only on a decision, so a pass that hands a point over
+          as `human` may still name the road it would take. Read here rather
+          than offered as a choice: the point is a verification, and what it
+          asks is still to have looked. */}
+      {point.settlement?.recommendation != null && (
+        <p className="sheet__verdict">
+          <span className="chip">recommandé</span>
+          <span className="sheet__text">
+            <MarkdownText text={point.settlement.recommendation} />
+          </span>
+        </p>
+      )}
       <label className="field">
         <span>Commentaire</span>
         <input

@@ -1994,9 +1994,10 @@ button[disabled] {
   flex-wrap: wrap;
 }
 
-/* No box stands beside it, so it takes the band across. */
+/* Beside the thread, where the box that writes into it would be: spanning the
+   band pushed it to a row the band has no height for, since the thread had
+   already taken the row under the title. */
 .talk__closed {
-  grid-column: 1 / -1;
   margin: 0;
   padding: 0.6rem 0.7rem;
   border-radius: var(--radius);

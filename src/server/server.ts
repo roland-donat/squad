@@ -209,6 +209,15 @@ export async function startSquadServer(
   // session a merge taken back may have to open.
   subSessions.takeBack(stranded);
   merges.resumeInterrupted();
+  // The other road out of a settled sheet, taken back on the same grounds: a
+  // correction decided and not begun waits on nobody and cannot be asked for
+  // again by anyone but squad.
+  void subSessions.resumeOwedCorrections().catch((failure: unknown) => {
+    // Logged rather than left floating, like every other opening squad fires
+    // and forgets: an unhandled rejection takes the server down, and the
+    // corrections still owed behind this one would go with it.
+    console.error("some owed corrections could not be asked for again", failure);
+  });
   // Whatever the two lines above have not already asked for: a settling pass
   // taken back at boot waits for nothing else to notice it.
   dispatch.schedule();

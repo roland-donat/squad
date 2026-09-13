@@ -7,7 +7,7 @@ import type { QuestionVerdict } from "./autonomy";
 import type { EventBus } from "./events";
 import { publishGraph } from "./events";
 import type { Store } from "./store";
-import { appendToThread, drainSession, type ThreadLine } from "./threads";
+import { appendToThread, drainOneTurn, type ThreadLine } from "./threads";
 
 export interface SettlementDependencies {
   store: Store;
@@ -232,7 +232,13 @@ export class Settlements {
       });
       await session.stop();
     }
-    const ending = await drainSession(session, write);
+    // Over when its turn is over, and not only when it answers. The stop above
+    // covers the pass that calls the tool; a pass that ends its turn having
+    // said nothing calls nothing, and that is a case this suite treats as
+    // ordinary, the sheet then reaching the developer as the sub-session wrote
+    // it. Waiting for its process instead would hold the place it occupies and
+    // the sheet it was opened for, with nothing ever coming.
+    const ending = await drainOneTurn(session, write);
     this.running.delete(session);
     if (this.stopping) return;
 

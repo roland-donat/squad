@@ -271,6 +271,36 @@ export class SubSessions {
   }
 
   /**
+   * Hands back the corrections the previous run had decided on and not begun.
+   *
+   * A sheet holding a point shown false is a correction owed, and it is decided
+   * once the pass that settled the sheet has ended. A shutdown in between skips
+   * that decision, and what is left waits on nobody, cannot be answered and
+   * cannot be launched. The merges of the other road out are taken back the
+   * same way, and for the same reason: no row may sit in `awaiting-validation`
+   * over a sheet that waits on no one.
+   *
+   * **Held by construction rather than by a test, and deliberately so.** The
+   * window is narrow: squad stops a settling pass on the very tool call that
+   * answers it, so stranding one takes a shutdown landing between that stop and
+   * the pass ending. A scenario that forces it would be a scenario racing
+   * squad's own shutdown, which proves nothing about the day it happens. What
+   * is checked instead is the half that is reachable on purpose, the merge, and
+   * this is the same query with the other filter.
+   */
+  async resumeOwedCorrections(): Promise<void> {
+    for (const ticket of this.dependencies.store.ticketsOwedACorrection()) {
+      // One at a time, and one failure at a time: what cannot be asked for
+      // again is logged, and the corrections behind it are still asked for.
+      try {
+        await this.correct(ticket);
+      } catch (failure) {
+        console.error(`the correction owed on ticket ${ticket.id} could not be asked for`, failure);
+      }
+    }
+  }
+
+  /**
    * What the store still believes is running, moved to `interrupted`. A process
    * cannot outlive the server that launched it, so such a row is a step whose
    * process disappeared. Called once, before squad listens, so that no client is

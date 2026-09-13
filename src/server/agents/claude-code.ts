@@ -99,7 +99,7 @@ async function* drain(run: Query, stopping: () => boolean): AsyncIterable<AgentE
   let detail: string | undefined;
   try {
     for await (const message of run) {
-      yield* translate(message);
+      yield* translate(message, stopping);
     }
   } catch (failure) {
     if (!stopping()) {
@@ -110,8 +110,15 @@ async function* drain(run: Query, stopping: () => boolean): AsyncIterable<AgentE
   yield { type: "ended", outcome, ...(detail === undefined ? {} : { detail }) };
 }
 
-/** What one message of the SDK becomes on the thread, if anything. */
-function* translate(message: SDKMessage): Generator<AgentEvent> {
+/**
+ * What one message of the SDK becomes on the thread, if anything.
+ *
+ * Told whether squad is stopping, for the same reason the ending is: a turn
+ * the SDK reports as anything but a success may have been cut short by squad's
+ * own abort, and reading that as the agent failing would have a settling pass
+ * that answered its whole sheet recorded as a pass that failed.
+ */
+function* translate(message: SDKMessage, stopping: () => boolean): Generator<AgentEvent> {
   if (message.type === "assistant") {
     if (message.error !== undefined) {
       yield { type: "notice", text: `the model call failed: ${message.error}` };
@@ -130,8 +137,19 @@ function* translate(message: SDKMessage): Generator<AgentEvent> {
   // A result closes a turn, not the session: in streaming input mode the
   // session lives on and answers the next message. Only a failed turn is worth
   // a line, since a successful one has already said everything it had to say.
-  if (message.type === "result" && message.subtype !== "success") {
-    yield { type: "notice", text: `the turn ended in ${message.subtype}` };
+  //
+  // It is also the one thing that ever says the agent has finished what it was
+  // asked, which a session opened for a single job has to hear: waiting for the
+  // process instead waits for something only a stop causes, and that held a
+  // merge, and every merge its project had queued behind it, for 23 hours.
+  if (message.type === "result") {
+    const broke = message.subtype !== "success" && !stopping();
+    if (broke) yield { type: "notice", text: `the turn ended in ${message.subtype}` };
+    yield {
+      type: "turn-ended",
+      outcome: broke ? "failed" : "completed",
+      ...(broke ? { detail: `the turn ended in ${message.subtype}` } : {}),
+    };
   }
 }
 

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { defaultConcurrencyCaps, defaultGenerationDepthCap } from "../shared/api";
 import type {
   AcceptanceCriterion,
@@ -42,7 +42,12 @@ import {
   type ServiceJob,
   type TicketLifecycle,
 } from "../shared/graph";
-import { pointsAwaitingDeveloper, sheetIsWaiting, sheetWasValidated } from "../shared/validation";
+import {
+  failedPoints,
+  pointsAwaitingDeveloper,
+  sheetIsWaiting,
+  sheetWasValidated,
+} from "../shared/validation";
 import type { SquadDatabase } from "./db/open";
 import {
   acceptanceCriteria,
@@ -1196,6 +1201,63 @@ export class Store {
       .orderBy(sql`rowid`)
       .all()
       .map((row) => this.requireTicket(row.id));
+  }
+
+  /**
+   * The tickets squad owes something to and has not begun: every row in
+   * `awaiting-validation` whose sheet waits on nobody.
+   *
+   * That state is one a ticket only ever passes through. A sheet comes to rest
+   * in three ways and two of them are squad's: it holds throughout and the
+   * branch merges, or it holds a point shown false and the correction goes back
+   * to the sub-session. Both are asked for the instant the sheet settles, and
+   * both live until then in a queue the process owns and nothing else. Stopped
+   * there, the request goes with it.
+   *
+   * What is left behind is the one thing squad exists to prevent. The sheet
+   * waits on nobody, so nothing lists the ticket; it has been gone through, so
+   * nothing can be answered on it; and it is not on the frontier, so it cannot
+   * be launched. Measured on the instance that opened this: four of them,
+   * behind one merge that had been held a day.
+   *
+   * A ticket with service work still queued is left out. The pass that squad
+   * takes back would open in the worktree a merge is about to remove, and the
+   * pass is the thing that decides what the sheet says in the first place.
+   *
+   * One with a launch already queued is left out too, and that one is not
+   * owed anything at all: a correction handed back to a session that had gone
+   * queues a launch, which is written down and survives. Asking for it again
+   * would date it now, and launches of one rank go out oldest first, so a
+   * correction that had been waiting for a place would fall behind every
+   * fresher one, once per restart.
+   */
+  private ticketsOwedSomething(): Ticket[] {
+    return this.db
+      .select({ id: tickets.id })
+      .from(tickets)
+      .where(
+        and(
+          eq(tickets.lifecycle, "awaiting-validation"),
+          isNull(tickets.serviceJob),
+          isNull(tickets.queuedAt),
+        ),
+      )
+      .orderBy(sql`rowid`)
+      .all()
+      .map((row) => this.requireTicket(row.id))
+      .filter((ticket) => !sheetIsWaiting(ticket.stepReport));
+  }
+
+  /** Of those, the ones whose sheet held throughout: a branch to merge. */
+  ticketsOwedAMerge(): Ticket[] {
+    return this.ticketsOwedSomething().filter((ticket) => sheetWasValidated(ticket.stepReport));
+  }
+
+  /** And the ones holding a point shown false: a correction to hand back. */
+  ticketsOwedACorrection(): Ticket[] {
+    return this.ticketsOwedSomething().filter(
+      (ticket) => failedPoints(ticket.stepReport).length > 0,
+    );
   }
 
   /**

@@ -32,8 +32,14 @@ export function appendToThread(
   bus.publish({ type: "thread-appended", entry });
 }
 
-/** What one event of a session becomes on its thread. */
-export function lineOf(event: Exclude<AgentEvent, { type: "ended" }>): ThreadLine {
+/**
+ * What one event of a session becomes on its thread. The two endings write
+ * nothing: what each says is the caller's to record, and a turn ending says
+ * nothing a reader of the thread needs.
+ */
+export function lineOf(
+  event: Exclude<AgentEvent, { type: "ended" } | { type: "turn-ended" }>,
+): ThreadLine {
   switch (event.type) {
     case "text":
       return { kind: "agent", text: event.text };
@@ -67,20 +73,76 @@ export async function drainSession(
   session: AgentSession,
   write: (line: ThreadLine) => void,
 ): Promise<SessionEnding> {
+  return drain(session, write, false);
+}
+
+/**
+ * Reads a session that was opened for a single job and is over when that job
+ * is: the first turn to end closes it.
+ *
+ * **A session does not end when its agent stops talking.** The launcher runs
+ * the SDK in streaming input mode, where a result closes a turn and not the
+ * session, so the process lives until squad stops it. A sub-session is meant to
+ * stay, being the thread a correction is handed back to, and it is drained the
+ * other way. The two jobs are not: a resolution session answers through git and
+ * calls no tool at all, and a settling pass may end its turn having said
+ * nothing, which is an ordinary way for one to end. Waiting for either process
+ * waits for something only a stop causes, and that held a merge, and with it
+ * every merge its project had queued behind, for 23 hours on the instance that
+ * opened this.
+ */
+export async function drainOneTurn(
+  session: AgentSession,
+  write: (line: ThreadLine) => void,
+): Promise<SessionEnding> {
+  return drain(session, write, true);
+}
+
+async function drain(
+  session: AgentSession,
+  write: (line: ThreadLine) => void,
+  endsWithItsTurn: boolean,
+): Promise<SessionEnding> {
   let ending: SessionEnding = { outcome: "completed" };
+  // The first ending wins. A session stopped on its own turn ends twice: once
+  // for the turn, once when the stop closes the stream, and the second says how
+  // the stop went rather than how the work did.
+  let ended = false;
+  const record = (event: { outcome: AgentSessionOutcome; detail?: string }): void => {
+    if (ended) return;
+    ending = { outcome: event.outcome, ...(event.detail === undefined ? {} : { detail: event.detail }) };
+    ended = true;
+  };
   try {
     for await (const event of session.events()) {
+      if (event.type === "turn-ended") {
+        // A session squad keeps hearing from goes on: a sub-session reports its
+        // step and stays, being the thread a correction is handed back to.
+        if (!endsWithItsTurn) continue;
+        record(event);
+        // Stopped rather than broken out of: the loop goes on reading whatever
+        // the stop flushes, and it is the stream closing that ends it, exactly
+        // as when something else stopped the session. Caught rather than left
+        // floating: an unhandled rejection takes the server down, and squad is
+        // meant to run unwatched.
+        void session.stop().catch((failure: unknown) => {
+          console.error(`could not stop a session that had finished its turn`, failure);
+        });
+        continue;
+      }
       if (event.type === "ended") {
-        ending = { outcome: event.outcome, ...(event.detail === undefined ? {} : { detail: event.detail }) };
+        record(event);
         continue;
       }
       write(lineOf(event));
     }
   } catch (failure) {
-    ending = {
-      outcome: "failed",
-      detail: failure instanceof Error ? failure.message : String(failure),
-    };
+    if (!ended) {
+      ending = {
+        outcome: "failed",
+        detail: failure instanceof Error ? failure.message : String(failure),
+      };
+    }
   }
   return ending;
 }

@@ -957,4 +957,107 @@ describe("validating, merging, checking and delivering", () => {
     expect(await gh.callsTo("pr", "create")).toHaveLength(2);
     expect(await gh.overlapped()).toBe(false);
   });
+  /**
+   * A resolution session is over when its job is, and its job is one turn. It
+   * answers through git and calls no tool squad could hang a stop on, so
+   * nothing else says it is done: waiting for its process to die waited for
+   * something only a shutdown causes.
+   *
+   * The double lingers here, which is what the real launcher does and what the
+   * double used not to do: the SDK runs in streaming input mode, where a result
+   * closes a turn and not the session. That difference is the whole reason this
+   * was never caught. Measured on the instance that opened this: one merge held
+   * 23 hours after its resolution session had finished, and with it every merge
+   * its project had queued behind.
+   */
+  it("reprend la fusion dès que la résolution a fini son tour, sans attendre sa sortie", async () => {
+    const second = gate();
+    const scene = await start({
+      tickets: [
+        { title: "Le store", criteria: ["La base s'ouvre"] },
+        { title: "L'API", criteria: ["Les routes répondent"] },
+      ],
+      subSession: async (agent, title) => {
+        const message = await agent.awaitMessage();
+        const directory = agent.request.workingDirectory;
+        if (message.startsWith("Merge the branch")) {
+          const branch = message.split("`")[1] ?? "";
+          expect(await mergeInto(directory, branch)).toBe(false);
+          await resolveConflictWith(directory, "les deux côtés\n");
+          // Its work is done and its process is not: exactly what a real
+          // claude-code session leaves behind when it stops talking.
+          agent.linger();
+          return;
+        }
+        await commitFile(directory, "partage.ts", `${title}\n`, `feat: ${title}`);
+        if (title === "L'API") await second.passed;
+        await reportCovered(agent, `Fait pour ${title}.`);
+      },
+    });
+
+    await scene.launch("Le store");
+    await scene.launch("L'API");
+    await scene.reaches("Le store", "merged");
+    second.open();
+
+    // The whole point: it merges, and nothing had to stop the session for it.
+    const merged = await scene.reaches("L'API", "merged");
+    expect(merged.worktree).toBeNull();
+    const featureBranch = onlyRepository(await scene.feature()).worktree?.branch ?? "";
+    expect(await fileOnBranch(scene.repository, featureBranch, "partage.ts")).toBe(
+      "les deux côtés\n",
+    );
+  });
+
+  /**
+   * A merge squad accepted and had not begun, taken back at the next start.
+   *
+   * The merges of a project are handed out one at a time, and until its turn
+   * comes a request lives in that chain and nowhere else. The ticket waits in
+   * `awaiting-validation` over a sheet that holds throughout, which is a state
+   * it only ever passes through. Stop squad there and the request goes with the
+   * process: nothing lists the ticket, since it waits on nobody, and nothing can
+   * be answered on its sheet, since it has been gone through. Measured on the
+   * instance that opened this: four of them behind one blocked merge.
+   */
+  it("reprend au démarrage une fusion acceptée que la chaîne n'avait pas encore atteinte", async () => {
+    const scene = await start({
+      tickets: [
+        { title: "Le store", criteria: ["La base s'ouvre"] },
+        { title: "L'API", criteria: ["Les routes répondent"] },
+      ],
+      // Long enough that the second merge is asked for while the first is still
+      // being checked, which is where a request waits with nothing on disk to
+      // say it exists. A shutdown skips what the chain has not begun.
+      verifyCommand: "sleep 5",
+      subSession: async (agent, title) => {
+        await agent.awaitMessage();
+        await commitFile(agent.request.workingDirectory, `${title}.ts`, `${title}\n`, `feat: ${title}`);
+        await reportCovered(agent, `Fait pour ${title}.`);
+      },
+    });
+
+    await scene.launch("Le store");
+    await scene.reaches("Le store", "merged");
+    // Its check holds the chain now. The second step ends, its sheet holds
+    // throughout, so its merge is asked for and queues there.
+    await scene.launch("L'API");
+    await expect
+      .poll(async () => (await scene.ticket("L'API")).stepReport !== null, { timeout: 15_000 })
+      .toBe(true);
+    const waiting = await scene.ticket("L'API");
+    expect(waiting.state).toBe("awaiting-validation");
+    expect(waiting.stepReport?.sheet).toEqual([]);
+
+    // Nothing waits on the developer, and nothing they could answer would move
+    // it: this is a state to recover, not one to show.
+    expect(pendingActions([await scene.graph()], [])).toEqual([]);
+
+    await squad.restart();
+
+    const merged = await scene.reaches("L'API", "merged");
+    expect(merged.worktree).toBeNull();
+    const featureBranch = onlyRepository(await scene.feature()).worktree?.branch ?? "";
+    expect(await fileOnBranch(scene.repository, featureBranch, "L'API.ts")).toBe("L'API\n");
+  }, 40_000);
 });

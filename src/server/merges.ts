@@ -22,7 +22,7 @@ import {
 import { runVerification, type IntegrationCheck } from "./integration";
 import { pullRequestBody } from "./pull-request";
 import type { Store } from "./store";
-import { appendToThread, drainSession, type ThreadLine } from "./threads";
+import { appendToThread, drainOneTurn, type ThreadLine } from "./threads";
 import { exists, type Worktrees } from "./worktrees";
 
 /**
@@ -143,14 +143,24 @@ export class Merges {
   }
 
   /**
-   * Takes back the merges the previous run was in the middle of. A merge is a
-   * chain of git commands and a check, none of which outlives the process that
-   * ran them, so a row still saying `merging` is a merge to run again rather
-   * than a state to show. Running it again is safe: a branch already merged
-   * merges into nothing, and the rest of the chain is what was left to do.
+   * Takes back the merges the previous run was in the middle of, and those it
+   * had accepted and not yet begun. A merge is a chain of git commands and a
+   * check, none of which outlives the process that ran them, so a row still
+   * saying `merging` is a merge to run again rather than a state to show; and
+   * the chain that holds what is queued behind it outlives nothing at all.
+   * Running one again is safe: a branch already merged merges into nothing, and
+   * the rest of the chain is what was left to do.
    */
   resumeInterrupted(): void {
-    for (const ticket of this.dependencies.store.ticketsMerging()) this.merge(ticket);
+    const { store } = this.dependencies;
+    for (const ticket of store.ticketsMerging()) this.merge(ticket);
+    // And the ones that never began. A merge is asked for when a sheet comes
+    // out validated and waits its turn in the chain of its project, which the
+    // stopped process took with it: the row says `awaiting-validation` over a
+    // sheet that holds throughout, a state nothing else leaves it in. Asked for
+    // again here rather than left, since nothing lists it and no answer moves
+    // it.
+    for (const ticket of store.ticketsOwedAMerge()) this.merge(ticket);
   }
 
   /** Waits for what is in flight, and starts nothing more. */
@@ -438,7 +448,10 @@ export class Merges {
       });
       await session.stop();
     }
-    const ending = await drainSession(session, write);
+    // Over when its turn is over, not when its process dies. Nothing else says
+    // so: unlike the settling pass, a resolution session answers through git
+    // and calls no tool squad could hang a stop on.
+    const ending = await drainOneTurn(session, write);
     this.resolving.delete(session);
     if (this.stopping) return;
     write({

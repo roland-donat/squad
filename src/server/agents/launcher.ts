@@ -60,6 +60,14 @@ export type AgentEvent =
   | { type: "text"; text: string }
   | { type: "tool-call"; tool: string; input?: unknown }
   | { type: "notice"; text: string }
+  /**
+   * One turn is over, and the session is not. In streaming input mode a result
+   * closes a turn and the process lives on, waiting for the next message, so
+   * this is the only thing that ever says an agent has finished what it was
+   * asked. A session squad keeps hearing from ignores it; one opened for a
+   * single job is over here.
+   */
+  | { type: "turn-ended"; outcome: AgentSessionOutcome; detail?: string }
   | { type: "ended"; outcome: AgentSessionOutcome; detail?: string };
 
 export interface AgentSession {

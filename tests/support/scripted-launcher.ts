@@ -25,6 +25,18 @@ export interface ScriptedAgent {
   call(tool: string, input: unknown): Promise<unknown>;
   /** Calls a tool and hands back its outcome, so a refusal can be inspected. */
   attempt(tool: string, input: unknown): Promise<ToolOutcome>;
+  /**
+   * Keeps the session alive after the script returns, as the real launcher
+   * does: it runs the SDK in streaming input mode, where a result closes a
+   * turn and not the session, so a process lives until squad stops it.
+   *
+   * The double ends its stream with its script by default, which is convenient
+   * and is not what happens. A scenario that turns on the faithful behaviour is
+   * one asking what squad does with a session that has finished its job and
+   * not exited, and the answer used to be "waits for it", which held a merge
+   * and its whole project's chain for a day.
+   */
+  linger(): void;
 }
 
 export type AgentScript = (agent: ScriptedAgent) => Promise<void>;
@@ -51,28 +63,38 @@ export function createScriptedLauncher(script: AgentScript): AgentLauncher {
         return outcome;
       };
 
+      const lingering = { on: false };
       const agent: ScriptedAgent = {
         request,
         awaitMessage: () => messages.next(),
         say: (text) => events.push({ type: "text", text }),
         attempt,
+        linger: () => {
+          lingering.on = true;
+        },
         async call(tool, input) {
           return readToolAnswer(tool, await attempt(tool, input));
         },
       };
 
       void (async () => {
+        // The two endings the real launcher tells apart: a script returning is
+        // a turn that ended, and the stream closing is the session that did.
+        // They arrive together unless the scenario asked to linger, which is
+        // what a real session does all the time.
         try {
           await script(agent);
-          events.push({ type: "ended", outcome: "completed" });
+          events.push({ type: "turn-ended", outcome: "completed" });
+          if (!lingering.on) events.push({ type: "ended", outcome: "completed" });
         } catch (failure) {
           if (!events.stopped) {
             const detail = failure instanceof Error ? failure.message : String(failure);
-            events.push({ type: "ended", outcome: "failed", detail });
+            events.push({ type: "turn-ended", outcome: "failed", detail });
+            if (!lingering.on) events.push({ type: "ended", outcome: "failed", detail });
           }
         } finally {
           await connection.tools?.close();
-          events.close();
+          if (!lingering.on) events.close();
         }
       })();
 
@@ -85,6 +107,9 @@ export function createScriptedLauncher(script: AgentScript): AgentLauncher {
         async stop() {
           events.stopped = true;
           messages.abort();
+          // Like the real one: the stream ends on exactly one `ended`, and a
+          // stop asked for by squad is a completion rather than a failure.
+          events.push({ type: "ended", outcome: "completed" });
           events.close();
         },
       };

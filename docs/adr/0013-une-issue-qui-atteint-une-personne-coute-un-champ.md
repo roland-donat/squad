@@ -17,20 +17,22 @@ Il y avait `human`, qui ne demandait rien. Un arbitrage devant nommer sa route, 
 remontée à l'humain ne devant rien, l'issue la moins chère était celle qui réveillait le
 développeur : tout ce qu'une passe préférait ne pas juger y atterrissait.
 
-Mesuré sur l'instance, au 14/09/2026, sur les 31 points remontés depuis l'origine :
+Relevé le 14/09/2026 sur l'instance, sur les 35 points remontés depuis l'origine. Le compte
+bouge à chaque fiche, c'est la proportion qui porte la décision :
 
 | Ce que le point demandait | Nombre |
 |---|---|
 | ouvrir quelque chose que squad ne peut pas ouvrir (un écran, une instance déployée, un artefact rendu) | 5 |
-| trancher une formulation, un nommage, un ordre de fusion, un message que lira un modélisateur | ~20 |
+| trancher une formulation, un nommage, un ordre de fusion, un message que lira un modélisateur | ~24 |
 | signaler une remarque sur squad lui-même, faute d'un autre endroit où la mettre | ~6 |
 
-Les vingt-six derniers arrivaient chez le développeur comme des corvées, alors que la passe
+Les trente derniers arrivaient chez le développeur comme des corvées, alors que la passe
 avait lu le code et **avait** une opinion : elle n'avait pas de champ pour la dire, et
 l'issue qui en demandait une coûtait plus cher que celle qui n'en demandait aucune.
 
 Sur les cinq points qui attendaient le jour où la coupure a été écrite, un seul demandait
-d'ouvrir quelque chose.
+d'ouvrir quelque chose. Les quatre points arrivés pendant qu'elle se construisait étaient
+tous les quatre des jugements, tranchés sans rien ouvrir.
 
 ## La ligne, et pourquoi c'est celle-là
 
@@ -57,9 +59,16 @@ consigne.
 ## Ce que ça coûte
 
 Une valeur d'énumération renommée, une colonne, la migration `drizzle/0021` qui convertit
-les `human` existants en `observation` (vérifiée sur une copie de la base réelle : 32
-lignes converties, notes conservées), trois refus dans le store, les descriptions de
+les `human` existants en `observation`, trois refus dans le store, les descriptions de
 `settle_sheet`, la consigne de la passe et deux libellés d'interface.
+
+La migration a été rejouée sur une copie de la base réelle avant d'être gardée, la suite de
+tests ne pouvant pas l'attraper puisqu'elle part d'une base neuve : au 14/09/2026, 35 lignes
+converties, notes conservées, les 115 arbitrages gardant leur route. Elle **efface** la route
+et le périmètre des lignes qu'elle convertit : l'ancienne forme les tolérait sur un `human`,
+la nouvelle les refuse sur une observation, et laisser une donnée qui viole l'invariant
+qu'on vient de poser serait n'avoir posé qu'une intention. Aucune ligne n'en portait, ce qui
+rend la clause gratuite aujourd'hui et juste demain.
 
 ## Ce qui n'est pas traité
 

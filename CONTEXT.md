@@ -204,7 +204,9 @@ sont un arbitrage, puisqu'elle a lu le code ; un écran, une instance déployée
 rendu sont une observation. C'est ce qui décide de ce que le développeur reçoit : un
 arbitrage est pris par squad sous go-as-recommandé, exactement comme il répond à une
 question, et seule une observation le réveille encore. Voir l'ADR 0013. Le ticket le dit dans son état : il **attend une décision** quand il ne
-reste que des arbitrages, il **attend une validation** dès qu'il reste une observation.
+reste que des arbitrages, il **attend une validation** dès qu'il reste autre chose, une
+observation, un point cassé sur une fiche qu'on ne renvoie plus, ou un point qu'aucune
+passe n'a typé.
 Squad tranche **avant** de publier le graphe, faute de quoi le mode s'arrêterait sur
 l'arbitrage même qu'il allait prendre. Et **squad relâche la session dès qu'elle a
 répondu**, sans attendre qu'elle se termine : une session en entrée continue attend le

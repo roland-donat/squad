@@ -1603,19 +1603,26 @@ export class Store {
         `an observation has to name what to open and what to look for; if you have a road instead, it is a decision: ${quote(placeless)}`,
       );
     }
-    // And neither field is carried by an outcome that does not own it. A road
-    // named beside a place is a recommended answer about a screen nobody
-    // opened, which is exactly what squad refuses to pre-tick in the interface.
+    // And no field is carried by an outcome that does not own it. A road named
+    // beside a place is a recommended answer about a screen nobody opened,
+    // which is exactly what squad refuses to pre-tick in the interface.
+    //
+    // `scopeChanging` is held to the same rule as the other two rather than
+    // quietly dropped, and it is the one the rule is most needed on: it decides
+    // whether the developer is woken to be told a perimeter was moved for them,
+    // so an entry that carries it under the wrong outcome loses that signal
+    // with nothing saying so.
     const overspoken = input.points.filter(
       (entry) =>
         (entry.outcome !== "decision" && (entry.recommendation ?? "").trim() !== "") ||
+        (entry.outcome !== "decision" && entry.scopeChanging !== undefined) ||
         (entry.outcome !== "observation" && (entry.lookAt ?? "").trim() !== ""),
     );
     if (overspoken.length > 0) {
       throw new SquadError(
         "settlement_beside_its_outcome",
         400,
-        `a road belongs to a decision and a place to an observation, and neither travels with another outcome: ${quote(overspoken)}`,
+        `a road and its perimeter belong to a decision, a place belongs to an observation, and none of the three travels with another outcome: ${quote(overspoken)}`,
       );
     }
 
@@ -1797,8 +1804,8 @@ export class Store {
       );
     }
     // A sheet is gone through in one go, with one exception, and it is the
-    // separation squad holds everywhere else: an arbitration is not a
-    // verification. Squad types them apart, answers one and not the other under
+    // separation squad holds everywhere else: an arbitration is not an
+    // observation. Squad types them apart, answers one and not the other under
     // go-as-recommended, and sweeps the ones it left open when the mode comes
     // back; only here did the two become a single block to sign. Measured on
     // the instance: five arbitrations of perimeter sat behind points asking
@@ -1806,14 +1813,14 @@ export class Store {
     // a decision meant claiming to have read what nobody had opened.
     const complete = given.size === expected.size;
     if (!complete) {
-      const verifications = input.points.filter(
+      const notArbitrations = input.points.filter(
         (point) => expected.get(point.id)?.settlement?.outcome !== "decision",
       );
-      if (verifications.length > 0) {
+      if (notArbitrations.length > 0) {
         throw new SquadError(
           "not_an_arbitration",
           400,
-          `a partial review takes arbitrations and nothing else: ${verifications.length} of the point(s) answered is a verification, and a verification is answered with the rest of the sheet`,
+          `a partial review takes arbitrations and nothing else: ${notArbitrations.length} of the point(s) answered is not one, and anything else is answered with the rest of the sheet`,
         );
       }
     }

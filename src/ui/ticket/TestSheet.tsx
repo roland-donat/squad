@@ -132,8 +132,8 @@ const settlementLabels: Record<SettlementOutcome, string> = {
 };
 
 /**
- * An arbitration is a road squad measured and recommends; a verification is
- * something it is asking a person to have looked at. The two are held apart
+ * An arbitration is a road squad measured and recommends; an observation is
+ * something it is asking a person to open and look at. The two are held apart
  * everywhere in squad, and here that difference is what decides whether a
  * choice is offered as two roads or as a box to tick.
  */
@@ -154,8 +154,8 @@ function isArbitration(point: TestSheetPoint): boolean {
  * It is offered like any other road, with its badge, and nothing is chosen for
  * them.
  *
- * A verification is never pre-ticked at all: it asks the developer to have
- * looked at something, and a default there signs off a screen nobody opened.
+ * An observation is never pre-ticked at all: it asks the developer to have
+ * opened something, and a default there signs off a screen nobody opened.
  */
 function startsTaken(point: TestSheetPoint): boolean {
   return isArbitration(point) && point.settlement?.scopeChanging !== true;
@@ -264,7 +264,7 @@ function SettleFirst({ ticketId, points }: { ticketId: string; points: TestSheet
  * waited behind a point asking whether a wording read well. What is left
  * untouched stays on the sheet, which is not gone through until it is empty.
  *
- * Offered only on a sheet that also holds verifications. Where every waiting
+ * Offered only on a sheet that also holds observations. Where every waiting
  * point is an arbitration, the form below already takes them all in one click,
  * and two buttons doing the same thing is a choice nobody asked for.
  */
@@ -396,7 +396,7 @@ function SheetForm({
               onComment={(text) => setComments((current) => ({ ...current, [point.id]: text }))}
             />
           ) : (
-            <Verification
+            <Observation
               key={point.id}
               point={point}
               note={point.criterionId === null ? undefined : notes[point.criterionId]}
@@ -532,13 +532,16 @@ function Arbitration({
 }
 
 /**
- * One verification: something to have looked at, checked when it holds.
+ * One observation: something to open and look at, checked when it holds.
  *
  * Nothing is ticked ahead of the reader here, and that is the whole difference
  * with an arbitration above: a default answer on a point asking whether a
  * screen reads right would sign off a screen nobody opened.
+ *
+ * A point no pass ever reached lands in this same form, which is why nothing
+ * here requires a settlement: the fall-back is towards the developer.
  */
-function Verification({
+function Observation({
   point,
   note,
   passed,

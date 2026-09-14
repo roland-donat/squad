@@ -429,8 +429,11 @@ describe("the settling pass, between a test sheet and the developer", () => {
         // Une observation sans lieu n'est pas une observation : c'est un
         // jugement que la passe préfère ne pas rendre.
         await attempt(road, { ...place, lookAt: undefined });
-        // Et la route ne voyage pas jusqu'à l'observation.
+        // Et aucun des trois champs ne voyage jusqu'à l'autre issue : ni la
+        // route, ni son périmètre, ni le lieu.
         await attempt(road, { ...place, recommendation: "Ça se lit bien." });
+        await attempt(road, { ...place, scopeChanging: true });
+        await attempt({ ...road, lookAt: "L'écran de réglages." }, place);
 
         await agent.call("settle_sheet", {
           featureId: agent.request.featureId,
@@ -447,7 +450,8 @@ describe("the settling pass, between a test sheet and the developer", () => {
     await settled;
     expect(refusals[0]).toContain("name the road");
     expect(refusals[1]).toContain("what to open");
-    expect(refusals[2]).toContain("neither travels");
+    for (const beside of refusals.slice(2)) expect(beside).toContain("none of the three travels");
+    expect(refusals).toHaveLength(5);
 
     // Ce que la passe a fini par rendre : la fiche porte les deux, et chacune
     // ne porte que le champ de son issue.

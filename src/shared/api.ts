@@ -355,9 +355,10 @@ export interface TestSheetPoint {
  * Told apart because they are not owed the same thing, and because what each
  * costs decides what squad is handed. A decision must name a road, which makes
  * it answerable by the machine: go-as-recommended takes it exactly as it
- * answers a question an agent asks. An observation must name a place to open,
- * which is the one thing a pass that had no access can still say, and the only
- * outcome that still wakes the developer.
+ * answers a question an agent asks, and with the mode off it reaches the
+ * developer as a road already picked. An observation must name a place to open,
+ * which is the one thing a pass that had no access can still say, and it
+ * reaches the developer whatever the mode.
  *
  * Measured on the live instance before the cut, when the two were one outcome
  * named `human` that required neither: of 31 points handed to the developer,
@@ -397,10 +398,10 @@ export interface PointSettlement {
    */
   lookAt: string | null;
   /**
-   * On a `decision`, whether choosing changes what is built rather than how.
-   * Under go-as-recommended squad takes either one with the road the agent
-   * recommends: this decides whether the developer is woken to be told it did,
-   * not whether squad may (ADR 0012).
+   * On a `decision`, and there only, whether choosing changes what is built
+   * rather than how. Under go-as-recommended squad takes either one with the
+   * road the agent recommends: this decides whether the developer is woken to
+   * be told it did, not whether squad may (ADR 0012).
    */
   scopeChanging: boolean;
 }

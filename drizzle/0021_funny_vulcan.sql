@@ -18,7 +18,7 @@ CREATE TABLE `__new_test_sheet_points` (
 	CONSTRAINT "test_sheet_points_settlement" CHECK("__new_test_sheet_points"."settlement" is null or "__new_test_sheet_points"."settlement" in ('holds', 'broken', 'observation', 'decision'))
 );
 --> statement-breakpoint
-INSERT INTO `__new_test_sheet_points`("id", "report_id", "position", "criterion_id", "text", "verdict", "comment", "settlement", "settlement_note", "settlement_recommendation", "settlement_scope_changing", "settlement_look_at") SELECT "id", "report_id", "position", "criterion_id", "text", "verdict", "comment", CASE WHEN "settlement" = 'human' THEN 'observation' ELSE "settlement" END, "settlement_note", "settlement_recommendation", "settlement_scope_changing", NULL FROM `test_sheet_points`;--> statement-breakpoint
+INSERT INTO `__new_test_sheet_points`("id", "report_id", "position", "criterion_id", "text", "verdict", "comment", "settlement", "settlement_note", "settlement_recommendation", "settlement_scope_changing", "settlement_look_at") SELECT "id", "report_id", "position", "criterion_id", "text", "verdict", "comment", CASE WHEN "settlement" = 'human' THEN 'observation' ELSE "settlement" END, "settlement_note", CASE WHEN "settlement" = 'human' THEN NULL ELSE "settlement_recommendation" END, CASE WHEN "settlement" = 'human' THEN NULL ELSE "settlement_scope_changing" END, NULL FROM `test_sheet_points`;--> statement-breakpoint
 DROP TABLE `test_sheet_points`;--> statement-breakpoint
 ALTER TABLE `__new_test_sheet_points` RENAME TO `test_sheet_points`;--> statement-breakpoint
 PRAGMA foreign_keys=ON;--> statement-breakpoint

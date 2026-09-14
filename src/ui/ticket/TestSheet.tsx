@@ -145,13 +145,14 @@ function isArbitration(point: TestSheetPoint): boolean {
  * Whether the recommended road arrives already taken, which is the one place a
  * default answer is filled in ahead of the reader.
  *
- * The rule is not "it is an arbitration" but "squad would take it alone", and
- * the two differ on exactly one case. Under go-as-recommended, `verdictForDecision`
- * answers a plain arbitration with its road and **stops the mode** on one that
- * changes the perimeter (`autonomy.ts`). Pre-ticking a perimeter decision would
- * therefore record, in one click, the very thing squad refuses to decide
- * without a person. It is offered like any other road, with its badge, and
- * nothing is chosen for them.
+ * Not on one that changes the perimeter, and the reason is not that squad
+ * refuses those: under go-as-recommended it takes them like the rest and wakes
+ * the developer to say so. **The reason is that this form is what is used when
+ * the mode is off.** Arming the mode is how the developer delegates, and it is
+ * the only way: someone reading a sheet with the mode off is deciding for
+ * themselves, and a contract decision is worth the one gesture of ticking it.
+ * It is offered like any other road, with its badge, and nothing is chosen for
+ * them.
  *
  * A verification is never pre-ticked at all: it asks the developer to have
  * looked at something, and a default there signs off a screen nobody opened.

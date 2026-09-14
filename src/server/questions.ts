@@ -13,9 +13,9 @@ import { appendToThread, type ThreadLine } from "./threads";
  * mechanism, and no terminal to go back to.
  *
  * Squad answers none of them itself except in go-as-recommended, and then only
- * with the agent's own recommendation, on a question the agent declared not to
- * change what is built. Everything else waits for the developer, however long
- * that takes.
+ * with the agent's own recommendation. One that changes what is built is
+ * answered like the rest and raises an alert saying squad answered it
+ * (ADR 0012). Everything else waits for the developer, however long that takes.
  */
 
 /** What an agent hands over when it asks. The session it asks from is squad's to know. */
@@ -34,9 +34,9 @@ export interface QuestionDependencies {
   bus: EventBus;
   alerts: Alerts;
   /**
-   * What the mode does with a question, declared by what is needed of it: it
-   * answers an implementation question on a driven feature, and stops on one
-   * that changes the perimeter.
+   * What the mode does with a question, declared by what is needed of it: on a
+   * driven feature it answers with the agent's own recommendation, and says so
+   * with an alert when the answer changes what is built.
    */
   autonomy: { verdictFor(question: Question): QuestionVerdict };
   /**
@@ -72,9 +72,7 @@ export class Questions {
 
     const verdict = autonomy.verdictFor(question);
     if (verdict.kind === "answer") return this.settle(question.id, verdict.answer, "squad");
-    // An alert only where nothing else says it: a mode that has just stopped
-    // has already raised one naming the question it stopped on.
-    if (verdict.kind !== "halt") alerts.raise(alertFor.questionWaiting(question));
+    alerts.raise(alertFor.questionWaiting(question));
     return new Promise<Question>((resolve) => this.waiting.set(question.id, resolve));
   }
 
@@ -94,15 +92,17 @@ export class Questions {
    * again. Measured on the instance: the only session still running was held on
    * a question squad could have answered.
    *
-   * Perimeter questions are left unread rather than refused, and that is not
-   * the same as taking them: reading one stops the mode, and it already stopped
-   * it when the question was asked. Stopping again on it would overwrite what
-   * squad last halted on with something older.
+   * Perimeter questions are read like the rest. They used to be skipped, on
+   * the grounds that reading one stopped the mode and it had already stopped
+   * when the question was asked; nothing stops any more. Skipping them now
+   * would leave the sub-session that asked blocked for ever, on a feature the
+   * screen shows as driving: arming the mode would be the dead button this
+   * exists to prevent (ADR 0012).
    */
   takeOpen(featureId: string): void {
     const { store, autonomy } = this.dependencies;
     for (const question of store.listQuestions(featureId)) {
-      if (question.state !== "pending" || question.scopeChanging) continue;
+      if (question.state !== "pending") continue;
       const verdict = autonomy.verdictFor(question);
       if (verdict.kind !== "answer") continue;
       this.settle(question.id, verdict.answer, "squad");
@@ -243,7 +243,7 @@ function statementOf(question: Question): string {
     ),
     "",
     question.scopeChanging
-      ? "It changes what is built: it waits for the developer whatever the mode."
+      ? "It changes what is built: under go-as-recommended squad answers it with the recommendation and wakes the developer to say so."
       : "It changes only how it is built.",
   ].join("\n");
 }

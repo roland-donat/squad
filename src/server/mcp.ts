@@ -283,7 +283,7 @@ const askQuestionShape = {
   scopeChanging: z
     .boolean()
     .describe(
-      "True when the answer changes what is built: the perimeter, the contract, what the ticket delivers. False when it changes only how it is built. Declare it honestly: it is what decides whether squad may answer for the developer while they are away.",
+      "True when the answer changes what is built: the perimeter, the contract, what the ticket delivers. False when it changes only how it is built. Declare it honestly: under go-as-recommended squad answers either one with your recommendation, and this is what decides whether the developer is woken to be told it answered for them. Under-declaring hides a contract decision from the person who owns it; over-declaring wakes them for a choice of wording.",
     ),
 };
 
@@ -382,7 +382,7 @@ const settleSheetShape = {
           .boolean()
           .optional()
           .describe(
-            "On a `decision`: true when choosing changes what is built, the perimeter, what the ticket delivers. False when it changes only how. Squad never decides one that changes what is built, whatever the mode.",
+            "On a `decision`: true when choosing changes what is built, the perimeter, what the ticket delivers. False when it changes only how. Under go-as-recommended squad takes the road you recommend either way, and this is what decides whether the developer is woken to be told it was taken for them.",
           ),
       }),
     )

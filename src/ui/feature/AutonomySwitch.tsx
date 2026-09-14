@@ -4,6 +4,9 @@ import { Failure, useSubmission } from "../submission";
 
 /** Why the mode stopped, said as the thing the developer has to look at. */
 const haltLabels: Record<AutonomyHaltReason, string> = {
+  // No longer raised: the mode takes what changes the perimeter and says so
+  // with an alert. Kept because halts already recorded carry it, and a night
+  // that stopped has to keep saying why it stopped.
   "scope-question": "une question change le périmètre",
   decision: "un ticket de décision attend d'être tranché",
   failure: "un ticket s'est arrêté",

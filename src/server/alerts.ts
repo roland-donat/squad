@@ -85,6 +85,34 @@ export const alertFor = {
     text: `squad : le go-as-recommandé de « ${feature.title} » s'interrompt, ${haltReasons[reason]} : « ${detail} ».`,
     at: ticketId === null ? aboutFeature(feature) : { featureId: feature.id, ticketId },
   }),
+  /**
+   * A decision squad took for the developer that changes what is built.
+   *
+   * Under go-as-recommended the mode takes every road an agent recommends,
+   * the ones that move the perimeter included, since the mode exists to carry
+   * a night nobody is watching. What it owes in exchange is a word: a
+   * perimeter decided in someone's absence has to reach them, and a note on a
+   * thread does not, being read the day one goes looking for it. Addressed to
+   * the ticket, so the word lands where the decision can be undone.
+   */
+  perimeterDecidedAlone: (
+    feature: AlertedFeature,
+    ticket: AlertedTicket,
+    road: string,
+  ): Alert => ({
+    text: `squad : le go-as-recommandé de « ${feature.title} » a tranché seul le périmètre de « ${ticket.title} » : « ${road} ».`,
+    at: aboutTicket(ticket),
+  }),
+  /** The same, on a question an agent asked rather than a point of a sheet. */
+  perimeterAnsweredAlone: (
+    feature: AlertedFeature,
+    target: AlertTarget,
+    prompt: string,
+    road: string,
+  ): Alert => ({
+    text: `squad : le go-as-recommandé de « ${feature.title} » a répondu seul à une question de périmètre, « ${prompt} » : « ${road} ».`,
+    at: target,
+  }),
   testSheetWaiting: (ticket: AlertedTicket): Alert => ({
     text: `squad : la fiche de tests de « ${ticket.title} » attend une vérification.`,
     at: aboutTicket(ticket),

@@ -114,10 +114,14 @@ export interface Worktree {
 }
 
 /**
- * Why squad stopped driving a feature on its own. The four are the whole list,
- * and each names something no agent may decide in the developer's place: a
- * question that changes what is built, a decision ticket, work that stopped,
- * and a cascade of agent-written tickets that reached its declared depth.
+ * Why squad stopped driving a feature on its own: a decision ticket, work that
+ * stopped, and a cascade of agent-written tickets that reached its declared
+ * depth. Each names something no agent may decide in the developer's place.
+ *
+ * `scope-question` is the fourth and nothing raises it any more: since ADR 0012
+ * the mode answers what changes the perimeter and says so with an alert. It
+ * stays in the list because halts already recorded carry it, and a night that
+ * stopped has to keep saying why.
  */
 export const autonomyHaltReasons = [
   "scope-question",
@@ -367,7 +371,9 @@ export interface PointSettlement {
   recommendation: string | null;
   /**
    * On a `decision`, whether choosing changes what is built rather than how.
-   * Squad never decides one of those for the developer, whatever the mode.
+   * Under go-as-recommended squad takes either one with the road the agent
+   * recommends: this decides whether the developer is woken to be told it did,
+   * not whether squad may (ADR 0012).
    */
   scopeChanging: boolean;
 }
@@ -703,9 +709,10 @@ export interface Question {
    */
   recommendation: string;
   /**
-   * Whether the answer changes what is built rather than only how. A
-   * scope-changing question waits for the developer whatever the mode, since
-   * the perimeter is the one thing squad never settles on its own.
+   * Whether the answer changes what is built rather than only how. Under
+   * go-as-recommended squad answers either one with the agent's own
+   * recommendation: this decides whether the developer is woken to be told it
+   * answered for them, not whether squad may (ADR 0012).
    */
   scopeChanging: boolean;
   state: QuestionState;

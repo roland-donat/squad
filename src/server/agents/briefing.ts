@@ -167,6 +167,24 @@ export function resumeInstruction(angle: LaunchAngle, why: string): string {
  * again rather than for a promise: a step ends one way in squad, and that way is
  * the report tool.
  *
+ * **It carries what was answered as well as what was refused**, and that is not
+ * politeness. A correction reports a step of its own, whose sheet is derived
+ * from the suggestions the sub-session writes again: a session that never heard
+ * the answer to what it raised raises it again, word for word, and the
+ * developer answers the same question twice. Measured on the instance, on the
+ * naming of one declaration key: raised, confirmed, raised again identically,
+ * confirmed again.
+ *
+ * What is carried is what a person decided, not everything that held. A point
+ * squad settled by running something is not a question anyone answered, and its
+ * note runs to thousands of characters: putting those back would bury the
+ * handful of lines this message exists for.
+ *
+ * It reaches one hop, which is where the loss was. Further back is the
+ * session's own memory: a correction resumes the session that built the step,
+ * so what it was told last round is still in front of it. Only a ticket whose
+ * session is gone starts blind, and that one reads the ticket again anyway.
+ *
  * The points are named by their wording rather than by their id: this reaches a
  * session that has the ticket in its head, and an id would send it looking the
  * wording up.
@@ -176,23 +194,55 @@ export function correctionInstruction(ticket: Ticket, report: StepReport): strin
   // squad's settling pass left what it ran and what that answered. Naming the
   // author matters, since one is an opinion to honour and the other a command
   // to reproduce.
+  //
+  // **Both are said when both exist, and that is the correction of a guard that
+  // read the wrong thing.** It keyed on the point carrying a settlement, so a
+  // point the developer refused in their own words came back as "squad ran it"
+  // with squad's note and without theirs. Since a settling pass types every
+  // point of every sheet it goes through, that was not an edge: it was every
+  // refusal the developer wrote on a sheet a pass had been through.
   const rejected = failedPoints(report).map((point) => {
+    const lines = [`- ${point.text}`];
     if (point.settlement !== null) {
-      return `- ${point.text}\n  Squad ran it and it did not hold: ${point.settlement.note}`;
+      lines.push(`  Squad ran it and it did not hold: ${point.settlement.note}`);
     }
-    return point.comment === null
-      ? `- ${point.text}`
-      : `- ${point.text}\n  The developer said: ${point.comment}`;
+    if (point.comment !== null) lines.push(`  The developer said: ${point.comment}`);
+    return lines.join("\n");
   });
-  const settledOnly = failedPoints(report).every((point) => point.settlement !== null);
+  // The same rule of authorship on the other side: the developer wrote a
+  // comment, or squad took an arbitration in their absence along the road the
+  // pass recommended. A road is read from the settlement rather than from the
+  // note it was appended to, the note being prose and the road a field.
+  const answered = report.sheet.flatMap((point) => {
+    if (point.verdict !== "passed") return [];
+    if (point.comment !== null) return [`- ${point.text}\n  The developer answered: ${point.comment}`];
+    if (point.settlement?.outcome === "decision" && point.settlement.recommendation !== null) {
+      return [
+        `- ${point.text}\n  Squad took this one under go-as-recommended: ${point.settlement.recommendation}`,
+      ];
+    }
+    return [];
+  });
+  // Who is sending this back, asked of the one fact that says so: a sheet is
+  // dated when it has been gone through, and squad sends a correction before
+  // that date on what a command disproved. Asked of the settlements before,
+  // which stopped being the same question once the pass typed every point.
+  const beforeAnyoneWasWoken = report.reviewedAt === null;
   return [
-    settledOnly
+    beforeAnyoneWasWoken
       ? "Squad went through the test sheet of this step before waking anyone, and points did not hold. Correct them here, on this branch, in this worktree."
       : "The developer went through the test sheet of this step and left points unchecked. Correct them here, on this branch, in this worktree.",
     "",
     rejected.length === 0 ? "No point was named." : "What did not pass:",
     ...rejected,
     ...(report.feedback === null ? [] : ["", `Their general return: ${report.feedback}`]),
+    ...(answered.length === 0
+      ? []
+      : [
+          "",
+          "Already answered, and not work to redo. These are the points you raised that were settled, with what was said. Do not raise them again in your next report: suggesting one of these is asking the same question twice.",
+          ...answered,
+        ]),
     "",
     `When it is corrected and committed, call \`${squadToolName(squadTools.reportStep)}\` again, with \`featureId: "${ticket.featureId}"\` and \`ticketId: "${ticket.id}"\`: a fresh \`work\`, one coverage entry per acceptance criterion, the points you suggest looking at, and what you recommend doing next. Nothing merges until a sheet comes back with everything checked.`,
   ].join("\n");

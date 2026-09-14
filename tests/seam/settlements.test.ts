@@ -463,6 +463,72 @@ describe("the settling pass, between a test sheet and the developer", () => {
     expect(sheet[1]?.settlement?.recommendation).toBeNull();
   });
 
+  /**
+   * Ce qui a été tranché redescend avec ce qui est refusé, et nommé pour ce
+   * qu'il est : la correction rapporte une étape neuve, dont la fiche est
+   * dérivée des suggestions que la sous-session réécrit. Une session qui n'a
+   * jamais entendu la réponse à ce qu'elle a soulevé le resoulève mot pour mot,
+   * et le développeur répond deux fois la même chose. Mesuré sur l'instance,
+   * sur le nommage d'une clé de déclaration.
+   */
+  it("redit à la sous-session ce que le développeur a déjà tranché", async () => {
+    const { featureId, stream, ticket, settled } = await start({
+      coverage: [{ verdict: "automated" }, { verdict: "automated" }],
+      suggestions: [
+        "Le nom de la clé ne se lit pas comme un jumeau de `fill_rate`",
+        "Le libellé du bouton d'enregistrement",
+      ],
+      settle: async (points, agent) => {
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: points.map((pointId) => ({
+            pointId,
+            outcome: "observation",
+            note: "Aucune commande ne tranche une lecture.",
+            lookAt: "L'écran de réglages dans un navigateur.",
+          })),
+        });
+      },
+    });
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    await settled;
+    const waiting = await waitForState(stream, featureId, ticket.id, "awaiting-validation");
+    const sheet = reportOf(waiting).sheet;
+
+    // Un point tranché, un point refusé : la fiche part entière, comme toujours.
+    const answered = await squad.request("POST", ticketTestSheetRoute(ticket.id), {
+      points: [
+        { id: sheet[0]?.id, passed: true, comment: "Le nom est confirmé, il ne change pas." },
+        { id: sheet[1]?.id, passed: false, comment: "Trop long de deux mots." },
+      ],
+      feedback: "",
+    });
+    expect(answered.status).toBe(200);
+
+    await until("the correction to reach the sub-session", async () => {
+      const thread = await readTicketThread(ticket.id);
+      return thread.some((entry) => entry.text.includes("Correct them here"));
+    });
+    const thread = await readTicketThread(ticket.id);
+    const correction = thread.find((entry) => entry.text.includes("Correct them here"))?.text ?? "";
+
+    expect(correction).toContain("Le nom est confirmé, il ne change pas.");
+    // Et les deux ne se lisent pas pareil : ce qui est tranché n'est pas dans
+    // la liste de ce qui est à corriger, sans quoi la sous-session referait un
+    // travail que personne ne lui demande.
+    const refused = correction.slice(0, correction.indexOf("Already answered"));
+    expect(refused).not.toContain("Le nom est confirmé");
+    // Sur le point refusé, les deux voix sont là et sont nommées. La passe avait
+    // typé ce point, comme elle type tous ceux d'une fiche qu'elle traverse :
+    // c'est ce qui faisait rendre à la sous-session la note de squad à la place
+    // des mots du développeur.
+    expect(refused).toContain("The developer said: Trop long de deux mots.");
+    expect(refused).toContain("Aucune commande ne tranche une lecture.");
+    expect(correction.startsWith("The developer went through")).toBe(true);
+  });
+
   it("prend l'arbitrage recommandé sous go-as-recommandé, et ne réveille personne", async () => {
     const { featureId, stream, ticket, settled } = await start({
       driven: true,

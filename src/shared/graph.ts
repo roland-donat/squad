@@ -68,6 +68,20 @@ export function holdsNothingBack(lifecycle: TicketLifecycle): boolean {
 }
 
 /**
+ * The same question asked of what the graph shows rather than of the row
+ * underneath: a ticket has come to rest, merged or dropped, and nothing more
+ * will be built of it.
+ *
+ * Three things follow from it and have to agree: it is never merged again, what
+ * its sheet still asks decides nothing, and a graph made only of such tickets
+ * is a graph to deliver. A settled decision reads as `merged` here, which is
+ * what it is for all three: nothing of it was built either.
+ */
+export function cameToRest(state: TicketState): boolean {
+  return state === "merged" || state === "discarded";
+}
+
+/**
  * Whether a ticket was dropped rather than done. It holds nothing back, like a
  * merged one, because a graph where a dead node keeps its successors waiting is
  * a graph that stops for a reason nobody can act on. What differs is what it is
@@ -240,7 +254,11 @@ export function resolveTicketState(
  * deliver, and a feature opened a minute ago is not a feature that is finished.
  */
 export function isDrained(graph: FeatureGraph): boolean {
-  return graph.tickets.length > 0 && graph.tickets.every((ticket) => ticket.state === "merged");
+  // Come to rest, and not merged: a graph that ever dropped a ticket would
+  // otherwise never be drained, so it would never be sent off and never be
+  // filed as done. Measured on the instance that opened this: 11 of its 63
+  // tickets were duplicates dropped on the wrong repository.
+  return graph.tickets.length > 0 && graph.tickets.every((ticket) => cameToRest(ticket.state));
 }
 
 /** How far a graph has come, as a count of what has merged out of the whole. */

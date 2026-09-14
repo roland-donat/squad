@@ -40,6 +40,7 @@ export const errorCodes = [
   "test_sheet_not_found",
   "test_sheet_already_reviewed",
   "ticket_not_mergeable",
+  "ticket_not_correctable",
   "branch_not_found",
   "not_an_arbitration",
   "orphaned_checkout",

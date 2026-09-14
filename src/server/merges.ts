@@ -1,5 +1,5 @@
 import type { Feature, FeatureGraph, Project, Ticket, Worktree } from "../shared/api";
-import { isDrained } from "../shared/graph";
+import { cameToRest, isDrained } from "../shared/graph";
 import {
   conflictResolutionBriefing,
   conflictResolutionInstruction,
@@ -192,7 +192,11 @@ export class Merges {
     if (this.stopping) return;
     const { store, subSessions } = this.dependencies;
     const ticket = store.requireTicket(ticketId);
-    if (ticket.state === "merged") return;
+    // Quietly, and before anything is touched: a ticket that came to rest has
+    // nothing to merge, which is an ordinary outcome and not a failure. Reached
+    // further down it would close a sub-session, write on the thread that squad
+    // was merging a branch it is not, and be logged as a merge that broke.
+    if (cameToRest(ticket.state)) return;
 
     // Before anything touches the worktree: a session still working in a
     // checkout squad is about to merge and remove would write into a directory

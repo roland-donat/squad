@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type {
   ApiErrorBody,
+  Feature,
   FeatureGraph,
   StepReport,
   TestSheetPoint,
@@ -26,7 +27,7 @@ import {
   type TestSquad,
 } from "../support/squad";
 import { startWebhookReceiver, type WebhookReceiver } from "../support/webhook";
-import { writeTicket } from "../support/mcp";
+import { connectToSquadTools, writeTicket } from "../support/mcp";
 
 /**
  * Between a step report and the developer, squad runs a pass over the test
@@ -186,6 +187,16 @@ describe("the settling pass, between a test sheet and the developer", () => {
     webhook = receiver;
     expect((await squad.request("PUT", apiRoutes.settings, { webhookUrl: receiver.url })).status).toBe(200);
     return receiver;
+  }
+
+  /** The feature as the interface reads it, with what the mode is doing. */
+  async function readFeature(featureId: string): Promise<Feature> {
+    const { features } = (await (await squad.request("GET", apiRoutes.features)).json()) as {
+      features: Feature[];
+    };
+    const found = features.find((each) => each.id === featureId);
+    if (!found) throw new Error("the feature is missing from the list");
+    return found;
   }
 
   async function readGraph(featureId: string): Promise<FeatureGraph> {
@@ -952,5 +963,161 @@ describe("the settling pass, between a test sheet and the developer", () => {
     expect(report.coverage[1]?.verdict).toBe("judgement");
     expect(report.sheet[0]?.settlement?.note).toContain("onze migrations");
     expect(receiver.received()).toEqual([]);
+  });
+  /**
+   * An arbitration left on the sheet of a ticket that came to rest decides
+   * nothing, so it holds nothing.
+   *
+   * A dropped ticket keeps its sheet, and a scope arbitration on it is never
+   * answered: squad will not take that one alone, and the developer has no
+   * reason to go through the sheet of something that will not be built. The
+   * sweep read it all the same, so the mode stopped on it at every arming, for
+   * ever. Measured on the instance twice in three days, both times on a ticket
+   * dropped as a duplicate of its twin in another repository, and both times
+   * read as a button that would not restart the mode.
+   */
+  it("ne s'arrête pas sur l'arbitrage resté au dos d'un ticket écarté", async () => {
+    const { featureId, ticket, settled } = await start({
+      driven: true,
+      coverage: [{ verdict: "automated" }, { verdict: "automated" }],
+      settle: async (points, agent) => {
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: points.map((pointId) => ({
+            pointId,
+            outcome: "decision",
+            note: "Trois routes se défendent, et celle qu'on prend engage un autre dépôt.",
+            recommendation: "La clé explicite, avec son ticket compagnon.",
+            scopeChanging: true,
+          })),
+        });
+      },
+    });
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    await settled;
+    // The mode stops, which is right: a perimeter arbitration is never squad's.
+    await until("l'arrêt du mode sur l'arbitrage de périmètre", async () => {
+      const feature = await readFeature(featureId);
+      return feature.autonomyHalt?.reason === "scope-question";
+    });
+
+    // The ticket is dropped without its sheet being gone through, which is the
+    // ordinary way a duplicate ends.
+    const tools = await connectToSquadTools(squad.url);
+    await tools.call("discard_ticket", {
+      featureId,
+      ticketId: ticket.id,
+      reason: "Doublon déposé sur le mauvais dépôt : son jumeau porte le travail.",
+    });
+    await tools.close();
+
+    // Arming again now holds: nothing is left that squad refuses to decide, the
+    // only thing that was being read belonging to a ticket nobody will build.
+    const armed = await squad.request("PUT", featureRoute(featureId), { goAsRecommended: true });
+    expect(armed.status).toBe(200);
+    await until("le mode reparti sans arrêt", async () => {
+      const feature = await readFeature(featureId);
+      return feature.goAsRecommended && feature.autonomyHalt === null;
+    });
+    // And it stays: the sweep runs at every arming, so a halt would come back
+    // within one of them rather than never.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect((await readFeature(featureId)).autonomyHalt).toBeNull();
+  });
+  /**
+   * And what came to rest is not merged again.
+   *
+   * A dropped ticket keeps its sheet, and that sheet may well hold throughout:
+   * it was gone through, or it never had a point at all. Going through it then
+   * asks for a merge, and the merge read the sheet and not the ticket, so a
+   * ticket nobody will build came back as `merging`, holding its successors
+   * again and sending a branch through the chain twice.
+   */
+  it("refuse de fusionner un ticket écarté, quelle que soit sa fiche", async () => {
+    const { featureId, ticket, settled } = await start({
+      coverage: [{ verdict: "automated" }, { verdict: "judgement" }],
+      settle: async () => {},
+    });
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    await settled;
+    await until("la fiche rendue au développeur", async () => {
+      const current = (await readGraph(featureId)).tickets[0] as Ticket;
+      return current.state === "awaiting-validation";
+    });
+
+    const tools = await connectToSquadTools(squad.url);
+    await tools.call("discard_ticket", {
+      featureId,
+      ticketId: ticket.id,
+      reason: "Doublon déposé sur le mauvais dépôt : son jumeau porte le travail.",
+    });
+    await tools.close();
+
+    // Everything checked, which on a live ticket is exactly what merges it.
+    const sheet = ((await readGraph(featureId)).tickets[0] as Ticket).stepReport?.sheet ?? [];
+    const reviewed = await squad.request("POST", ticketTestSheetRoute(ticket.id), {
+      points: sheet.map((point) => ({ id: point.id, passed: true, comment: "" })),
+      feedback: "",
+    });
+    expect(reviewed.status).toBe(200);
+
+    // It stays dropped, and its conclusion is still the only thing written on
+    // it: nothing of it was built, so there is nothing to merge.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const dropped = (await readGraph(featureId)).tickets[0] as Ticket;
+    expect(dropped.state).toBe("discarded");
+    expect(dropped.conclusion).toContain("Doublon déposé");
+  });
+
+  /**
+   * And the other road out of a sheet does not take it back either.
+   *
+   * A sheet comes to rest in two ways that are squad's, the merge and the
+   * correction, and a dropped ticket keeps its sheet for both. Handing that
+   * sheet back with a point unchecked asked for a correction on something
+   * nobody will build: the ticket came back as `running`, held its successors a
+   * second time, and carried on wearing the reason it was dropped as its
+   * conclusion.
+   */
+  it("refuse de reprendre un ticket écarté, même sur un point laissé décoché", async () => {
+    const { featureId, ticket, settled } = await start({
+      coverage: [{ verdict: "automated" }, { verdict: "judgement" }],
+      settle: async () => {},
+    });
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    await settled;
+    await until("la fiche rendue au développeur", async () => {
+      const current = (await readGraph(featureId)).tickets[0] as Ticket;
+      return current.state === "awaiting-validation";
+    });
+
+    const tools = await connectToSquadTools(squad.url);
+    await tools.call("discard_ticket", {
+      featureId,
+      ticketId: ticket.id,
+      reason: "Doublon déposé sur le mauvais dépôt : son jumeau porte le travail.",
+    });
+    await tools.close();
+
+    // A point left unchecked, which on a live ticket is exactly what hands the
+    // sheet back to the sub-session that reported it.
+    const sheet = ((await readGraph(featureId)).tickets[0] as Ticket).stepReport?.sheet ?? [];
+    await squad.request("POST", ticketTestSheetRoute(ticket.id), {
+      points: sheet.map((point) => ({
+        id: point.id,
+        passed: false,
+        comment: "Le message parle d'une table, pas de la base.",
+      })),
+      feedback: "",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const dropped = (await readGraph(featureId)).tickets[0] as Ticket;
+    expect(dropped.state).toBe("discarded");
+    expect(dropped.conclusion).toContain("Doublon déposé");
   });
 });

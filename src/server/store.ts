@@ -36,6 +36,7 @@ import type {
 import {
   blockersByTicket,
   findCycle,
+  cameToRest,
   holdsNothingBack,
   resolveTicketState,
   type GraphEdge,
@@ -1136,6 +1137,18 @@ export class Store {
    */
   startMerge(ticketId: string): Ticket {
     const ticket = this.requireTicket(ticketId);
+    // A ticket that came to rest stays there. Nothing of a dropped one was ever
+    // built, and a merged one is merged: either would come back to life as
+    // `merging`, hold its successors again, and send a branch nobody validated
+    // twice through the chain. Asked before the sheet, since a dropped ticket
+    // may well carry a sheet that holds throughout.
+    if (cameToRest(ticket.state)) {
+      throw new SquadError(
+        "ticket_not_mergeable",
+        409,
+        `ticket "${ticket.title}" is ${ticket.state}: what came to rest is not merged again`,
+      );
+    }
     if (!sheetWasValidated(ticket.stepReport)) {
       throw new SquadError(
         "ticket_not_mergeable",
@@ -1184,6 +1197,19 @@ export class Store {
    * when it opens.
    */
   reopenStep(ticketId: string): Ticket {
+    const ticket = this.requireTicket(ticketId);
+    // The same refusal as a merge, on the other road out of a sheet. A dropped
+    // ticket keeps its sheet, so handing that sheet back asks for a correction
+    // on something nobody will build: the ticket would come back as `running`,
+    // hold its successors again, and carry on wearing the reason it was
+    // dropped as its conclusion.
+    if (cameToRest(ticket.state)) {
+      throw new SquadError(
+        "ticket_not_correctable",
+        409,
+        `ticket "${ticket.title}" is ${ticket.state}: what came to rest is not taken back`,
+      );
+    }
     this.db.update(tickets).set({ lifecycle: "running" }).where(eq(tickets.id, ticketId)).run();
     return this.requireTicket(ticketId);
   }

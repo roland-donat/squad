@@ -443,11 +443,12 @@ describe("the settling pass, between a test sheet and the developer", () => {
     expect(reportOf(merged).sheet[0]?.settlement?.note).toContain("go-as-recommandé");
   });
 
-  it("prend ce qui ne change rien même quand un arbitrage de périmètre attend", async () => {
-    // Un arbitrage de périmètre arrête le mode. Lu dans l'ordre de la fiche, il
-    // gèle tout ce qui le suit, et squad rendrait au développeur des décisions
-    // qu'il avait le droit de prendre. Mesuré sur l'instance : 25 arbitrages
-    // ouverts, dont une majorité que rien ne reprenait.
+  it("prend aussi l'arbitrage qui change le périmètre, et réveille pour celui-là seul", async () => {
+    // Le mode existe pour porter une nuit que personne ne regarde, et un
+    // chantier qui négocie des contrats entre dépôts pose une question de
+    // périmètre toutes les une à deux heures : s'arrêter sur chacune le laissait
+    // arrêté plus souvent qu'en marche. Il les prend donc, et ce qu'il doit en
+    // échange est un mot, sur celles-là et pas sur les autres.
     const { featureId, stream, ticket, settled } = await start({
       driven: true,
       coverage: [{ verdict: "automated" }, { verdict: "automated" }],
@@ -461,33 +462,40 @@ describe("the settling pass, between a test sheet and the developer", () => {
             outcome: "decision",
             note: "Deux voies tiennent.",
             recommendation: index === 0 ? "Élargir le périmètre" : "Garder `kind`",
-            // Celui qui change le périmètre arrive EN PREMIER dans la fiche.
             scopeChanging: index === 0,
           })),
         });
       },
     });
 
+    const receiver = await catchAlerts();
+
     await squad.request("POST", ticketSessionRoute(ticket.id), {});
     await settled;
-    const waiting = await waitForState(stream, featureId, ticket.id, "awaiting-decision");
 
-    // Le second est pris malgré le premier, et seul le premier reste.
-    const sheet = reportOf(waiting).sheet;
-    expect(sheet.filter((point) => point.verdict === "pending")).toHaveLength(1);
-    expect(sheet.find((point) => point.verdict === "passed")?.settlement?.note).toContain(
-      "go-as-recommandé",
-    );
+    // Les deux sont pris, donc rien ne reste et la branche part.
+    const merged = await waitForState(stream, featureId, ticket.id, "merged");
+    const sheet = reportOf(merged).sheet;
+    expect(sheet.filter((point) => point.verdict === "pending")).toHaveLength(0);
+    expect(sheet.every((point) => point.settlement?.note.includes("go-as-recommandé"))).toBe(true);
+    // Et le mode n'est pas arrêté : c'est tout l'objet du changement.
+    expect((await readFeature(featureId)).autonomyHalt).toBeNull();
+
+    // Une alerte, et une seule : celle du périmètre. L'ordinaire n'a que sa
+    // note sur le fil, sans quoi une nuit de mode réveillerait à chaque point.
+    const alert = await receiver.next();
+    expect(alert.text).toContain("tranché seul le périmètre");
+    expect(alert.text).toContain("Élargir le périmètre");
+    expect(alert.text).not.toContain("Garder `kind`");
   });
 
-  it("prend les arbitrages ordinaires de tous les tickets, pas du seul premier lu", async () => {
-    // Le tri par ticket ne suffit pas, et c'est mesuré sur l'instance : deux
-    // tickets portaient chacun un arbitrage de périmètre et un ordinaire. Le
-    // premier lu prenait le sien, s'arrêtait sur son point de périmètre, et le
-    // second repartait avec un arbitrage que squad avait le droit de prendre.
-    // Aucun ordre entre tickets n'y répond, puisque celui qui passe en premier
-    // gèle les suivants : il faut lire tous les points ordinaires avant qu'un
-    // seul point de périmètre ne soit lu.
+  it("prend les arbitrages de tous les tickets, quel que soit l'ordre du graphe", async () => {
+    // Ce balayage lisait autrefois les points ordinaires de tous les tickets
+    // avant le premier point de périmètre, parce que celui-ci arrêtait le mode
+    // et gelait tout ce qui le suivait : l'ordre du graphe décidait alors de ce
+    // qui était répondu. Plus rien ne s'arrête, donc plus rien ne gèle, et ce
+    // test le tient : deux tickets portant chacun les deux sortes, et rien qui
+    // reste sur aucun des deux.
     const { featureId, stream, tickets, passes } = await start({
       titles: ["Le store", "Le flux"],
       coverage: [{ verdict: "automated" }, { verdict: "automated" }],
@@ -516,29 +524,18 @@ describe("the settling pass, between a test sheet and the developer", () => {
     }
 
     // Le mode n'était pas armé : les quatre arbitrages dorment. L'armer, c'est
-    // les redemander tous, et chacun des deux tickets ne doit garder que celui
-    // que squad ne prend jamais.
+    // les redemander tous, et aucun des deux tickets ne doit rien garder.
     expect(
       (await squad.request("PUT", featureRoute(featureId), { goAsRecommended: true })).status,
     ).toBe(200);
-    await until("les deux arbitrages ordinaires pris", async () => {
+    await until("les quatre arbitrages pris", async () => {
       const graph = await readGraph(featureId);
       return tickets.every((ticket) => {
         const found = graph.tickets.find((each) => each.id === ticket.id) as Ticket;
-        const sheet = reportOf(found).sheet;
-        return (
-          sheet.filter((point) => point.verdict === "pending").length === 1 &&
-          sheet.some((point) => point.verdict === "passed")
-        );
+        return reportOf(found).sheet.every((point) => point.verdict === "passed");
       });
     });
-    // Et celui qui reste est bien le point de périmètre, sur les deux.
-    const graph = await readGraph(featureId);
-    for (const ticket of tickets) {
-      const found = graph.tickets.find((each) => each.id === ticket.id) as Ticket;
-      const left = reportOf(found).sheet.filter((point) => point.verdict === "pending");
-      expect(left[0]?.settlement?.scopeChanging).toBe(true);
-    }
+    expect((await readFeature(featureId)).autonomyHalt).toBeNull();
   });
 
   it("prend un arbitrage seul, sans faire signer les vérifications de la même fiche", async () => {
@@ -610,9 +607,11 @@ describe("the settling pass, between a test sheet and the developer", () => {
     expect(relu.sheet.find((point) => point.id === verification.id)?.verdict).toBe("pending");
   });
 
-  it("laisse un arbitrage de périmètre au développeur, et le ticket attend une décision", async () => {
+  it("laisse un arbitrage de périmètre au développeur quand personne ne pilote", async () => {
+    // Le mode désarmé, rien ne change : un arbitrage n'est pris que par le
+    // mode, donc il reste, et le ticket dit qu'il attend une décision et non
+    // une validation. C'est armer qui vaut délégation, et rien d'autre.
     const { featureId, stream, ticket, settled } = await start({
-      driven: true,
       coverage: [{ verdict: "automated" }, { verdict: "automated" }],
       suggestions: ["L'orthographe de la clé exposée, `kind` ou `type`"],
       settle: async (points, agent) => {
@@ -633,15 +632,14 @@ describe("the settling pass, between a test sheet and the developer", () => {
 
     await squad.request("POST", ticketSessionRoute(ticket.id), {});
     await settled;
-    // Ce qui change ce qui est construit ne se décide jamais sans le
-    // développeur, et le ticket le dit : il attend une décision, pas une
-    // validation.
     const waiting = await waitForState(stream, featureId, ticket.id, "awaiting-decision");
     expect(reportOf(waiting).sheet.every((point) => point.verdict === "pending")).toBe(true);
     expect(pendingActions([await readGraph(featureId)], []).map((action) => action.reason)).toEqual([
       "decision",
     ]);
-    expect((await receiver.next()).text).toBeTruthy();
+    // Réveillé parce que quelque chose l'attend, et non parce que squad aurait
+    // décidé : ce sont deux alertes différentes.
+    expect((await receiver.next()).text).not.toContain("tranché seul le périmètre");
   });
 
   it("laisse partir une passe qui a répondu mais ne se termine pas d'elle-même", async () => {
@@ -976,9 +974,12 @@ describe("the settling pass, between a test sheet and the developer", () => {
    * dropped as a duplicate of its twin in another repository, and both times
    * read as a button that would not restart the mode.
    */
-  it("ne s'arrête pas sur l'arbitrage resté au dos d'un ticket écarté", async () => {
+  it("ne décide rien sur l'arbitrage resté au dos d'un ticket écarté", async () => {
+    // Un ticket écarté garde sa fiche, et l'arbitrage qui y dort ne décide de
+    // rien : plus rien ne sera construit de ce ticket. Le mode ne doit donc pas
+    // le prendre, sans quoi il écrirait une décision de contrat sur un travail
+    // qui n'aura pas lieu, et réveillerait quelqu'un pour elle.
     const { featureId, ticket, settled } = await start({
-      driven: true,
       coverage: [{ verdict: "automated" }, { verdict: "automated" }],
       settle: async (points, agent) => {
         await agent.call("settle_sheet", {
@@ -994,17 +995,16 @@ describe("the settling pass, between a test sheet and the developer", () => {
         });
       },
     });
+    const receiver = await catchAlerts();
 
+    // Le mode n'est pas armé pendant la passe : l'arbitrage reste donc entier.
     await squad.request("POST", ticketSessionRoute(ticket.id), {});
     await settled;
-    // The mode stops, which is right: a perimeter arbitration is never squad's.
-    await until("l'arrêt du mode sur l'arbitrage de périmètre", async () => {
-      const feature = await readFeature(featureId);
-      return feature.autonomyHalt?.reason === "scope-question";
+    await until("l'arbitrage posé sur la fiche", async () => {
+      const current = (await readGraph(featureId)).tickets[0] as Ticket;
+      return (current.stepReport?.sheet ?? []).some((point) => point.verdict === "pending");
     });
 
-    // The ticket is dropped without its sheet being gone through, which is the
-    // ordinary way a duplicate ends.
     const tools = await connectToSquadTools(squad.url);
     await tools.call("discard_ticket", {
       featureId,
@@ -1013,28 +1013,23 @@ describe("the settling pass, between a test sheet and the developer", () => {
     });
     await tools.close();
 
-    // Arming again now holds: nothing is left that squad refuses to decide, the
-    // only thing that was being read belonging to a ticket nobody will build.
+    // Armer, c'est redemander tout ce qui dort. Rien ne dort ici qui vaille
+    // d'être décidé.
     const armed = await squad.request("PUT", featureRoute(featureId), { goAsRecommended: true });
     expect(armed.status).toBe(200);
-    await until("le mode reparti sans arrêt", async () => {
-      const feature = await readFeature(featureId);
-      return feature.goAsRecommended && feature.autonomyHalt === null;
-    });
-    // And it stays: the sweep runs at every arming, so a halt would come back
-    // within one of them rather than never.
     await new Promise((resolve) => setTimeout(resolve, 300));
+
+    const dropped = (await readGraph(featureId)).tickets[0] as Ticket;
+    expect(dropped.state).toBe("discarded");
+    expect(reportOf(dropped).sheet.every((point) => point.verdict === "pending")).toBe(true);
+    expect(
+      reportOf(dropped).sheet.every((point) => !point.settlement?.note.includes("go-as-recommandé")),
+    ).toBe(true);
+    // Et personne n'a été réveillé pour une décision qui n'a pas été prise.
+    expect(receiver.received().filter((alert) => (alert.text ?? "").includes("tranché seul"))).toEqual([]);
     expect((await readFeature(featureId)).autonomyHalt).toBeNull();
   });
-  /**
-   * And what came to rest is not merged again.
-   *
-   * A dropped ticket keeps its sheet, and that sheet may well hold throughout:
-   * it was gone through, or it never had a point at all. Going through it then
-   * asks for a merge, and the merge read the sheet and not the ticket, so a
-   * ticket nobody will build came back as `merging`, holding its successors
-   * again and sending a branch through the chain twice.
-   */
+
   it("refuse de fusionner un ticket écarté, quelle que soit sa fiche", async () => {
     const { featureId, ticket, settled } = await start({
       coverage: [{ verdict: "automated" }, { verdict: "judgement" }],

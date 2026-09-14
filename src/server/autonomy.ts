@@ -25,11 +25,25 @@ import type { Store } from "./store";
 
 /** What the mode does with a question an agent has just asked. */
 export type QuestionVerdict =
-  /** Squad answers, with the agent's own recommendation and nothing else. */
-  | { kind: "answer"; answer: string }
-  /** The mode was driving this feature and stops here. */
-  | { kind: "halt" }
-  /** Nobody is driving: the question waits for the developer, as it always does. */
+  /**
+   * Squad answers, with the agent's own recommendation and nothing else.
+   *
+   * `perimeter` says the answer changes what is built, so the developer is owed
+   * a word. Handed back rather than raised here: a sheet may hold four of them
+   * and they are taken in one sweep, where four notifications for one sweep is
+   * four times the same interruption.
+   */
+  | { kind: "answer"; answer: string; perimeter?: boolean }
+  /**
+   * Nobody is driving, or nothing was recommended: it waits for the developer,
+   * as it always does.
+   *
+   * There used to be a third, a halt on anything touching the perimeter. The
+   * mode exists to carry a night nobody is watching, and a chantier that
+   * negotiates contracts between repositories raises such a question every hour
+   * or two: stopping on each meant the mode was off more than on. It takes them
+   * now and says so, which is the trade the alert carries.
+   */
   | { kind: "wait" };
 
 /** What in a graph the mode cannot get past, and what it stopped on. */
@@ -103,15 +117,27 @@ export class Autonomy {
   }
 
   /**
-   * What the mode does with a question. A question that changes what is built
-   * is where the mode stops, whatever it recommends: the perimeter is the one
-   * thing squad never settles on its own.
-   */
-  /**
    * What the mode does with an arbitration the settling pass raised on a test
-   * sheet. The same rule as a question, on the same grounds: an arbitration
-   * that does not change what is built is taken with the recommendation, and
-   * one that does stops the mode instead of being decided for the developer.
+   * sheet: it takes the road the agent recommends, whatever that road moves.
+   *
+   * **Including the perimeter, and that is the whole point of the mode.** It
+   * used to stop on anything that changed what is built, on the grounds that
+   * the perimeter is never squad's to settle. The grounds were right and the
+   * remedy was wrong: measured on the instance, a chantier negotiating
+   * contracts between three repositories raised ten such arbitrations in three
+   * days, six of them in one day, so the mode spent more time stopped than
+   * driving and every restart met the next one. A mode that has to be restarted
+   * every hour is not an unattended mode.
+   *
+   * What replaces the stop is a word. A perimeter decided in someone's absence
+   * raises an alert naming the ticket and the road taken, where an ordinary
+   * arbitration only gets its note on the thread. The developer still learns
+   * every contract decision squad made for them; they learn it in the morning
+   * rather than by being stopped at the time.
+   *
+   * `scopeChanging` therefore keeps its meaning and changes its consequence: it
+   * no longer decides whether squad may answer, it decides whether the answer
+   * is worth waking someone for.
    *
    * Held here rather than beside the sheet because there is one rule about what
    * squad may decide alone, and it has to read the same wherever it applies.
@@ -120,28 +146,29 @@ export class Autonomy {
     const settlement = point.settlement;
     if (settlement === null || settlement.recommendation === null) return { kind: "wait" };
     if (!this.driven(ticket.featureId)) return { kind: "wait" };
-    if (settlement.scopeChanging) {
-      this.halt(ticket.featureId, {
-        reason: "scope-question",
-        detail: point.text,
-        ticketId: ticket.id,
-      });
-      return { kind: "halt" };
-    }
-    return { kind: "answer", answer: settlement.recommendation };
+    return {
+      kind: "answer",
+      answer: settlement.recommendation,
+      ...(settlement.scopeChanging ? { perimeter: true } : {}),
+    };
   }
 
   verdictFor(question: Question): QuestionVerdict {
     if (!this.driven(question.featureId)) return { kind: "wait" };
     if (question.scopeChanging) {
-      // Null when the main session asked it: such a question hangs on no
-      // ticket, and it is answered in the feature's own thread.
-      this.halt(question.featureId, {
-        reason: "scope-question",
-        detail: question.prompt,
-        ticketId: question.ticketId,
-      });
-      return { kind: "halt" };
+      // The same trade as an arbitration, and it has to be the same: the two
+      // differ only by the channel the agent asked through, so answering one
+      // alone and stopping on the other would make the channel the rule.
+      // Addressed to the feature's own thread when the main session asked it,
+      // such a question hanging on no ticket.
+      this.dependencies.alerts.raise(
+        alertFor.perimeterAnsweredAlone(
+          this.dependencies.store.requireFeature(question.featureId),
+          { featureId: question.featureId, ticketId: question.ticketId },
+          question.prompt,
+          question.recommendation,
+        ),
+      );
     }
     return { kind: "answer", answer: question.recommendation };
   }

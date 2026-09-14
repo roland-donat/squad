@@ -224,7 +224,7 @@ src/server/alerts.ts       # bureau et webhook, avec l'adresse de ce qu'ils rapp
 src/server/questions.ts    # ce qu'un agent demande, et l'attente que ça ouvre
 src/server/recorded-sessions.ts # les conversations claude-code, lues et jamais interprétées
 src/server/resumptions.ts  # une conversation enregistrée devient une feature
-src/server/autonomy.ts     # go-as-recommandé : ce qui part seul, et ce qui l'arrête
+src/server/autonomy.ts     # go-as-recommandé : ce qui part seul, ce qui alerte, ce qui l'arrête
 src/server/scheduler.ts    # ce qui part maintenant : fonction pure du graphe et des plafonds
 src/server/dispatch.ts     # la boucle qui ouvre ce que l'ordonnanceur a choisi, les trois sortes
 src/server/validations.ts  # ce qui suit une fiche : fusionner, corriger, ou attendre

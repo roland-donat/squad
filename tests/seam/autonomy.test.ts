@@ -6,7 +6,7 @@ import {
   featureRoute,
   mainSessionRoute,
   projectRoute,
-  questionAnswerRoute,
+  ticketSessionRoute,
 } from "../../src/shared/api";
 import { createScriptedLauncher, type ScriptedAgent } from "../support/scripted-launcher";
 import { openTestFeature, startTestSquad, type TestSquad } from "../support/squad";
@@ -265,7 +265,12 @@ describe("go-as-recommended, from the drain to what stops it", () => {
     await expect(receiver.next(300)).rejects.toThrow(/timed out/);
   });
 
-  it("stops on a question that changes what is built, and launches nothing more", async () => {
+  it("answers a question that changes what is built, and wakes the developer to say it did", async () => {
+    // The perimeter used to be where the mode stopped, whatever was
+    // recommended. It is where it now takes the road and says so: a chantier
+    // negotiating contracts raises such a question every hour or two, and a
+    // mode that has to be restarted every hour is not an unattended mode. What
+    // it owes instead is the word an ordinary arbitration does not get.
     const alive = gate();
     const asking = { answer: null as Question | null };
     const scene = await start({
@@ -291,38 +296,72 @@ describe("go-as-recommended, from the drain to what stops it", () => {
     await scene.arm();
     await scene.reaches("Le store", "running");
 
-    // The mode is held, and it says on what.
-    await expect
-      .poll(async () => (await scene.feature()).autonomyHalt?.reason, { timeout: 10_000 })
-      .toBe("scope-question");
-    const held = await scene.feature();
-    expect(held.autonomyHalt?.detail).toContain("les fils de session");
-    // And it names the ticket it stopped on, so what is read can be opened.
-    // Carried rather than found again from the detail, which is prose an agent
-    // wrote and which two tickets may share.
-    expect(held.autonomyHalt?.ticketId).toBe((await scene.ticket("Le store")).id);
-    // Armed still: what stopped is squad starting anything more by itself.
-    expect(held.goAsRecommended).toBe(true);
+    // The agent is released with its own recommendation, by squad and not by a
+    // person: that is the whole of what the mode is for.
+    await expect.poll(async () => asking.answer !== null, { timeout: 10_000 }).toBe(true);
+    expect(asking.answer?.answeredBy).toBe("squad");
+    expect(asking.answer?.answer).toBe("oui, dans la base");
 
-    // The developer is told the mode stopped, and the agent is still waiting.
+    // Nothing is held: this is what used to stop the night.
+    const running = await scene.feature();
+    expect(running.autonomyHalt).toBeNull();
+    expect(running.goAsRecommended).toBe(true);
+
+    // And the developer is told, with the question and the road in the word, so
+    // a contract decided in their absence reaches them rather than sitting on a
+    // thread nobody opens.
     const alert = await receiver.next();
-    expect(alert.text).toMatch(/go-as-recommandé/i);
-    expect(alert.text).toContain("Le noyau");
+    expect(alert.text).toContain("répondu seul à une question de périmètre");
+    expect(alert.text).toContain("les fils de session");
+    expect(alert.text).toContain("oui, dans la base");
+  });
+
+  it("répond en armant à la question de périmètre posée avant, plutôt que de laisser l'agent pendu", async () => {
+    // Armer, c'est redemander tout ce qui dort. Le balayage sautait les
+    // questions de périmètre, parce qu'en lire une arrêtait le mode et qu'il
+    // était déjà arrêté. Plus rien ne s'arrête : les sauter laisserait la
+    // sous-session qui a demandé bloquée pour toujours, sur une feature que
+    // l'écran montre en marche, c'est-à-dire le bouton mort que ce changement
+    // existe pour supprimer.
+    const alive = gate();
+    const asking = { answer: null as Question | null };
+    const scene = await start({
+      tickets: [{ title: "Le store" }],
+      subSession: async (agent) => {
+        await agent.awaitMessage();
+        asking.answer = (await agent.call("ask_question", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          question: "Faut-il aussi stocker les fils de session ?",
+          options: [
+            { label: "oui, dans la base", consequence: "Conséquence de « oui »." },
+            { label: "non, hors périmètre", consequence: "Conséquence de « non »." },
+          ],
+          recommendation: "oui, dans la base",
+          scopeChanging: true,
+        })) as Question;
+        await alive.passed;
+      },
+    });
+
+    // Mode éteint : la question attend, comme toute question attend. Le ticket
+    // est lancé à la main, puisque rien ne pilote encore.
+    const ready = await scene.ticket("Le store");
+    expect((await squad.request("POST", ticketSessionRoute(ready.id), {})).status).toBe(202);
+    await expect
+      .poll(async () => (await scene.questions())[0]?.state, { timeout: 10_000 })
+      .toBe("pending");
     expect(asking.answer).toBeNull();
 
-    // Nothing squad could have launched is launched while it is held: a ticket
-    // written now stays where it is, whatever the frontier says.
-    const [pending] = await scene.questions();
-    expect(pending?.state).toBe("pending");
-    expect((await scene.ticket("Les outils MCP")).state).toBe("blocked");
+    const receiver = await catchAlerts();
+    await scene.arm();
 
-    // Answering releases the agent, exactly as it would with the mode off.
-    const given = await squad.request("POST", questionAnswerRoute(pending?.id ?? ""), {
-      answer: "Non, hors périmètre : ouvre un ticket.",
-    });
-    expect(given.status).toBe(200);
+    // L'agent est relâché par squad, et le mode n'est pas arrêté.
     await expect.poll(async () => asking.answer !== null, { timeout: 10_000 }).toBe(true);
-    expect(asking.answer?.answeredBy).toBe("developer");
+    expect(asking.answer?.answeredBy).toBe("squad");
+    expect(asking.answer?.answer).toBe("oui, dans la base");
+    expect((await scene.feature()).autonomyHalt).toBeNull();
+    expect((await receiver.next()).text).toContain("répondu seul à une question de périmètre");
   });
 
   it("drains the frontier on its own, and never past the caps", async () => {

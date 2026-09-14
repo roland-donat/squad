@@ -3,6 +3,7 @@ import { cameToRest } from "../shared/graph";
 import { settlingBriefing, settlingInstruction } from "./agents/briefing";
 import type { AgentLauncher, AgentSession } from "./agents/launcher";
 import { exists } from "./worktrees";
+import { alertFor, type Alerts } from "./alerts";
 import { SquadError } from "./errors";
 import type { QuestionVerdict } from "./autonomy";
 import type { EventBus } from "./events";
@@ -12,6 +13,8 @@ import { appendToThread, drainOneTurn, type ThreadLine } from "./threads";
 
 export interface SettlementDependencies {
   store: Store;
+  /** Where a perimeter decided without the developer is said (ADR 0012). */
+  alerts: Alerts;
   /** What opens a ticket's checkout, and reopens one that is no longer there. */
   worktrees: { forTicket(ticket: Ticket): Promise<Worktree> };
   bus: EventBus;
@@ -308,24 +311,18 @@ export class Settlements {
         (point) => point.verdict === "pending" && point.settlement?.outcome === "decision",
       );
     const holders = store.featureGraph(featureId).tickets.filter(holding);
-    // Two sweeps across the tickets, and not one sweep in a chosen order. The
-    // first scope arbitration stops the mode, so a ticket holding both takes
-    // its own plain ones, halts on its own scope one, and every ticket read
-    // after it gets "wait" for arbitrations squad was allowed to take. Ordering
-    // the tickets cannot fix that: with several holding both, whichever comes
-    // first freezes the others, which is the very dependency on graph order
-    // this sweep exists to remove. Measured on the instance: one ticket holding
-    // both left a takeable arbitration on the next one.
+    // One sweep, in graph order, and nothing to be careful about any more. It
+    // took two before, plain arbitrations first and perimeter ones after: the
+    // first perimeter one stopped the mode, so every ticket read after it got
+    // "wait" for arbitrations squad was allowed to take, and the order of the
+    // graph decided what was answered. Nothing stops now, so nothing freezes
+    // what follows it.
     const settled = new Map<string, Ticket>();
-    const sweep = (plainOnly: boolean): void => {
-      for (const ticket of holders) {
-        const decided = this.take(ticket, plainOnly);
-        if (decided.stepReport?.reviewedAt === null) continue;
-        settled.set(decided.id, decided);
-      }
-    };
-    sweep(true);
-    sweep(false);
+    for (const ticket of holders) {
+      const decided = this.take(ticket);
+      if (decided.stepReport?.reviewedAt === null) continue;
+      settled.set(decided.id, decided);
+    }
     for (const ticket of settled.values()) {
       // Taken here rather than by a pass, so what follows a settled sheet has to
       // be reached from here too: merged, sent back, or left waiting. Announced
@@ -335,7 +332,7 @@ export class Settlements {
     }
   }
 
-  private take(ticket: Ticket, plainOnly = false): Ticket {
+  private take(ticket: Ticket): Ticket {
     const { store, autonomy } = this.dependencies;
     const current = this.reread(ticket);
     // Asked here rather than only where the sweep reads: the tool that answers
@@ -343,27 +340,20 @@ export class Settlements {
     // is still open. An arbitration recorded then would stop the mode on
     // something nobody will build, which is the very halt this guards against.
     if (cameToRest(current.state)) return current;
-    // What does not change the perimeter first, and that ordering is the whole
-    // of what makes this correct: a scope arbitration stops the mode, and every
-    // point read after it gets "wait" from a mode that is no longer driving.
-    // Read in sheet order, one scope point in the middle freezes what follows
-    // it, which is the very thing this sweep exists to undo.
-    //
-    // `plainOnly` is that same rule taken one level up, for a caller holding
-    // more than one ticket: it leaves the scope points unread altogether, so
-    // the mode is still driving when the next ticket is reached.
-    const open = (current.stepReport?.sheet ?? [])
-      .filter((point) => point.verdict === "pending" && point.settlement?.outcome === "decision")
-      .filter((point) => !plainOnly || point.settlement?.scopeChanging !== true)
-      .sort(
-        (left, right) =>
-          Number(left.settlement?.scopeChanging ?? false) -
-          Number(right.settlement?.scopeChanging ?? false),
-      );
+    // In sheet order. It used to read what does not change the perimeter first,
+    // because one perimeter point in the middle stopped the mode and every
+    // point after it got "wait": the order decided what was answered. The mode
+    // answers them all now, so a sheet is read as it was written.
+    const open = (current.stepReport?.sheet ?? []).filter(
+      (point) => point.verdict === "pending" && point.settlement?.outcome === "decision",
+    );
     const taken: Array<{ pointId: string; answer: string }> = [];
+    const perimeter: string[] = [];
     for (const point of open) {
       const verdict = autonomy.verdictForDecision(current, point);
-      if (verdict.kind === "answer") taken.push({ pointId: point.id, answer: verdict.answer });
+      if (verdict.kind !== "answer") continue;
+      taken.push({ pointId: point.id, answer: verdict.answer });
+      if (verdict.perimeter === true) perimeter.push(verdict.answer);
     }
     if (taken.length === 0) return current;
     const decided = store.takeDecisions(current.id, taken);
@@ -372,6 +362,17 @@ export class Settlements {
       text: `squad took ${taken.length} arbitration(s) of this sheet under go-as-recommended`,
       detail: taken.map((decision) => decision.answer).join("\n"),
     });
+    // One word per sheet and not per point: they are taken in one sweep, and
+    // four notifications for one sweep is four times the same interruption.
+    if (perimeter.length > 0) {
+      this.dependencies.alerts.raise(
+        alertFor.perimeterDecidedAlone(
+          store.requireFeature(decided.featureId),
+          decided,
+          perimeter.join(" ; "),
+        ),
+      );
+    }
     return decided;
   }
 

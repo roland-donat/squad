@@ -1,4 +1,5 @@
 import type { Feature, TestSheetPoint, Ticket, Worktree } from "../shared/api";
+import { cameToRest } from "../shared/graph";
 import { settlingBriefing, settlingInstruction } from "./agents/briefing";
 import type { AgentLauncher, AgentSession } from "./agents/launcher";
 import { exists } from "./worktrees";
@@ -296,6 +297,13 @@ export class Settlements {
   takeOpen(featureId: string): void {
     const { store, bus, validations } = this.dependencies;
     const holding = (ticket: Ticket): boolean =>
+      // Nothing of a ticket that came to rest will be built, so an arbitration
+      // left on its sheet decides nothing. Read here rather than left to the
+      // mode: unanswered, such a point holds a scope arbitration for ever, and
+      // the mode stops on it at every arming. Measured on the instance twice in
+      // three days, both times on a ticket dropped as a duplicate, and both
+      // times read as a button that would not restart the mode.
+      !cameToRest(ticket.state) &&
       (ticket.stepReport?.sheet ?? []).some(
         (point) => point.verdict === "pending" && point.settlement?.outcome === "decision",
       );
@@ -330,6 +338,11 @@ export class Settlements {
   private take(ticket: Ticket, plainOnly = false): Ticket {
     const { store, autonomy } = this.dependencies;
     const current = this.reread(ticket);
+    // Asked here rather than only where the sweep reads: the tool that answers
+    // a sheet reaches this directly, and a ticket may be dropped while its pass
+    // is still open. An arbitration recorded then would stop the mode on
+    // something nobody will build, which is the very halt this guards against.
+    if (cameToRest(current.state)) return current;
     // What does not change the perimeter first, and that ordering is the whole
     // of what makes this correct: a scope arbitration stops the mode, and every
     // point read after it gets "wait" from a mode that is no longer driving.

@@ -78,6 +78,8 @@ const wording: Record<ErrorCode, string> = {
   ticket_not_found: "Ce ticket est introuvable.",
   ticket_not_mergeable:
     "Ce ticket n'a pas d'étape validée : sa branche ne fusionne qu'une fois sa fiche de tests entièrement cochée.",
+  ticket_not_correctable:
+    "Ce ticket est fusionné ou écarté : ce qui est au repos n'est pas repris, et sa fiche ne se rend plus.",
   edge_crosses_features:
     "Une arête de blocage relie deux tickets d'une même feature.",
   edge_would_create_cycle: "Cette arête fermerait une boucle dans le graphe.",

@@ -466,6 +466,7 @@ export class Store {
       goAsRecommended: input.goAsRecommended,
       autonomyHaltReason: null,
       autonomyHaltDetail: null,
+      autonomyHaltTicketId: null,
       autonomyHaltedAt: null,
       createdAt,
     };
@@ -1946,6 +1947,7 @@ export class Store {
         goAsRecommended,
         autonomyHaltReason: null,
         autonomyHaltDetail: null,
+        autonomyHaltTicketId: null,
         autonomyHaltedAt: null,
       })
       .where(eq(features.id, feature.id))
@@ -1958,13 +1960,19 @@ export class Store {
    * written here is that it is held, and by what, so the interface can say so
    * and the developer can lift it once they have looked.
    */
-  haltAutonomy(featureId: string, reason: AutonomyHaltReason, detail: string): Feature {
+  haltAutonomy(
+    featureId: string,
+    reason: AutonomyHaltReason,
+    detail: string,
+    ticketId: string | null,
+  ): Feature {
     const feature = this.requireFeature(featureId);
     this.db
       .update(features)
       .set({
         autonomyHaltReason: reason,
         autonomyHaltDetail: detail,
+        autonomyHaltTicketId: ticketId,
         autonomyHaltedAt: new Date().toISOString(),
       })
       .where(eq(features.id, feature.id))
@@ -2205,6 +2213,7 @@ function toFeature(
     goAsRecommended: boolean;
     autonomyHaltReason: AutonomyHaltReason | null;
     autonomyHaltDetail: string | null;
+    autonomyHaltTicketId: string | null;
     autonomyHaltedAt: string | null;
     createdAt: string;
   },
@@ -2224,19 +2233,22 @@ function toFeature(
 }
 
 /**
- * The three halt columns read back as the one thing they are. They are written
- * together and cleared together, so either the mode is halted and all three say
- * why, or none of them is there.
+ * The halt columns read back as the one thing they are. They are written
+ * together and cleared together, so either the mode is halted and they all say
+ * why, or none of them is there. The ticket is the exception and stays nullable
+ * throughout: a question the main session asked hangs on no ticket.
  */
 function toHalt(row: {
   autonomyHaltReason: AutonomyHaltReason | null;
   autonomyHaltDetail: string | null;
+  autonomyHaltTicketId: string | null;
   autonomyHaltedAt: string | null;
 }): AutonomyHalt | null {
   if (row.autonomyHaltReason === null || row.autonomyHaltedAt === null) return null;
   return {
     reason: row.autonomyHaltReason,
     detail: row.autonomyHaltDetail ?? "",
+    ticketId: row.autonomyHaltTicketId,
     at: row.autonomyHaltedAt,
   };
 }

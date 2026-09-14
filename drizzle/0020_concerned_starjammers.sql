@@ -1,0 +1,1 @@
+ALTER TABLE `features` ADD `autonomy_halt_ticket_id` text;

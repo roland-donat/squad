@@ -199,7 +199,13 @@ export function FeatureView({
         )}
         {/* In the header of the feature's own tab: how much of this piece of
             work runs without me is the one standing decision taken here. */}
-        <AutonomySwitch feature={feature} />
+        <AutonomySwitch
+          feature={feature}
+          ticketIds={new Set(graph.tickets.map((ticket) => ticket.id))}
+          onOpenHalt={(ticketId) =>
+            ticketId === null ? go({ ticketId: null, threadOpen: true }) : go({ ticketId })
+          }
+        />
         {narrow && (
           <button
             type="button"

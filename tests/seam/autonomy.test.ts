@@ -297,6 +297,10 @@ describe("go-as-recommended, from the drain to what stops it", () => {
       .toBe("scope-question");
     const held = await scene.feature();
     expect(held.autonomyHalt?.detail).toContain("les fils de session");
+    // And it names the ticket it stopped on, so what is read can be opened.
+    // Carried rather than found again from the detail, which is prose an agent
+    // wrote and which two tickets may share.
+    expect(held.autonomyHalt?.ticketId).toBe((await scene.ticket("Le store")).id);
     // Armed still: what stopped is squad starting anything more by itself.
     expect(held.goAsRecommended).toBe(true);
 
@@ -386,6 +390,9 @@ describe("go-as-recommended, from the drain to what stops it", () => {
       .poll(async () => (await scene.feature()).autonomyHalt?.reason, { timeout: 10_000 })
       .toBe("failure");
     expect((await scene.feature()).autonomyHalt?.detail).toBe("Le store");
+    expect((await scene.feature()).autonomyHalt?.ticketId).toBe(
+      (await scene.ticket("Le store")).id,
+    );
     // Nothing is cancelled: the launch the mode had already accepted opens all
     // the same, and what it opens goes on working.
     await scene.reaches("Les outils MCP", "running");
@@ -458,6 +465,9 @@ describe("go-as-recommended, from the drain to what stops it", () => {
       .poll(async () => (await scene.feature()).autonomyHalt?.reason, { timeout: 10_000 })
       .toBe("decision");
     expect((await scene.feature()).autonomyHalt?.detail).toBe("Quelle disposition pour le graphe");
+    expect((await scene.feature()).autonomyHalt?.ticketId).toBe(
+      (await scene.ticket("Quelle disposition pour le graphe")).id,
+    );
     const alert = await receiver.next();
     expect(alert.text).toMatch(/décision/i);
     // Nothing was launched, since nothing could be: the decision holds the rest.

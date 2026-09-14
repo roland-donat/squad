@@ -36,6 +36,12 @@ export type QuestionVerdict =
 export interface Halt {
   reason: AutonomyHaltReason;
   detail: string;
+  /**
+   * The ticket it stopped on, so what the developer reads can be opened. Null
+   * on a question the main session asked, which hangs on no ticket: there the
+   * answer is written in the feature's own thread.
+   */
+  ticketId: string | null;
 }
 
 export interface AutonomyDependencies {
@@ -110,12 +116,16 @@ export class Autonomy {
    * Held here rather than beside the sheet because there is one rule about what
    * squad may decide alone, and it has to read the same wherever it applies.
    */
-  verdictForDecision(featureId: string, point: TestSheetPoint): QuestionVerdict {
+  verdictForDecision(ticket: Ticket, point: TestSheetPoint): QuestionVerdict {
     const settlement = point.settlement;
     if (settlement === null || settlement.recommendation === null) return { kind: "wait" };
-    if (!this.driven(featureId)) return { kind: "wait" };
+    if (!this.driven(ticket.featureId)) return { kind: "wait" };
     if (settlement.scopeChanging) {
-      this.halt(featureId, { reason: "scope-question", detail: point.text });
+      this.halt(ticket.featureId, {
+        reason: "scope-question",
+        detail: point.text,
+        ticketId: ticket.id,
+      });
       return { kind: "halt" };
     }
     return { kind: "answer", answer: settlement.recommendation };
@@ -124,7 +134,13 @@ export class Autonomy {
   verdictFor(question: Question): QuestionVerdict {
     if (!this.driven(question.featureId)) return { kind: "wait" };
     if (question.scopeChanging) {
-      this.halt(question.featureId, { reason: "scope-question", detail: question.prompt });
+      // Null when the main session asked it: such a question hangs on no
+      // ticket, and it is answered in the feature's own thread.
+      this.halt(question.featureId, {
+        reason: "scope-question",
+        detail: question.prompt,
+        ticketId: question.ticketId,
+      });
       return { kind: "halt" };
     }
     return { kind: "answer", answer: question.recommendation };
@@ -139,7 +155,11 @@ export class Autonomy {
    */
   ticketStopped(ticket: Ticket): void {
     if (!this.driven(ticket.featureId)) return;
-    this.halt(ticket.featureId, { reason: "failure", detail: ticket.title });
+    this.halt(ticket.featureId, {
+      reason: "failure",
+      detail: ticket.title,
+      ticketId: ticket.id,
+    });
   }
 
   /**
@@ -155,7 +175,11 @@ export class Autonomy {
     if (ticket.generation === 0) return;
     if (ticket.generation < this.dependencies.store.settings().generationDepthCap) return;
     if (!this.driven(ticket.featureId)) return;
-    this.halt(ticket.featureId, { reason: "depth-cap", detail: ticket.title });
+    this.halt(ticket.featureId, {
+      reason: "depth-cap",
+      detail: ticket.title,
+      ticketId: ticket.id,
+    });
   }
 
   /**
@@ -218,9 +242,9 @@ export class Autonomy {
    */
   halt(featureId: string, halt: Halt): void {
     const { store, bus, alerts } = this.dependencies;
-    const feature = store.haltAutonomy(featureId, halt.reason, halt.detail);
+    const feature = store.haltAutonomy(featureId, halt.reason, halt.detail, halt.ticketId);
     bus.publish({ type: "feature-changed", feature });
-    alerts.raise(alertFor.autonomyHalted(feature, halt.reason, halt.detail));
+    alerts.raise(alertFor.autonomyHalted(feature, halt.reason, halt.detail, halt.ticketId));
   }
 
   /** Whether squad is driving this feature right now: armed, and not held. */
@@ -261,10 +285,10 @@ function isInFlight(ticket: Ticket): boolean {
  */
 function stuckOn(graph: FeatureGraph): Halt | null {
   const decision = graph.tickets.find((ticket) => ticket.state === "awaiting-decision");
-  if (decision) return { reason: "decision", detail: decision.title };
+  if (decision) return { reason: "decision", detail: decision.title, ticketId: decision.id };
   const stopped = graph.tickets.find(
     (ticket) => ticket.state === "failed" || ticket.state === "conflict",
   );
-  if (stopped) return { reason: "failure", detail: stopped.title };
+  if (stopped) return { reason: "failure", detail: stopped.title, ticketId: stopped.id };
   return null;
 }

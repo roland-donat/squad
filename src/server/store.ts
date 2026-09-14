@@ -170,9 +170,11 @@ export interface SettleSheetInput {
     pointId: string;
     outcome: SettlementOutcome;
     note: string;
-    /** Required on a `decision`, meaningless elsewhere. */
+    /** Required on a `decision`, refused elsewhere. */
     recommendation?: string;
     scopeChanging?: boolean;
+    /** Required on an `observation`, refused elsewhere. */
+    lookAt?: string;
   }>;
 }
 
@@ -1531,9 +1533,11 @@ export class Store {
    *
    * The pass answers in its own vocabulary and squad turns it into the
    * developer's: a point that holds is checked, a point that is broken is left
-   * unchecked and goes back with its evidence, a point handed over stays
-   * pending and is the only kind that reaches a human. The note is kept whatever
-   * the outcome, so what the pass ran is readable next to what it concluded.
+   * unchecked and goes back with its evidence, and the two a person is for stay
+   * pending. Of those two only an `observation` reaches the developer, a
+   * `decision` being taken by the mode along the road it names. The note is kept
+   * whatever the outcome, so what the pass ran is readable next to what it
+   * concluded.
    *
    * A pass that answers some points and not others is refused: a sheet half
    * settled would silently drop what it skipped.
@@ -1569,9 +1573,16 @@ export class Store {
       );
     }
     const byId = new Map(report.sheet.map((point) => [point.id, point]));
-    // A decision the pass does not recommend is a decision nobody can take for
-    // the developer, and go-as-recommended would have nothing to apply: the
-    // whole difference with a verification is that a road is named.
+    const quote = (entries: ReadonlyArray<{ pointId: string }>): string =>
+      entries.map((entry) => `"${byId.get(entry.pointId)?.text ?? entry.pointId}"`).join("; ");
+    // Each of the two outcomes a person is for costs one field, and the two
+    // refusals below are the whole of the cut. A decision the pass does not
+    // recommend is a decision nobody can take for the developer, and
+    // go-as-recommended would have nothing to apply. An observation that names
+    // no place to open is not an observation: a pass that cannot say what to
+    // open did not run out of access, it ran out of opinion, and an opinion is
+    // a decision. Without this second price, every point a pass would rather
+    // not judge lands on the developer for free, which is what was measured.
     const unadvised = input.points.filter(
       (entry) => entry.outcome === "decision" && (entry.recommendation ?? "").trim() === "",
     );
@@ -1579,9 +1590,32 @@ export class Store {
       throw new SquadError(
         "decision_without_a_road",
         400,
-        `an arbitration has to name the road you recommend: ${unadvised
-          .map((entry) => `"${byId.get(entry.pointId)?.text ?? entry.pointId}"`)
-          .join("; ")}`,
+        `an arbitration has to name the road you recommend: ${quote(unadvised)}`,
+      );
+    }
+    const placeless = input.points.filter(
+      (entry) => entry.outcome === "observation" && (entry.lookAt ?? "").trim() === "",
+    );
+    if (placeless.length > 0) {
+      throw new SquadError(
+        "observation_without_a_place",
+        400,
+        `an observation has to name what to open and what to look for; if you have a road instead, it is a decision: ${quote(placeless)}`,
+      );
+    }
+    // And neither field is carried by an outcome that does not own it. A road
+    // named beside a place is a recommended answer about a screen nobody
+    // opened, which is exactly what squad refuses to pre-tick in the interface.
+    const overspoken = input.points.filter(
+      (entry) =>
+        (entry.outcome !== "decision" && (entry.recommendation ?? "").trim() !== "") ||
+        (entry.outcome !== "observation" && (entry.lookAt ?? "").trim() !== ""),
+    );
+    if (overspoken.length > 0) {
+      throw new SquadError(
+        "settlement_beside_its_outcome",
+        400,
+        `a road belongs to a decision and a place to an observation, and neither travels with another outcome: ${quote(overspoken)}`,
       );
     }
 
@@ -1590,7 +1624,7 @@ export class Store {
     const verdicts: Record<SettlementOutcome, SheetVerdict> = {
       holds: "passed",
       broken: "failed",
-      human: "pending",
+      observation: "pending",
       decision: "pending",
     };
     // The sheet as this pass leaves it, so the question "does anything still
@@ -1613,6 +1647,7 @@ export class Store {
             settlementNote: entry.note,
             settlementRecommendation: entry.recommendation?.trim() || null,
             settlementScopeChanging: entry.outcome === "decision" ? entry.scopeChanging === true : null,
+            settlementLookAt: entry.lookAt?.trim() || null,
           })
           .where(eq(testSheetPoints.id, entry.pointId))
           .run();
@@ -2139,6 +2174,7 @@ export class Store {
                 note: row.settlementNote,
                 recommendation: row.settlementRecommendation,
                 scopeChanging: row.settlementScopeChanging === true,
+                lookAt: row.settlementLookAt,
               },
       });
       sheets.set(row.reportId, list);

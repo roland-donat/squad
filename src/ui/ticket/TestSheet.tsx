@@ -127,7 +127,7 @@ function Note({ entry }: { entry: CriterionCoverage | TestSheetPoint }) {
 const settlementLabels: Record<SettlementOutcome, string> = {
   holds: "tient",
   broken: "ne tient pas",
-  human: "à voir",
+  observation: "à ouvrir",
   decision: "à trancher",
 };
 
@@ -570,16 +570,16 @@ function Verification({
         )}
       </label>
       <Measured note={point.settlement?.note ?? note ?? null} />
-      {/* Shown whatever the outcome. `recommendation` is optional on every
-          settlement, not only on a decision, so a pass that hands a point over
-          as `human` may still name the road it would take. Read here rather
-          than offered as a choice: the point is a verification, and what it
-          asks is still to have looked. */}
-      {point.settlement?.recommendation != null && (
+      {/* What the pass could not open, and what to look for once it is open.
+          The only thing an observation is owed and the only thing it carries:
+          a road is refused here, because a recommended answer about a screen
+          nobody opened is the one default squad will not fill in. Absent on a
+          point no pass ever reached, which lands in this same form. */}
+      {point.settlement?.lookAt != null && (
         <p className="sheet__verdict">
-          <span className="chip">recommandé</span>
+          <span className="chip">à ouvrir</span>
           <span className="sheet__text">
-            <MarkdownText text={point.settlement.recommendation} />
+            <MarkdownText text={point.settlement.lookAt} />
           </span>
         </p>
       )}

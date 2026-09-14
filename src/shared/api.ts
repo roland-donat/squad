@@ -37,6 +37,8 @@ export const errorCodes = [
   "sheet_not_settleable",
   "settlement_mismatch",
   "decision_without_a_road",
+  "observation_without_a_place",
+  "settlement_beside_its_outcome",
   "test_sheet_not_found",
   "test_sheet_already_reviewed",
   "ticket_not_mergeable",
@@ -342,16 +344,28 @@ export interface TestSheetPoint {
  * into the developer's own vocabulary: a point that holds is checked, a point
  * that is broken goes back to the sub-session with the evidence.
  *
- * The last two are what a person is for, and they are not the same thing.
- * `human` is a **verification** nobody but a person can make: what a screen
- * looks like, whether a wording reads well. `decision` is an **arbitration**:
- * nothing is wrong, two roads are open and one has to be chosen. Told apart
- * because they are not owed the same thing: a verification waits for the
- * developer however long it takes, while an arbitration that does not change
- * what is built is taken by squad under go-as-recommended, exactly as it
- * answers a question an agent asks.
+ * The last two are what a person is for, and the line between them is not
+ * whether the pass has an opinion but whether it had **access**. `decision` is
+ * a road that has to be chosen and that the pass can name: nothing is wrong,
+ * two ways are open, and it says which one it would take. `observation` is the
+ * one thing it could not reach at all, because seeing it means opening
+ * something the pass has no way to open: a screen, a deployed instance, a
+ * rendered artefact. It names that place, and it names nothing else.
+ *
+ * Told apart because they are not owed the same thing, and because what each
+ * costs decides what squad is handed. A decision must name a road, which makes
+ * it answerable by the machine: go-as-recommended takes it exactly as it
+ * answers a question an agent asks. An observation must name a place to open,
+ * which is the one thing a pass that had no access can still say, and the only
+ * outcome that still wakes the developer.
+ *
+ * Measured on the live instance before the cut, when the two were one outcome
+ * named `human` that required neither: of 31 points handed to the developer,
+ * five needed eyes on something squad could not open. The other twenty-six were
+ * wordings, namings and orderings the pass had already reasoned about and had
+ * no field to say it in, so they reached a person as chores.
  */
-export const settlementOutcomes = ["holds", "broken", "human", "decision"] as const;
+export const settlementOutcomes = ["holds", "broken", "observation", "decision"] as const;
 export type SettlementOutcome = (typeof settlementOutcomes)[number];
 
 export interface PointSettlement {
@@ -364,11 +378,24 @@ export interface PointSettlement {
    */
   note: string;
   /**
-   * On a `decision`, the road the pass recommends, in its own words. It is what
-   * squad takes under go-as-recommended, and what the developer reads first
-   * otherwise. Null on every other outcome.
+   * On a `decision`, and there only, the road the pass recommends, in its own
+   * words. It is what squad takes under go-as-recommended, and what the
+   * developer reads first otherwise. Null on every other outcome, and refused
+   * there: a road named on a point nobody could look at is a default answer
+   * about a screen nobody opened.
    */
   recommendation: string | null;
+  /**
+   * On an `observation`, and there only, what to open and what to look for once
+   * it is open. Null on every other outcome.
+   *
+   * Required there for the same reason a decision is required to name a road:
+   * it is what the outcome costs, and it is what tells an observation from a
+   * judgement the pass simply did not want to make. A pass that cannot name a
+   * place to open did not run out of access, it ran out of opinion, and an
+   * opinion is a `decision`.
+   */
+  lookAt: string | null;
   /**
    * On a `decision`, whether choosing changes what is built rather than how.
    * Under go-as-recommended squad takes either one with the road the agent

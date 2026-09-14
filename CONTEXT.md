@@ -193,14 +193,17 @@ fait plutôt que par le geste de la faire, parce que le mot apparaît à l'écra
 propriétaire du domaine a demandé ce que « dépouiller » voulait dire, et un terme qu'il
 faut définir a manqué son office. Elle ne modifie rien, ne
 commite pas et ne fusionne pas ; ce qu'elle trouve cassé repart à la sous-session qui l'a
-construit. Quatre issues par point : `holds`, le point tient, `broken`, il ne tient pas, `human`,
-seul un humain peut l'**observer**, et `decision`, rien n'est cassé mais une voie est à
-**choisir**. Les deux dernières ne sont pas dues la même chose, et c'est tout l'enjeu de
-les distinguer : une vérification attend le développeur le temps qu'il faudra, un
-arbitrage qui ne change pas ce qui est construit est pris par squad sous
-go-as-recommandé, exactement comme il répond à une question. Un arbitrage nomme
-obligatoirement la voie recommandée, sans quoi personne ne peut le prendre à la place du
-développeur. Le ticket le dit dans son état : il **attend une décision** quand il ne
+construit. Quatre issues par point : `holds`, le point tient, `broken`, il ne tient pas, `decision`,
+rien n'est cassé mais une voie est à **choisir**, et `observation`, le voir demande
+d'**ouvrir** quelque chose que la passe n'a aucun moyen d'ouvrir. Les deux dernières sont
+ce à quoi une personne sert, et **chacune coûte un champ obligatoire** : un arbitrage nomme
+la voie recommandée, une observation nomme quoi ouvrir et quoi y regarder. Ni l'un ni
+l'autre ne voyage avec une autre issue. La ligne entre elles n'est pas « la passe a-t-elle
+un avis » mais « la passe avait-elle **accès** » : une formulation, un nommage, un ordre
+sont un arbitrage, puisqu'elle a lu le code ; un écran, une instance déployée, un artefact
+rendu sont une observation. C'est ce qui décide de ce que le développeur reçoit : un
+arbitrage est pris par squad sous go-as-recommandé, exactement comme il répond à une
+question, et seule une observation le réveille encore. Voir l'ADR 0013. Le ticket le dit dans son état : il **attend une décision** quand il ne
 reste que des arbitrages, il **attend une validation** dès qu'il reste une observation.
 Squad tranche **avant** de publier le graphe, faute de quoi le mode s'arrêterait sur
 l'arbitrage même qu'il allait prendre. Et **squad relâche la session dès qu'elle a

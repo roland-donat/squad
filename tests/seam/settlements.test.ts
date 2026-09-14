@@ -307,11 +307,12 @@ describe("the settling pass, between a test sheet and the developer", () => {
           ticketId: agent.request.ticketId,
           points: points.map((pointId, index) => ({
             pointId,
-            outcome: index === 0 ? "broken" : "human",
+            outcome: index === 0 ? "broken" : "observation",
             note:
               index === 0
                 ? "Lancé : la migration 0004 échoue sur une colonne absente."
                 : "Aucune commande ne dit si un libellé se lit bien.",
+            ...(index === 0 ? {} : { lookAt: "L'écran de réglages, le libellé du bouton d'enregistrement." }),
           })),
         });
       },
@@ -344,11 +345,12 @@ describe("the settling pass, between a test sheet and the developer", () => {
           ticketId: agent.request.ticketId,
           points: points.map((pointId, index) => ({
             pointId,
-            outcome: index === 1 ? "human" : "holds",
+            outcome: index === 1 ? "observation" : "holds",
             note:
               index === 1
                 ? "Aucune commande ne dit si un libellé se lit bien : c'est un jugement."
                 : "Lancé : les onze migrations passent sur une base de la version précédente.",
+            ...(index === 1 ? { lookAt: "L'écran de réglages, le libellé du bouton d'enregistrement." } : {}),
           })),
         });
       },
@@ -373,6 +375,88 @@ describe("the settling pass, between a test sheet and the developer", () => {
     });
     expect(answered.status).toBe(200);
     await waitForState(stream, featureId, ticket.id, "merged");
+  });
+
+  /**
+   * Les deux issues qu'une personne reçoit coûtent chacune un champ, et c'est
+   * toute la coupure : un arbitrage doit nommer la route, une observation doit
+   * nommer ce qu'il y a à ouvrir. Sans ce second prix, l'issue qui réveille le
+   * développeur est la seule qui ne demande rien, donc celle où atterrit tout
+   * ce qu'une passe préfère ne pas juger. Mesuré sur l'instance avant la
+   * coupure : sur 31 points remontés, cinq demandaient d'ouvrir quelque chose.
+   *
+   * Et aucun des deux champs ne voyage avec l'autre issue. Une route posée sur
+   * une observation serait une réponse recommandée à propos d'un écran que
+   * personne n'a ouvert, ce que l'interface refuse déjà de pré-cocher.
+   */
+  it("fait payer un champ à chacune des deux issues qui atteignent une personne", async () => {
+    const refusals: string[] = [];
+    const { featureId, stream, ticket, settled } = await start({
+      coverage: [{ verdict: "automated" }, { verdict: "automated" }],
+      suggestions: ["Relire le libellé du bouton", "Regarder le rendu dans un navigateur"],
+      settle: async (points, agent) => {
+        const [judgement = "", observation = ""] = points;
+        const attempt = async (
+          first: Record<string, unknown>,
+          second: Record<string, unknown>,
+        ): Promise<void> => {
+          const outcome = await agent.attempt("settle_sheet", {
+            featureId: agent.request.featureId,
+            ticketId: agent.request.ticketId,
+            points: [
+              { pointId: judgement, ...first },
+              { pointId: observation, ...second },
+            ],
+          });
+          expect(outcome.refused).toBe(true);
+          refusals.push(outcome.text);
+        };
+
+        const road = {
+          outcome: "decision",
+          note: "Les deux formulations tiennent, j'ai lu le code.",
+          recommendation: "Garder le libellé court.",
+          scopeChanging: false,
+        };
+        const place = {
+          outcome: "observation",
+          note: "Aucune commande ne rend cet écran : rien ne peut l'ouvrir ici.",
+          lookAt: "L'écran de réglages dans un navigateur, la colonne de droite.",
+        };
+
+        // Un arbitrage sans route ne se prend à la place de personne.
+        await attempt({ ...road, recommendation: undefined }, place);
+        // Une observation sans lieu n'est pas une observation : c'est un
+        // jugement que la passe préfère ne pas rendre.
+        await attempt(road, { ...place, lookAt: undefined });
+        // Et la route ne voyage pas jusqu'à l'observation.
+        await attempt(road, { ...place, recommendation: "Ça se lit bien." });
+
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: [
+            { pointId: judgement, ...road },
+            { pointId: observation, ...place },
+          ],
+        });
+      },
+    });
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    await settled;
+    expect(refusals[0]).toContain("name the road");
+    expect(refusals[1]).toContain("what to open");
+    expect(refusals[2]).toContain("neither travels");
+
+    // Ce que la passe a fini par rendre : la fiche porte les deux, et chacune
+    // ne porte que le champ de son issue.
+    const waiting = await waitForState(stream, featureId, ticket.id, "awaiting-validation");
+    const sheet = reportOf(waiting).sheet;
+    expect(sheet[0]?.settlement?.recommendation).toBe("Garder le libellé court.");
+    expect(sheet[0]?.settlement?.lookAt).toBeNull();
+    expect(sheet[1]?.settlement?.lookAt).toContain("navigateur");
+    expect(sheet[1]?.settlement?.recommendation).toBeNull();
   });
 
   it("prend l'arbitrage recommandé sous go-as-recommandé, et ne réveille personne", async () => {
@@ -561,8 +645,9 @@ describe("the settling pass, between a test sheet and the developer", () => {
                 }
               : {
                   pointId,
-                  outcome: "human",
-                  note: "Rien ne juge une formulation : à lire.",
+                  outcome: "observation",
+                  note: "Rien ne juge un rendu : à ouvrir.",
+                  lookAt: "L'écran de réglages dans un navigateur, la colonne de droite.",
                 },
           ),
         });
@@ -576,7 +661,9 @@ describe("the settling pass, between a test sheet and the developer", () => {
     const waiting = await waitForState(stream, featureId, ticket.id, "awaiting-validation");
     const sheet = reportOf(waiting).sheet;
     const arbitrage = sheet.find((point) => point.settlement?.outcome === "decision") as TestSheetPoint;
-    const verification = sheet.find((point) => point.settlement?.outcome === "human") as TestSheetPoint;
+    const verification = sheet.find(
+      (point) => point.settlement?.outcome === "observation",
+    ) as TestSheetPoint;
 
     // Une vérification ne se prend pas seule : elle se répond avec la fiche.
     const seule = await squad.request("POST", ticketTestSheetRoute(ticket.id), {

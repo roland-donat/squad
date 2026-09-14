@@ -96,14 +96,23 @@ export function TicketModal({
   onClose: () => void;
   onOpenMainSession: () => void;
 }) {
-  // Not in the address, deliberately: everything that is answered lives on the
-  // summary tab, so no alert would have a reason to point at the other one, and
-  // a query parameter nobody writes is a parameter nobody needs (ADR 0010).
-  // A ticket with no summary opens on the detail, since there is nothing else.
-  const [tab, setTab] = useState<Tab>(ticket.summary === null ? "detail" : "summary");
+  // Not in the address, deliberately: nothing that is answered lives on a tab
+  // at all any more, so no alert would have a reason to point at either, and a
+  // query parameter nobody writes is a parameter nobody needs (ADR 0010).
+  //
+  // **Always the summary, a ticket without one included.** That exception was
+  // written when the summary tab of such a ticket was very nearly empty; since
+  // the action left the tabs it carries the state, the feature's decor, the
+  // conclusion and the evidence of a reported step, and the absence of a
+  // summary says so and says how to get one. Opening on the detail instead
+  // dropped the reader into the description, which is written for the session
+  // that builds the ticket and runs to ten thousand characters. Measured on the
+  // instance: 26 of its 49 tickets were written before summaries existed, so
+  // the exception was the rule.
+  const [tab, setTab] = useState<Tab>("summary");
   useEffect(() => {
-    setTab(ticket.summary === null ? "detail" : "summary");
-  }, [ticket.id, ticket.summary === null]);
+    setTab("summary");
+  }, [ticket.id]);
   // Whether the action column has anything to hold. Open on nothing, it would
   // take a third of the modal to say there is nothing to do.
   const waiting =

@@ -49,6 +49,15 @@ ce qu'il y a, et la hauteur est ce dont la fiche manque.
 qui se répond ne vit plus dans un onglet du tout. Une alerte qui pointe un ticket atterrit
 sur ce qu'elle rapporte quel que soit l'onglet ouvert.
 
+**La modale s'ouvre toujours sur le Résumé, y compris sans résumé**, ce qui lève
+l'exception de l'ADR 0010. Elle avait sa raison : l'onglet d'un ticket sans résumé était
+alors quasiment vide. Il ne l'est plus, puisqu'il porte l'état, le décor de la feature, la
+conclusion et la preuve d'une étape rapportée, et que l'absence de résumé s'y dit avec le
+moyen d'en obtenir un. Ouvrir sur le Détail à la place laissait tomber le lecteur dans la
+description, qui est écrite pour la session qui construit le ticket et dépasse couramment
+dix mille caractères. Relevé sur l'instance : 26 tickets sur 49 ayant été écrits avant que
+les résumés existent, l'exception était la règle.
+
 **L'action reste en vue pendant qu'on consulte le Détail.** C'était le mouvement que
 l'ancienne disposition interdisait : aller lire la description faisait disparaître la fiche.
 

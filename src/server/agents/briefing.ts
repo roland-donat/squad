@@ -1,4 +1,4 @@
-import type { Feature, LaunchAngle, Project, StepReport, Ticket } from "../../shared/api";
+import type { Feature, LaunchAngle, Project, StepReport, TestSheetPoint, Ticket } from "../../shared/api";
 import { failedPoints } from "../../shared/validation";
 import { squadToolName, squadTools } from "../mcp";
 
@@ -179,14 +179,17 @@ export function resumeInstruction(angle: LaunchAngle, why: string): string {
  * squad settled by running something is a reading of a state this very
  * correction is about to change, so putting it back on the next sheet is right
  * and telling the session not to would be telling it to stop checking. A
- * judgement is the opposite: the code moves, the answer stands. The outcome is
- * what tells the two apart, `holds` and `broken` being squad's own and the
- * other two a person's, so nothing here has to guess.
+ * judgement is the opposite: the code moves, the answer stands. The outcome
+ * tells the two apart, `holds` and `broken` being squad's own, but only on a
+ * point nobody wrote on: a comment outranks it, the last round being where a
+ * developer may overturn a verdict squad reached by running something.
  *
- * **Suggestions only, not criteria.** The sub-session owes one coverage entry
- * per acceptance criterion at every report, so a criterion put back on the
- * sheet is squad's own doing and not a question asked twice. Telling a session
- * to stop raising one would be telling it to under-declare its coverage.
+ * **What is asked differs on a criterion, what is carried does not.** The
+ * sub-session owes one coverage entry per acceptance criterion at every
+ * report, so a criterion back on the sheet is squad's own doing and not a
+ * question asked twice: nothing is asked of the session about those. What the
+ * developer said about one still comes back, under its own heading, and that is
+ * the case where the question returns by mechanism rather than by choice.
  *
  * It reaches one hop, which is where the loss was. Further back is the
  * session's own memory, which squad neither manages nor promises: a correction
@@ -204,41 +207,73 @@ export function correctionInstruction(ticket: Ticket, report: StepReport): strin
   // to reproduce. Both are said when both exist.
   //
   // **Each line claims only what a field actually says.** `broken` is the one
-  // outcome that means squad ran something and it came out false; a point that
-  // carries any other settlement carries a measurement, which is evidence and
-  // not a refusal. Announcing every settlement as a failed run had squad say it
-  // had run something under a note reading "no command settles a reading".
+  // outcome that means squad ran something and it came out false; any other
+  // settlement carries evidence rather than a refusal. And what it carries is
+  // not always a measurement: a note is declared as what was run and what it
+  // answered **or why nothing can answer**, which on an observation is always
+  // the second. Announcing every settlement as a failed run had squad say it
+  // had run something under a note reading "no command settles a reading", and
+  // calling it a measurement kept half of that.
   const rejected = failedPoints(report).map((point) => {
     const lines = [`- ${point.text}`];
     if (point.settlement !== null) {
       lines.push(
         point.settlement.outcome === "broken"
           ? `  Squad ran it and it did not hold: ${point.settlement.note}`
-          : `  What squad measured on it: ${point.settlement.note}`,
+          : `  What squad found on it: ${point.settlement.note}`,
       );
     }
     if (point.comment !== null) lines.push(`  The developer said: ${point.comment}`);
     return lines.join("\n");
   });
+  // What a point still carries once it is settled, or null when it carries
+  // nothing. A comment comes first and beats the outcome, because a comment is
+  // the trace of a person and the outcome only says who **could** settle the
+  // point. On the last round squad may no longer correct, a broken point is
+  // handed to the developer too, and that is the one place where they may
+  // overturn a verdict squad reached by running something: reading the outcome
+  // first dropped exactly that, and left the session with squad's refusal and
+  // no word of the measurement a person made against it.
+  //
+  // Past a comment, what is carried is what was decided and never what was
+  // measured. A `holds` reads a state this very correction is about to change,
+  // so putting it back on the next sheet is right and telling the session
+  // otherwise would be telling it to stop checking.
+  //
   // Nothing here says who settled an arbitration, and that is deliberate rather
-  // than missing. A road is taken by the mode or ticked by the developer, both
-  // leave the same row, and the session has nothing to do with the difference:
-  // what it needs is that the question is closed and which way. Claiming the
-  // mode took one the developer had taken themselves was squad reading an
-  // author into a field that holds a road.
-  const answered = report.sheet.flatMap((point) => {
-    if (point.verdict !== "passed" || point.criterionId !== null) return [];
+  // than missing. The session has nothing to do with the difference: what it
+  // needs is that the question is closed and which way. Claiming the mode had
+  // taken one the developer ticked themselves was squad reading an author into
+  // a field that holds a road, and the field holds the road the pass
+  // recommended, which is why the line says the road and not who took it.
+  const settledSay = (point: TestSheetPoint, carryMute: boolean): string | null => {
+    if (point.verdict !== "passed") return null;
+    if (point.comment !== null) return `  The developer answered: ${point.comment}`;
     const settlement = point.settlement;
     if (settlement !== null && (settlement.outcome === "holds" || settlement.outcome === "broken")) {
-      return [];
-    }
-    if (point.comment !== null) {
-      return [`- ${point.text}\n  The developer answered: ${point.comment}`];
+      return null;
     }
     if (settlement !== null && settlement.recommendation !== null) {
-      return [`- ${point.text}\n  Settled, and the road taken was: ${settlement.recommendation}`];
+      return `  Settled, along this road: ${settlement.recommendation}`;
     }
-    return [`- ${point.text}\n  Checked off, with nothing else said.`];
+    return carryMute ? "  Checked off, with nothing else said." : null;
+  };
+  // Suggestions and criteria are told apart on what may be **asked** of the
+  // session, not on what it is owed. It owes one coverage entry per criterion
+  // at every report, so a criterion back on the sheet is squad's own doing and
+  // telling the session to stop raising it would be telling it to under-declare
+  // its coverage. What the developer said about one is theirs all the same, and
+  // dropping it lost the answer on the one case where the question comes back
+  // by mechanism rather than by choice.
+  const answered = report.sheet.flatMap((point) => {
+    if (point.criterionId !== null) return [];
+    const said = settledSay(point, true);
+    return said === null ? [] : [`- ${point.text}\n${said}`];
+  });
+  const onCriteria = report.sheet.flatMap((point) => {
+    if (point.criterionId === null) return [];
+    const said = settledSay(point, false);
+    return said === null ? [] : [`- ${point.text}\n${said}`];
   });
   return [
     // Said once and per point rather than once for the whole message. Who sends
@@ -258,6 +293,13 @@ export function correctionInstruction(ticket: Ticket, report: StepReport): strin
           "",
           "Already answered, and not work to redo. These are points you suggested that have been settled, with what was said. Do not suggest them again in your next report: raising one of these is asking the same question twice.",
           ...answered,
+        ]),
+    ...(onCriteria.length === 0
+      ? []
+      : [
+          "",
+          "What was already said on this ticket's own criteria. You still owe one coverage entry for each of them, so this asks nothing of you: it is here so that what was answered is not answered twice.",
+          ...onCriteria,
         ]),
     "",
     `When it is corrected and committed, call \`${squadToolName(squadTools.reportStep)}\` again, with \`featureId: "${ticket.featureId}"\` and \`ticketId: "${ticket.id}"\`: a fresh \`work\`, one coverage entry per acceptance criterion, the points you suggest looking at, and what you recommend doing next. Nothing merges until a sheet comes back with everything checked.`,

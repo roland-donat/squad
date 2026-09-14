@@ -175,15 +175,23 @@ export function resumeInstruction(angle: LaunchAngle, why: string): string {
  * naming of one declaration key: raised, confirmed, raised again identically,
  * confirmed again.
  *
- * What is carried is what a person decided, not everything that held. A point
- * squad settled by running something is not a question anyone answered, and its
- * note runs to thousands of characters: putting those back would bury the
- * handful of lines this message exists for.
+ * **What is carried is what was decided, never what was measured.** A point
+ * squad settled by running something is a reading of a state this very
+ * correction is about to change, so putting it back on the next sheet is right
+ * and telling the session not to would be telling it to stop checking. A
+ * judgement is the opposite: the code moves, the answer stands. The outcome is
+ * what tells the two apart, `holds` and `broken` being squad's own and the
+ * other two a person's, so nothing here has to guess.
+ *
+ * **Suggestions only, not criteria.** The sub-session owes one coverage entry
+ * per acceptance criterion at every report, so a criterion put back on the
+ * sheet is squad's own doing and not a question asked twice. Telling a session
+ * to stop raising one would be telling it to under-declare its coverage.
  *
  * It reaches one hop, which is where the loss was. Further back is the
- * session's own memory: a correction resumes the session that built the step,
- * so what it was told last round is still in front of it. Only a ticket whose
- * session is gone starts blind, and that one reads the ticket again anyway.
+ * session's own memory, which squad neither manages nor promises: a correction
+ * resumes the session that built the step, and what it was told last round is
+ * in front of it unless claude-code has compacted since.
  *
  * The points are named by their wording rather than by their id: this reaches a
  * session that has the ticket in its head, and an id would send it looking the
@@ -193,54 +201,62 @@ export function correctionInstruction(ticket: Ticket, report: StepReport): strin
   // Who says a point failed decides how it reads: the developer left a comment,
   // squad's settling pass left what it ran and what that answered. Naming the
   // author matters, since one is an opinion to honour and the other a command
-  // to reproduce.
+  // to reproduce. Both are said when both exist.
   //
-  // **Both are said when both exist, and that is the correction of a guard that
-  // read the wrong thing.** It keyed on the point carrying a settlement, so a
-  // point the developer refused in their own words came back as "squad ran it"
-  // with squad's note and without theirs. Since a settling pass types every
-  // point of every sheet it goes through, that was not an edge: it was every
-  // refusal the developer wrote on a sheet a pass had been through.
+  // **Each line claims only what a field actually says.** `broken` is the one
+  // outcome that means squad ran something and it came out false; a point that
+  // carries any other settlement carries a measurement, which is evidence and
+  // not a refusal. Announcing every settlement as a failed run had squad say it
+  // had run something under a note reading "no command settles a reading".
   const rejected = failedPoints(report).map((point) => {
     const lines = [`- ${point.text}`];
     if (point.settlement !== null) {
-      lines.push(`  Squad ran it and it did not hold: ${point.settlement.note}`);
+      lines.push(
+        point.settlement.outcome === "broken"
+          ? `  Squad ran it and it did not hold: ${point.settlement.note}`
+          : `  What squad measured on it: ${point.settlement.note}`,
+      );
     }
     if (point.comment !== null) lines.push(`  The developer said: ${point.comment}`);
     return lines.join("\n");
   });
-  // The same rule of authorship on the other side: the developer wrote a
-  // comment, or squad took an arbitration in their absence along the road the
-  // pass recommended. A road is read from the settlement rather than from the
-  // note it was appended to, the note being prose and the road a field.
+  // Nothing here says who settled an arbitration, and that is deliberate rather
+  // than missing. A road is taken by the mode or ticked by the developer, both
+  // leave the same row, and the session has nothing to do with the difference:
+  // what it needs is that the question is closed and which way. Claiming the
+  // mode took one the developer had taken themselves was squad reading an
+  // author into a field that holds a road.
   const answered = report.sheet.flatMap((point) => {
-    if (point.verdict !== "passed") return [];
-    if (point.comment !== null) return [`- ${point.text}\n  The developer answered: ${point.comment}`];
-    if (point.settlement?.outcome === "decision" && point.settlement.recommendation !== null) {
-      return [
-        `- ${point.text}\n  Squad took this one under go-as-recommended: ${point.settlement.recommendation}`,
-      ];
+    if (point.verdict !== "passed" || point.criterionId !== null) return [];
+    const settlement = point.settlement;
+    if (settlement !== null && (settlement.outcome === "holds" || settlement.outcome === "broken")) {
+      return [];
     }
-    return [];
+    if (point.comment !== null) {
+      return [`- ${point.text}\n  The developer answered: ${point.comment}`];
+    }
+    if (settlement !== null && settlement.recommendation !== null) {
+      return [`- ${point.text}\n  Settled, and the road taken was: ${settlement.recommendation}`];
+    }
+    return [`- ${point.text}\n  Checked off, with nothing else said.`];
   });
-  // Who is sending this back, asked of the one fact that says so: a sheet is
-  // dated when it has been gone through, and squad sends a correction before
-  // that date on what a command disproved. Asked of the settlements before,
-  // which stopped being the same question once the pass typed every point.
-  const beforeAnyoneWasWoken = report.reviewedAt === null;
   return [
-    beforeAnyoneWasWoken
-      ? "Squad went through the test sheet of this step before waking anyone, and points did not hold. Correct them here, on this branch, in this worktree."
-      : "The developer went through the test sheet of this step and left points unchecked. Correct them here, on this branch, in this worktree.",
+    // Said once and per point rather than once for the whole message. Who sends
+    // a step back is known at the call site and nowhere in the data: squad
+    // deduced it first from the settlements, then from the sheet's date, and
+    // both were wrong on a chain squad walks every day, a pass that breaks one
+    // point while the mode takes the last arbitration dating the sheet nobody
+    // read. The lines above carry the author where it is actually known.
+    "This step came back with points that did not pass. Correct them here, on this branch, in this worktree.",
     "",
     rejected.length === 0 ? "No point was named." : "What did not pass:",
     ...rejected,
-    ...(report.feedback === null ? [] : ["", `Their general return: ${report.feedback}`]),
+    ...(report.feedback === null ? [] : ["", `The developer's general return: ${report.feedback}`]),
     ...(answered.length === 0
       ? []
       : [
           "",
-          "Already answered, and not work to redo. These are the points you raised that were settled, with what was said. Do not raise them again in your next report: suggesting one of these is asking the same question twice.",
+          "Already answered, and not work to redo. These are points you suggested that have been settled, with what was said. Do not suggest them again in your next report: raising one of these is asking the same question twice.",
           ...answered,
         ]),
     "",

@@ -518,6 +518,7 @@ describe("the settling pass, between a test sheet and the developer", () => {
     // Et les deux ne se lisent pas pareil : ce qui est tranché n'est pas dans
     // la liste de ce qui est à corriger, sans quoi la sous-session referait un
     // travail que personne ne lui demande.
+    expect(correction).toContain("Already answered");
     const refused = correction.slice(0, correction.indexOf("Already answered"));
     expect(refused).not.toContain("Le nom est confirmé");
     // Sur le point refusé, les deux voix sont là et sont nommées. La passe avait
@@ -525,8 +526,11 @@ describe("the settling pass, between a test sheet and the developer", () => {
     // c'est ce qui faisait rendre à la sous-session la note de squad à la place
     // des mots du développeur.
     expect(refused).toContain("The developer said: Trop long de deux mots.");
-    expect(refused).toContain("Aucune commande ne tranche une lecture.");
-    expect(correction.startsWith("The developer went through")).toBe(true);
+    // Et la note d'une observation est une mesure, pas un échec de commande :
+    // dire « squad l'a lancé et ça n'a pas tenu » sous une note qui dit
+    // qu'aucune commande ne tranche était une phrase fausse de squad.
+    expect(refused).toContain("What squad measured on it: Aucune commande ne tranche une lecture.");
+    expect(refused).not.toContain("Squad ran it and it did not hold");
   });
 
   it("prend l'arbitrage recommandé sous go-as-recommandé, et ne réveille personne", async () => {
@@ -558,6 +562,59 @@ describe("the settling pass, between a test sheet and the developer", () => {
     expect(reportOf(merged).sheet[0]?.settlement?.outcome).toBe("decision");
     expect(reportOf(merged).sheet[0]?.settlement?.note).toContain("go-as-recommandé");
     expect(receiver.received()).toEqual([]);
+  });
+
+  /**
+   * La correction que squad envoie seul, sans que personne n'ait rien regardé.
+   * Elle porte la route prise sur l'arbitrage, et elle ne dit ni qui l'a prise
+   * ni que le développeur serait passé : sur cette chaîne-là, une passe qui
+   * casse un point pendant que le mode prend le dernier arbitrage date la fiche
+   * que personne n'a lue, et squad l'annonçait comme relue.
+   */
+  it("porte la route prise sans prétendre savoir qui l'a prise", async () => {
+    const { ticket, settled } = await start({
+      driven: true,
+      coverage: [{ verdict: "automated" }, { verdict: "automated" }],
+      suggestions: [
+        "L'orthographe de la clé exposée, `kind` ou `type`",
+        "La migration sur une base de la version précédente",
+      ],
+      settle: async (points, agent) => {
+        const [arbitrage = "", casse = ""] = points;
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: [
+            {
+              pointId: arbitrage,
+              outcome: "decision",
+              note: "Rien n'est cassé : deux orthographes tiennent.",
+              recommendation: "Garder `kind`, aligné sur le reste du document.",
+              scopeChanging: false,
+            },
+            {
+              pointId: casse,
+              outcome: "broken",
+              note: "Lancé : la migration 0004 échoue sur une colonne absente.",
+            },
+          ],
+        });
+      },
+    });
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    await settled;
+    await until("the correction to reach the sub-session", async () => {
+      const thread = await readTicketThread(ticket.id);
+      return thread.some((entry) => entry.text.includes("Correct them here"));
+    });
+    const thread = await readTicketThread(ticket.id);
+    const correction = thread.find((entry) => entry.text.includes("Correct them here"))?.text ?? "";
+
+    expect(correction).toContain("Squad ran it and it did not hold: Lancé : la migration 0004");
+    expect(correction).toContain("Settled, and the road taken was: Garder `kind`");
+    // Personne n'a rien regardé, et le message ne le prétend pas.
+    expect(correction).not.toContain("The developer");
   });
 
   it("reprend les arbitrages restés ouverts quand le mode est relancé", async () => {

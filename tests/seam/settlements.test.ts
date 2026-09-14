@@ -463,6 +463,76 @@ describe("the settling pass, between a test sheet and the developer", () => {
     expect(sheet[1]?.settlement?.recommendation).toBeNull();
   });
 
+  /**
+   * Ce qui a été tranché redescend avec ce qui est refusé, et nommé pour ce
+   * qu'il est : la correction rapporte une étape neuve, dont la fiche est
+   * dérivée des suggestions que la sous-session réécrit. Une session qui n'a
+   * jamais entendu la réponse à ce qu'elle a soulevé le resoulève mot pour mot,
+   * et le développeur répond deux fois la même chose. Mesuré sur l'instance,
+   * sur le nommage d'une clé de déclaration.
+   */
+  it("redit à la sous-session ce que le développeur a déjà tranché", async () => {
+    const { featureId, stream, ticket, settled } = await start({
+      coverage: [{ verdict: "automated" }, { verdict: "automated" }],
+      suggestions: [
+        "Le nom de la clé ne se lit pas comme un jumeau de `fill_rate`",
+        "Le libellé du bouton d'enregistrement",
+      ],
+      settle: async (points, agent) => {
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: points.map((pointId) => ({
+            pointId,
+            outcome: "observation",
+            note: "Aucune commande ne tranche une lecture.",
+            lookAt: "L'écran de réglages dans un navigateur.",
+          })),
+        });
+      },
+    });
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    await settled;
+    const waiting = await waitForState(stream, featureId, ticket.id, "awaiting-validation");
+    const sheet = reportOf(waiting).sheet;
+
+    // Un point tranché, un point refusé : la fiche part entière, comme toujours.
+    const answered = await squad.request("POST", ticketTestSheetRoute(ticket.id), {
+      points: [
+        { id: sheet[0]?.id, passed: true, comment: "Le nom est confirmé, il ne change pas." },
+        { id: sheet[1]?.id, passed: false, comment: "Trop long de deux mots." },
+      ],
+      feedback: "",
+    });
+    expect(answered.status).toBe(200);
+
+    await until("the correction to reach the sub-session", async () => {
+      const thread = await readTicketThread(ticket.id);
+      return thread.some((entry) => entry.text.includes("Correct them here"));
+    });
+    const thread = await readTicketThread(ticket.id);
+    const correction = thread.find((entry) => entry.text.includes("Correct them here"))?.text ?? "";
+
+    expect(correction).toContain("Le nom est confirmé, il ne change pas.");
+    // Et les deux ne se lisent pas pareil : ce qui est tranché n'est pas dans
+    // la liste de ce qui est à corriger, sans quoi la sous-session referait un
+    // travail que personne ne lui demande.
+    expect(correction).toContain("Already answered");
+    const refused = correction.slice(0, correction.indexOf("Already answered"));
+    expect(refused).not.toContain("Le nom est confirmé");
+    // Sur le point refusé, les deux voix sont là et sont nommées. La passe avait
+    // typé ce point, comme elle type tous ceux d'une fiche qu'elle traverse :
+    // c'est ce qui faisait rendre à la sous-session la note de squad à la place
+    // des mots du développeur.
+    expect(refused).toContain("The developer said: Trop long de deux mots.");
+    // Et la note d'une observation est une mesure, pas un échec de commande :
+    // dire « squad l'a lancé et ça n'a pas tenu » sous une note qui dit
+    // qu'aucune commande ne tranche était une phrase fausse de squad.
+    expect(refused).toContain("What squad found on it: Aucune commande ne tranche une lecture.");
+    expect(refused).not.toContain("Squad ran it and it did not hold");
+  });
+
   it("prend l'arbitrage recommandé sous go-as-recommandé, et ne réveille personne", async () => {
     const { featureId, stream, ticket, settled } = await start({
       driven: true,
@@ -492,6 +562,62 @@ describe("the settling pass, between a test sheet and the developer", () => {
     expect(reportOf(merged).sheet[0]?.settlement?.outcome).toBe("decision");
     expect(reportOf(merged).sheet[0]?.settlement?.note).toContain("go-as-recommandé");
     expect(receiver.received()).toEqual([]);
+  });
+
+  /**
+   * La correction que squad envoie seul, sans que personne n'ait rien regardé.
+   * Elle porte la route prise sur l'arbitrage, et elle ne dit ni qui l'a prise
+   * ni que le développeur serait passé : sur cette chaîne-là, une passe qui
+   * casse un point pendant que le mode prend le dernier arbitrage date la fiche
+   * que personne n'a lue, et squad l'annonçait comme relue.
+   */
+  it("porte la route prise sans prétendre savoir qui l'a prise", async () => {
+    const { ticket, settled } = await start({
+      driven: true,
+      coverage: [{ verdict: "automated" }, { verdict: "automated" }],
+      suggestions: [
+        "L'orthographe de la clé exposée, `kind` ou `type`",
+        "La migration sur une base de la version précédente",
+      ],
+      settle: async (points, agent) => {
+        const [arbitrage = "", casse = ""] = points;
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: [
+            {
+              pointId: arbitrage,
+              outcome: "decision",
+              note: "Rien n'est cassé : deux orthographes tiennent.",
+              recommendation: "Garder `kind`, aligné sur le reste du document.",
+              scopeChanging: false,
+            },
+            {
+              pointId: casse,
+              outcome: "broken",
+              note: "Lancé : la migration 0004 échoue sur une colonne absente.",
+            },
+          ],
+        });
+      },
+    });
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    await settled;
+    await until("the correction to reach the sub-session", async () => {
+      const thread = await readTicketThread(ticket.id);
+      return thread.some((entry) => entry.text.includes("Correct them here"));
+    });
+    const thread = await readTicketThread(ticket.id);
+    const correction = thread.find((entry) => entry.text.includes("Correct them here"))?.text ?? "";
+
+    expect(correction).toContain("Squad ran it and it did not hold: Lancé : la migration 0004");
+    expect(correction).toContain("Settled, along this road: Garder `kind`");
+    // Personne n'a rien regardé, et le message ne le prétend pas : l'ouverture
+    // est épinglée sur ce qu'elle dit, pas seulement sur le mot qu'elle évite,
+    // l'autre phrase fausse qu'elle remplace ne portant pas ce mot.
+    expect(correction.startsWith("This step came back with points that did not pass")).toBe(true);
+    expect(correction).not.toContain("The developer");
   });
 
   it("reprend les arbitrages restés ouverts quand le mode est relancé", async () => {
@@ -915,6 +1041,85 @@ describe("the settling pass, between a test sheet and the developer", () => {
 
     // Et une fois répondu, plus rien ne l'attend.
     expect(pendingActions([await readGraph(featureId)], [])).toEqual([]);
+  });
+
+  /**
+   * Les deux cas que les bornes du bloc « déjà répondu » coupaient trop court.
+   *
+   * Au dernier tour, squad ne renvoie plus rien tout seul et rend au
+   * développeur jusqu'aux points qu'une commande a cassés : c'est le seul
+   * endroit où il peut renverser un verdict que squad a obtenu en lançant
+   * quelque chose, et lire l'issue avant le commentaire jetait exactement ce
+   * renversement. La sous-session repartait avec le refus de squad et pas un
+   * mot de la mesure qu'une personne avait faite contre.
+   *
+   * Et un critère d'acceptation revient sur la fiche suivante par mécanisme, la
+   * sous-session devant une entrée de couverture par critère à chaque rapport.
+   * Rien ne lui est donc demandé à leur sujet, mais ce que le développeur en a
+   * dit lui redescend : c'est le cas où la question se repose toute seule.
+   */
+  it("redescend un verdict qui renverse squad, et ce qui a été dit d'un critère", async () => {
+    const { featureId, ticket, passes } = await start({
+      coverage: [{ verdict: "judgement" }, { verdict: "automated" }],
+      suggestions: [
+        "La migration sur une base de la version précédente",
+        "Le libellé du bouton d'enregistrement",
+      ],
+      settle: async (points, agent) => {
+        await agent.call("settle_sheet", {
+          featureId: agent.request.featureId,
+          ticketId: agent.request.ticketId,
+          points: points.map((pointId) => ({
+            pointId,
+            outcome: "broken",
+            note: "Lancé : la migration 0004 échoue sur une colonne absente.",
+          })),
+        });
+      },
+    });
+
+    await squad.request("POST", ticketSessionRoute(ticket.id), {});
+    await until("la troisième passe", async () => passes() === 3);
+    const graph = await readGraph(featureId);
+    const report = reportOf(graph.tickets.find((each) => each.id === ticket.id) as Ticket);
+    expect(report.correctable).toBe(false);
+    const [critere, renverse, refuse] = report.sheet;
+    expect(critere?.criterionId).not.toBeNull();
+    expect(renverse?.criterionId).toBeNull();
+
+    // Les passes précédentes ont déjà renvoyé la leur : c'est celle que la
+    // revue du développeur déclenche qui est en cause ici, donc la suivante.
+    const corrections = async (): Promise<string[]> =>
+      (await readTicketThread(ticket.id))
+        .filter((entry) => entry.text.includes("Correct them here"))
+        .map((entry) => entry.text);
+    const avant = (await corrections()).length;
+
+    const answered = await squad.request("POST", ticketTestSheetRoute(ticket.id), {
+      points: [
+        { id: critere?.id, passed: true, comment: "Vu à l'écran, la base s'ouvre." },
+        { id: renverse?.id, passed: true, comment: "Vérifié à la main : la 0004 passe." },
+        { id: refuse?.id, passed: false, comment: "Toujours rouge chez moi." },
+      ],
+      feedback: "",
+    });
+    expect(answered.status).toBe(200);
+
+    await until(
+      "la correction que la revue déclenche",
+      async () => (await corrections()).length > avant,
+    );
+    const correction = (await corrections()).at(-1) ?? "";
+
+    // Le renversement redescend, alors que la passe avait cassé ce point.
+    expect(correction).toContain("The developer answered: Vérifié à la main : la 0004 passe.");
+    // Ce qui a été dit du critère aussi, sous un en-tête qui ne demande rien.
+    expect(correction).toContain("The developer answered: Vu à l'écran, la base s'ouvre.");
+    expect(correction).toContain("You still owe one coverage entry for each of them");
+    const surLesCriteres = correction.slice(
+      correction.indexOf("What was already said on this ticket's own criteria"),
+    );
+    expect(surLesCriteres).not.toContain("Do not suggest them again");
   });
 
   it("type encore l'arbitrage du dernier tour, et go-as-recommandé le prend", async () => {

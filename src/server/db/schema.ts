@@ -384,6 +384,8 @@ export const testSheetPoints = sqliteTable(
     /** On a `decision`, the road the pass recommends, and whether it changes scope. */
     settlementRecommendation: text("settlement_recommendation"),
     settlementScopeChanging: integer("settlement_scope_changing", { mode: "boolean" }),
+    /** On an `observation`, what to open and what to look for once it is open. */
+    settlementLookAt: text("settlement_look_at"),
   },
   (table) => [
     index("test_sheet_points_report_idx").on(table.reportId),

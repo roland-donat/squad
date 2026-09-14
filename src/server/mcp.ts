@@ -361,7 +361,7 @@ const settleSheetShape = {
         outcome: z
           .enum(settlementOutcomes)
           .describe(
-            "`holds` when you ran something and the point is true. `broken` when you ran something and it is false: the ticket goes back to the sub-session with what you found. `human` when only a person can **observe** it: what a screen looks like, whether a wording reads well. `decision` when nothing is wrong and a road has to be **chosen**: name the one you recommend, and say whether choosing changes what is built. Tell the last two apart, they are not owed the same thing: a verification waits for the developer, an arbitration is taken by squad under go-as-recommended. A point the sub-session called a matter of judgement is not out of your reach: if a command answers it, run it and say so.",
+            "`holds` when you ran something and the point is true. `broken` when you ran something and it is false: the ticket goes back to the sub-session with what you found. `decision` when nothing is wrong and a road has to be **chosen**: name the one you recommend, and say whether choosing changes what is built. `observation` when seeing it means **opening something you have no way to open**, a screen, a deployed instance, a rendered artefact: name what to open and what to look for. The line between the last two is not whether you have an opinion, it is whether you had access. A wording, a name, an ordering, a message a modeller will read: you have read the code, so you have an opinion, and an opinion is a `decision` with the road you would take, not an observation. An `observation` reaches the developer whatever the mode, so it costs a place to open; if you cannot name one, you are not out of access, you are out of opinion. A `decision` is taken by squad along the road you name when go-as-recommended is armed, and otherwise reaches them as a road already picked, one click to agree with. A point the sub-session called a matter of judgement is not out of your reach either: if a command answers it, run it and say so.",
           ),
         note: z
           .string()
@@ -382,7 +382,15 @@ const settleSheetShape = {
           .boolean()
           .optional()
           .describe(
-            "On a `decision`: true when choosing changes what is built, the perimeter, what the ticket delivers. False when it changes only how. Under go-as-recommended squad takes the road you recommend either way, and this is what decides whether the developer is woken to be told it was taken for them.",
+            "On a `decision`, and there only: true when choosing changes what is built, the perimeter, what the ticket delivers. False when it changes only how. Refused on any other outcome. Under go-as-recommended squad takes the road you recommend either way, and this is what decides whether the developer is woken to be told it was taken for them.",
+          ),
+        lookAt: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe(
+            `On an \`observation\`, and there only: what to open, and what to look for once it is open. Required, and refused on any other outcome. It is the whole of what the developer has to go on, so name the screen, the file or the artefact itself, not the subject. Not a command: anything a command answers you were meant to run. ${inlineMarkdown}`,
           ),
       }),
     )
@@ -653,7 +661,7 @@ function buildMcpServer({
     {
       title: "Settle a test sheet",
       description:
-        "Answers every point of the test sheet you were opened for: what you ran and what it said. Only the points you declare `human` reach the developer; a point that holds is checked off and a point that is broken goes back to the sub-session with your evidence. A sheet you never answer through this tool reaches the developer untouched, so giving up costs nothing but never pretend a point holds without having run something.",
+        "Answers every point of the test sheet you were opened for: what you ran and what it said. A point that holds is checked off, a point that is broken goes back to the sub-session with your evidence, a `decision` is taken by squad along the road you name when go-as-recommended is armed, and an `observation` reaches the developer whatever the mode. A sheet you never answer through this tool reaches the developer untouched, so giving up costs nothing but never pretend a point holds without having run something.",
       inputSchema: settleSheetShape,
     },
     async (input) =>

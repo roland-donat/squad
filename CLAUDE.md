@@ -309,9 +309,12 @@ et champ côte à côte.
 
 Un **arbitrage arrive avec la route recommandée déjà prise**, une
 **vérification n'arrive cochée d'aucune façon** : squad recommande une route, il
-ne prétend pas avoir regardé un écran à votre place. L'onglet n'est pas dans
-l'adresse, et ce qui se répond ne vit plus dans un onglet du tout : une alerte
-atterrit sur ce qu'elle rapporte quel que soit l'onglet ouvert. Échap ferme
+ne prétend pas avoir regardé un écran à votre place. La modale s'ouvre toujours
+sur le **Résumé**, y compris quand le ticket n'a pas de résumé : l'absence s'y
+dit, et le Détail porte une description écrite pour la session qui construit, pas
+pour qui ouvre. L'onglet n'est pas dans l'adresse, et ce qui se répond ne vit
+plus dans un onglet du tout : une alerte atterrit sur ce qu'elle rapporte quel
+que soit l'onglet ouvert. Échap ferme
 toujours, et le brouillon en cours de frappe est conservé par ticket dans le
 navigateur. Voir les ADR 0010 et 0011.
 

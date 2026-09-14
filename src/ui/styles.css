@@ -1557,6 +1557,15 @@ button[disabled] {
  * not fit, and the thread of the session that raised it keeps it in full.
  */
 .autonomy__halt {
+  /* A button that reads as the prose it replaced: what it says is the account,
+     and pressing it opens what the account names. */
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
   color: var(--ink-soft);
   font-size: 0.85rem;
   min-width: 0;
@@ -1564,25 +1573,50 @@ button[disabled] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+}
+
+.autonomy__halt:hover,
+.autonomy__halt:focus-visible {
+  color: var(--accent);
+}
+
+/* The same account, when it leads nowhere it can promise: read, not pressed. */
+.autonomy__halt--flat {
+  cursor: default;
+  text-decoration: none;
+}
+
+.autonomy__halt--flat:hover {
+  color: var(--ink-soft);
 }
 
 /*
  * And below the width where the waiting column already steps out of the row,
- * the account steps out of the header entirely. Measured at 1100px: it cost the
- * header a third row, 98px against 66, for prose the button's own tooltip still
- * gives back. What must never leave is the button, which is what acts.
+ * the account gives up its detail. Measured at 1100px: in full it cost the
+ * header a third row, 98px against 66, for prose the tooltip still gives back.
+ * What stays is the reason and the button carrying it, because that button is
+ * now the way to the ticket the mode stopped on: hiding it whole took the only
+ * road there away from a narrow window.
  */
 @media (max-width: 1180px) {
-  .autonomy__halt {
+  .autonomy__detail {
     display: none;
   }
 }
 
 /* And the chips beside it never shrink: what is cut is the account, never the
-   button that acts on it. */
+   button that acts on it. Named by their class rather than by their element,
+   since the account became a button too and would otherwise stop shrinking:
+   the header then grew the third row this rule exists to prevent. */
 .autonomy > .chip,
-.autonomy > button {
+.autonomy > .link {
   flex: 0 0 auto;
+}
+
+.autonomy > .autonomy__halt {
+  flex: 0 1 auto;
 }
 
 /*

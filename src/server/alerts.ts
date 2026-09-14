@@ -77,9 +77,13 @@ export const alertFor = {
     feature: AlertedFeature,
     reason: AutonomyHaltReason,
     detail: string,
+    // The ticket it stopped on, so the alert lands where the thing to do is
+    // rather than on the feature, one click short of it. Null on a question the
+    // main session asked, which is answered in the feature's own thread.
+    ticketId: string | null,
   ): Alert => ({
     text: `squad : le go-as-recommandé de « ${feature.title} » s'interrompt, ${haltReasons[reason]} : « ${detail} ».`,
-    at: aboutFeature(feature),
+    at: ticketId === null ? aboutFeature(feature) : { featureId: feature.id, ticketId },
   }),
   testSheetWaiting: (ticket: AlertedTicket): Alert => ({
     text: `squad : la fiche de tests de « ${ticket.title} » attend une vérification.`,

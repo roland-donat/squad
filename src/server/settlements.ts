@@ -20,7 +20,7 @@ export interface SettlementDependencies {
    * What the mode does with an arbitration the pass raised, declared by what is
    * needed of it: take the recommended road, or leave it to the developer.
    */
-  autonomy: { verdictForDecision(featureId: string, point: TestSheetPoint): QuestionVerdict };
+  autonomy: { verdictForDecision(ticket: Ticket, point: TestSheetPoint): QuestionVerdict };
   /** Declared by what is needed of it: what the pass leaves is what follows. */
   validations: { afterSettling(ticket: Ticket): Promise<void> };
   /**
@@ -349,7 +349,7 @@ export class Settlements {
       );
     const taken: Array<{ pointId: string; answer: string }> = [];
     for (const point of open) {
-      const verdict = autonomy.verdictForDecision(current.featureId, point);
+      const verdict = autonomy.verdictForDecision(current, point);
       if (verdict.kind === "answer") taken.push({ pointId: point.id, answer: verdict.answer });
     }
     if (taken.length === 0) return current;

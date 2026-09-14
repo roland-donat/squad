@@ -1,4 +1,4 @@
-import type { AutonomyHaltReason, Feature } from "../../shared/api";
+import type { AutonomyHalt, AutonomyHaltReason, Feature } from "../../shared/api";
 import { setGoAsRecommended } from "../api";
 import { Failure, useSubmission } from "../submission";
 
@@ -25,7 +25,43 @@ const haltLabels: Record<AutonomyHaltReason, string> = {
  * it, taking it back after a stop and stopping it are three decisions, and a
  * button whose meaning depends on what it says is a button read wrong.
  */
-export function AutonomySwitch({ feature }: { feature: Feature }) {
+/**
+ * Where the account of a halt leads, or null when it leads nowhere it can
+ * promise.
+ *
+ * Three cases, and the third is why this is asked rather than assumed. A halt
+ * naming a ticket the graph still holds opens that ticket. One naming none can
+ * only be a question of the main session, answered in the feature's thread, and
+ * only a scope question can be one: a stopped ticket, a decision or a depth cap
+ * always had a ticket, so a halt of those recorded without one was written
+ * before the ticket was carried, and squad no longer knows which. A halt naming
+ * a ticket that is gone is the same kind of ignorance. In both, the account
+ * stays prose: a button that navigates nowhere, silently, is worse than none.
+ */
+function leadsTo(
+  halt: { reason: AutonomyHaltReason; ticketId: string | null },
+  ticketIds: ReadonlySet<string>,
+): "ticket" | "thread" | null {
+  if (halt.ticketId !== null) return ticketIds.has(halt.ticketId) ? "ticket" : null;
+  return halt.reason === "scope-question" ? "thread" : null;
+}
+
+export function AutonomySwitch({
+  feature,
+  ticketIds,
+  onOpenHalt,
+}: {
+  feature: Feature;
+  /** The tickets the graph holds, so the account only offers what it can open. */
+  ticketIds: ReadonlySet<string>;
+  /**
+   * Opens what the mode stopped on: the ticket, or the feature's own thread
+   * when a question of the main session is what stopped it. The same gesture
+   * the waiting list makes, and for the same reason: what is named has to be
+   * reachable from where it is read.
+   */
+  onOpenHalt: (ticketId: string | null) => void;
+}) {
   const halt = feature.autonomyHalt;
   const arming = useSubmission(() => setGoAsRecommended(feature.id, true));
   const stopping = useSubmission(() => setGoAsRecommended(feature.id, false));
@@ -53,9 +89,12 @@ export function AutonomySwitch({ feature }: { feature: Feature }) {
           >
             go-as-recommandé : interrompu, relancer
           </button>
-          <span className="autonomy__halt">
-            {haltLabels[halt.reason]} : « {halt.detail} »
-          </span>
+          {/* What it stopped on, and the way to it. Relaunching without dealing
+              with the cause stops the mode again on the same thing, which reads
+              as a button that does nothing: the account of the halt is
+              therefore what opens the ticket where it is dealt with. It stays
+              prose when there is nowhere it can promise to go. */}
+          <Account halt={halt} to={leadsTo(halt, ticketIds)} onOpen={onOpenHalt} />
         </>
       )}
       {feature.goAsRecommended && halt === null && (
@@ -68,5 +107,34 @@ export function AutonomySwitch({ feature }: { feature: Feature }) {
       )}
       <Failure message={arming.error ?? stopping.error} />
     </span>
+  );
+}
+
+/** What the mode stopped on, clickable exactly when it leads somewhere. */
+function Account({
+  halt,
+  to,
+  onOpen,
+}: {
+  halt: AutonomyHalt;
+  to: "ticket" | "thread" | null;
+  onOpen: (ticketId: string | null) => void;
+}) {
+  const said = (
+    <>
+      <span className="autonomy__reason">{haltLabels[halt.reason]}</span>
+      <span className="autonomy__detail"> : « {halt.detail} »</span>
+    </>
+  );
+  if (to === null) return <span className="autonomy__halt autonomy__halt--flat">{said}</span>;
+  return (
+    <button
+      type="button"
+      className="autonomy__halt"
+      title={to === "ticket" ? "ouvrir le ticket" : "ouvrir le fil de la session principale"}
+      onClick={() => onOpen(to === "ticket" ? halt.ticketId : null)}
+    >
+      {said}
+    </button>
   );
 }

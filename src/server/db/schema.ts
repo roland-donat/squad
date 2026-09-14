@@ -88,6 +88,18 @@ export const features = sqliteTable(
      */
     autonomyHaltReason: text("autonomy_halt_reason", { enum: autonomyHaltReasons }),
     autonomyHaltDetail: text("autonomy_halt_detail"),
+    /**
+     * The ticket the mode stopped on, when there is one. Declared rather than
+     * found again from the detail: the detail is prose an agent wrote, and
+     * matching a ticket by its title is a convention that breaks the day two
+     * tickets share one. Null on a question the main session asked, which hangs
+     * on no ticket, and on nothing else.
+     *
+     * Not a foreign key on purpose, unlike everything else pointing at a
+     * ticket. A halt is a record of why an unattended run ended, and it has to
+     * keep saying so after the ticket it names is gone.
+     */
+    autonomyHaltTicketId: text("autonomy_halt_ticket_id"),
     autonomyHaltedAt: text("autonomy_halted_at"),
     createdAt: text("created_at").notNull(),
   },

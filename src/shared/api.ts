@@ -131,6 +131,20 @@ export interface AutonomyHalt {
   reason: AutonomyHaltReason;
   /** What it stopped on: a ticket's title, a question's statement. */
   detail: string;
+  /**
+   * The ticket it stopped on, so what is read can be opened. Null on a question
+   * the main session asked, which hangs on no ticket.
+   *
+   * Carried rather than found again from the detail: the detail is prose an
+   * agent wrote, and matching a ticket by its title is a convention that breaks
+   * the day two of them share one.
+   *
+   * Null on one other thing, and only for as long as it takes: a halt recorded
+   * before this was carried. The information does not exist to go back and fill
+   * in, so what reads a null one says where it leads only when the reason could
+   * not have come from a ticket.
+   */
+  ticketId: string | null;
   at: string;
 }
 
